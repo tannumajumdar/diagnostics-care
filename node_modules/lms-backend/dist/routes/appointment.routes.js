@@ -1,0 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const appointment_controller_1 = require("../controllers/appointment.controller");
+const auth_middleware_1 = require("../middleware/auth.middleware");
+const validate_middleware_1 = require("../middleware/validate.middleware");
+const permissions_1 = require("../constants/permissions");
+const appointment_validator_1 = require("../validators/appointment.validator");
+const router = (0, express_1.Router)();
+router.use(auth_middleware_1.authenticate);
+router.get('/', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.APPOINTMENT_VIEW), appointment_controller_1.AppointmentController.getAll);
+router.get('/:id', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.APPOINTMENT_VIEW), appointment_controller_1.AppointmentController.getById);
+router.post('/', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.APPOINTMENT_MANAGE), (0, validate_middleware_1.validateRequest)(appointment_validator_1.createAppointmentSchema), appointment_controller_1.AppointmentController.create);
+router.patch('/:id/assign', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.APPOINTMENT_MANAGE), (0, validate_middleware_1.validateRequest)(appointment_validator_1.assignPhlebotomistSchema), appointment_controller_1.AppointmentController.assignPhlebotomist);
+router.patch('/:id/status', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.APPOINTMENT_MANAGE), (0, validate_middleware_1.validateRequest)(appointment_validator_1.updateAppointmentStatusSchema), appointment_controller_1.AppointmentController.updateStatus);
+exports.default = router;

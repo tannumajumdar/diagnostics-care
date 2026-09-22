@@ -1,0 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const organization_controller_1 = require("../controllers/organization.controller");
+const auth_middleware_1 = require("../middleware/auth.middleware");
+const validate_middleware_1 = require("../middleware/validate.middleware");
+const permissions_1 = require("../constants/permissions");
+const organization_validator_1 = require("../validators/organization.validator");
+const router = (0, express_1.Router)();
+router.use(auth_middleware_1.authenticate);
+router.get('/', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.MASTER_VIEW), organization_controller_1.OrganizationController.getAll);
+router.get('/:id', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.MASTER_VIEW), organization_controller_1.OrganizationController.getById);
+router.post('/', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.ORGANIZATION_MANAGE), (0, validate_middleware_1.validateRequest)(organization_validator_1.createOrganizationSchema), organization_controller_1.OrganizationController.create);
+router.put('/:id', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.ORGANIZATION_MANAGE), (0, validate_middleware_1.validateRequest)(organization_validator_1.updateOrganizationSchema), organization_controller_1.OrganizationController.update);
+router.patch('/:id/status', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.ORGANIZATION_MANAGE), organization_controller_1.OrganizationController.toggleStatus);
+exports.default = router;

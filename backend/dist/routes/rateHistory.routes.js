@@ -1,0 +1,11 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const rateHistory_controller_1 = require("../controllers/rateHistory.controller");
+const auth_middleware_1 = require("../middleware/auth.middleware");
+const permissions_1 = require("../constants/permissions");
+const router = (0, express_1.Router)();
+router.use(auth_middleware_1.authenticate);
+router.get('/', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.RATE_MANAGE), rateHistory_controller_1.RateHistoryController.getAll);
+router.get('/test/:testId', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.RATE_MANAGE), rateHistory_controller_1.RateHistoryController.getByTestId);
+exports.default = router;

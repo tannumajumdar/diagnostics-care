@@ -1,0 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const department_controller_1 = require("../controllers/department.controller");
+const auth_middleware_1 = require("../middleware/auth.middleware");
+const validate_middleware_1 = require("../middleware/validate.middleware");
+const permissions_1 = require("../constants/permissions");
+const department_validator_1 = require("../validators/department.validator");
+const router = (0, express_1.Router)();
+router.use(auth_middleware_1.authenticate);
+router.get('/', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.MASTER_VIEW), department_controller_1.DepartmentController.getAll);
+router.get('/:id', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.MASTER_VIEW), department_controller_1.DepartmentController.getById);
+router.post('/', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.DEPARTMENT_MANAGE), (0, validate_middleware_1.validateRequest)(department_validator_1.createDepartmentSchema), department_controller_1.DepartmentController.create);
+router.put('/:id', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.DEPARTMENT_MANAGE), (0, validate_middleware_1.validateRequest)(department_validator_1.updateDepartmentSchema), department_controller_1.DepartmentController.update);
+router.patch('/:id/status', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.DEPARTMENT_MANAGE), department_controller_1.DepartmentController.toggleStatus);
+exports.default = router;
