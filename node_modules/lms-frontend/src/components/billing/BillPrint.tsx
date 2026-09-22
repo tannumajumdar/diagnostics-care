@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CENTRE, contactLine, type CentreProfile } from '../../config/centre';
 import { amountInWords } from '../../utils/amount-in-words';
 import { ageSexLabel } from '../../utils/age';
+import { paymentBreakdownOf } from '../../utils/invoice-export';
 import { BarcodeGenerator } from './BarcodeGenerator';
 
 /**
@@ -77,6 +78,8 @@ export const BillPrint: React.FC<BillPrintProps> = ({ invoice, payments = [], ce
   const dueAmount = Number(invoice?.dueAmount ?? 0);
 
   const receiptNumber = payments[0]?.receiptNumber || '-';
+  /** What came in by each method - one entry for a bill settled one way. */
+  const tenders = paymentBreakdownOf(invoice);
   const registrationNo = invoice?.uhid || patient?.uhid || '-';
 
   // Until the centre drops its artwork into `frontend/public`, these are
@@ -253,7 +256,14 @@ export const BillPrint: React.FC<BillPrintProps> = ({ invoice, payments = [], ce
                   <Field label="Discount Amount" value={money(discountAmount)} labelWidth="w-[92px]" />
                   <Field label="Total Bill Amount" value={money(netAmount)} labelWidth="w-[92px]" />
                   <Field label="Total Paid" value={money(paidAmount)} labelWidth="w-[92px]" />
-                  <span />
+                  {/* A patient who paid part in cash and the rest by UPI is
+                      handed a bill that says so - one figure under a single
+                      method sends them back to the counter to ask. */}
+                  <Field
+                    label="Paid By"
+                    value={tenders.map((t) => `${t.method} ${money(t.amount)}`).join(' + ') || '-'}
+                    labelWidth="w-[92px]"
+                  />
                   <Field label="Balance Amount" value={money(dueAmount)} labelWidth="w-[92px]" />
                 </div>
                 {centre.upiPayeeLine && (

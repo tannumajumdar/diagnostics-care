@@ -1,4 +1,11 @@
 import { Document, Schema } from 'mongoose';
+import { CollectionMethod } from '../constants/payment-methods';
+
+/** How much of a bill came in by one method. */
+export interface IPaymentSplit {
+  method: CollectionMethod;
+  amount: number;
+}
 
 export interface IInvoiceItem {
   test: Schema.Types.ObjectId;
@@ -39,7 +46,10 @@ export interface IInvoiceDocument extends Document {
   paidAmount: number;
   dueAmount: number;
   paymentStatus: 'Paid' | 'Partial' | 'Unpaid' | 'Credit';
-  paymentMethod: 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Online' | 'Credit';
+  /** The tender the bill is filed under - the largest one when it was split. */
+  paymentMethod: CollectionMethod;
+  /** What came in by each method. One entry for a bill paid one way. */
+  paymentBreakdown: IPaymentSplit[];
   barcode: string;
   createdBy: {
     userId: Schema.Types.ObjectId;

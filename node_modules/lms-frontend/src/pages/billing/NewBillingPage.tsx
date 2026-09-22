@@ -27,16 +27,23 @@ import {
   ArrowLeft,
   Trash2,
   CheckCircle2,
-  Search,
   UserPlus,
   History,
   Package,
   Stethoscope,
   Truck,
+  Split,
 } from 'lucide-react';
 import { ageLabel } from '../../utils/age';
 import { COLLECTION_METHODS } from '../../config/payment-methods';
 import { PaymentGatewayModal } from '../../components/billing/PaymentGatewayModal';
+import { PatientSearchSelect } from '../../components/patients/PatientSearchSelect';
+import {
+  SplitPaymentEditor,
+  tenderPayload,
+  tenderTotal,
+  type Tender,
+} from '../../components/billing/SplitPaymentEditor';
 
 /**
  * Methods that settle through a machine. An advance taken by one of these is
@@ -45,6 +52,10 @@ import { PaymentGatewayModal } from '../../components/billing/PaymentGatewayModa
  * card never leaves a paid invoice behind it.
  */
 const GATEWAY_METHODS = ['UPI', 'Card'];
+
+/** Picked from the method list to switch the counter into split entry. It is
+    never a method in its own right, so it never reaches the server. */
+const SPLIT_OPTION = '__split__';
 
 const money = (value: number) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 
@@ -96,7 +107,6 @@ export const NewBillingPage: React.FC = () => {
    * the register a second time.
    */
   const preselectedPatientId = searchParams.get('patientId');
-  const [patientSearch, setPatientSearch] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [selectedDoctor, setSelectedDoctor] = useState<string>('');
   const [selectedOrg, setSelectedOrg] = useState<string>('');
@@ -106,6 +116,13 @@ export const NewBillingPage: React.FC = () => {
   const [discountReason, setDiscountReason] = useState<string>('');
   const [paidAmount, setPaidAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<any>('Cash');
+  /**
+   * Whether the advance is coming in by one method or several. A patient
+   * paying part in cash and the rest by UPI is two receipts against the new
+   * bill, so the counter takes the legs rather than a single method.
+   */
+  const [splitting, setSplitting] = useState(false);
+  const [tenders, setTenders] = useState<Tender[]>([{ method: 'Cash', amount: '' }]);
   /** Set once a bill needing a machine collection has been raised. */
   const [gatewayInvoice, setGatewayInvoice] = useState<{
     id: string;
@@ -113,13 +130,6 @@ export const NewBillingPage: React.FC = () => {
     patientName: string;
     amount: number;
   } | null>(null);
-
-  // Searched on the server rather than filtering a first page of 50, so an
-  // older patient is found by name, UHID or mobile however long the register.
-  const { data: patientsData } = useQuery({
-    queryKey: ['patients-billing', patientSearch],
-    queryFn: () => patientApi.getAll({ search: patientSearch || undefined, limit: 25 }),
-  });
 
   // Fetched by id rather than hoped for in the search results: the register is
   // paged, so the patient the desk came in with is usually not on the first 25.
@@ -134,16 +144,6 @@ export const NewBillingPage: React.FC = () => {
   useEffect(() => {
     if (preselectedData?.patient) setSelectedPatient(preselectedData.patient);
   }, [preselectedData]);
-
-  const searchResults = asList<Patient>(patientsData, 'patients');
-
-  // The dropdown lists what the search found, plus whoever is currently on the
-  // bill - otherwise a patient arrived at by link, or one who falls out of a
-  // later search, would be selected while the box showed an empty value.
-  const patientOptions =
-    selectedPatient && !searchResults.some((p) => p.id === selectedPatient.id)
-      ? [selectedPatient, ...searchResults]
-      : searchResults;
 
   // What this patient has been billed before, so a repeat visit is obvious at
   // the counter and an unpaid balance is not missed.
@@ -364,8 +364,15 @@ export const NewBillingPage: React.FC = () => {
         discountType,
         discountValue: Number(discountValue),
         discountReason,
-        paidAmount: GATEWAY_METHODS.includes(paymentMethod) ? 0 : Number(paidAmount),
-        paymentMethod,
+        // Split legs are the payment when the desk is splitting; otherwise
+        // the single amount and method, exactly as before. A gateway method
+        // still collects nothing up front - the machine confirms it after.
+        ...(splitting
+          ? { paymentSplits: tenderPayload(tenders) }
+          : {
+              paidAmount: GATEWAY_METHODS.includes(paymentMethod) ? 0 : Number(paidAmount),
+              paymentMethod,
+            }),
       }),
     onSuccess: (res) => {
       showToast(
@@ -376,7 +383,7 @@ export const NewBillingPage: React.FC = () => {
       MONEY_QUERY_KEYS.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
 
       const advance = Number(paidAmount) || 0;
-      if (GATEWAY_METHODS.includes(paymentMethod) && advance > 0) {
+      if (!splitting && GATEWAY_METHODS.includes(paymentMethod) && advance > 0) {
         setGatewayInvoice({
           id: res.invoice._id,
           number: res.invoice.invoiceNumber,
@@ -420,31 +427,14 @@ export const NewBillingPage: React.FC = () => {
                   </Link>
                 </div>
 
-                <div className="relative mb-2">
-                  <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={patientSearch}
-                    onChange={(e) => setPatientSearch(e.target.value)}
-                    placeholder="Search an old patient by name, UHID or mobile"
-                    className="pl-9"
-                  />
-                </div>
-
-                <select
-                  value={selectedPatient?.id || ''}
-                  onChange={(e) => {
-                    const p = patientOptions.find((pt) => pt.id === e.target.value);
-                    setSelectedPatient(p || null);
-                  }}
-                  className="w-full h-10 rounded-xl border bg-background px-3"
-                >
-                  <option value="">Choose Patient by Name / UHID</option>
-                  {patientOptions.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.patientName} (UHID: {p.uhid}) - {p.mobile}
-                    </option>
-                  ))}
-                </select>
+                {/* One control, not two: the matches drop under the box they
+                    were typed into, so the desk never has to go and open a
+                    second list to find what it just searched for. */}
+                <PatientSearchSelect
+                  value={selectedPatient}
+                  onChange={setSelectedPatient}
+                  placeholder="Search an old patient by name, UHID or mobile"
+                />
 
                 {selectedPatient && (
                   <div className="mt-3 space-y-2 rounded-xl border bg-muted/20 p-3">
@@ -870,21 +860,30 @@ export const NewBillingPage: React.FC = () => {
                 <span className="font-mono">{money(netAmount)}</span>
               </div>
 
-              <div className="space-y-2 border-t pt-3">
-                <label className="font-semibold block">Payment Received (₹)</label>
-                <Input
-                  type="number"
-                  value={paidAmount}
-                  onChange={(e) => setPaidAmount(Number(e.target.value))}
-                  className="h-9 font-bold text-emerald-600"
-                />
-              </div>
-
-              <div>
+              {/* How the patient is settling. "Split across methods" sits in
+                  this list rather than off to one side, because the method
+                  dropdown is where the desk looks to answer that question -
+                  a patient paying part in cash and the rest on UPI is just
+                  another answer to it. */}
+              <div className="border-t pt-3">
                 <label className="font-semibold block mb-1">Payment Method</label>
                 <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  value={splitting ? SPLIT_OPTION : paymentMethod}
+                  onChange={(e) => {
+                    // Whatever was already typed carries across in both
+                    // directions, so changing the method never silently
+                    // drops an amount the receptionist entered.
+                    if (e.target.value === SPLIT_OPTION) {
+                      setTenders([{ method: paymentMethod, amount: Number(paidAmount) || '' }]);
+                      setSplitting(true);
+                      return;
+                    }
+                    if (splitting) {
+                      setPaidAmount(tenderTotal(tenders));
+                      setSplitting(false);
+                    }
+                    setPaymentMethod(e.target.value);
+                  }}
                   className="w-full h-9 rounded-lg border bg-background px-2 text-xs"
                 >
                   {COLLECTION_METHODS.map((m) => (
@@ -892,11 +891,30 @@ export const NewBillingPage: React.FC = () => {
                       {m.label}
                     </option>
                   ))}
+                  <option value={SPLIT_OPTION}>Split across methods (cash + UPI, etc.)</option>
                 </select>
-                {GATEWAY_METHODS.includes(paymentMethod) && Number(paidAmount) > 0 && (
+                {!splitting && GATEWAY_METHODS.includes(paymentMethod) && Number(paidAmount) > 0 && (
                   <p className="mt-1 text-[10px] text-blue-700">
                     The bill is raised first, then {paymentMethod} is collected on the machine.
                   </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="font-semibold flex items-center gap-1.5">
+                  {splitting && <Split className="h-3.5 w-3.5 text-blue-600" />}
+                  Payment Received {splitting ? '(by method)' : '(₹)'}
+                </label>
+
+                {splitting ? (
+                  <SplitPaymentEditor tenders={tenders} onChange={setTenders} target={netAmount} />
+                ) : (
+                  <Input
+                    type="number"
+                    value={paidAmount}
+                    onChange={(e) => setPaidAmount(Number(e.target.value))}
+                    className="h-9 font-bold text-emerald-600"
+                  />
                 )}
               </div>
 
@@ -906,7 +924,7 @@ export const NewBillingPage: React.FC = () => {
                 className="w-full h-11 bg-blue-600 hover:bg-blue-700 font-bold"
               >
                 <CheckCircle2 className="h-4 w-4 mr-2" />
-                {GATEWAY_METHODS.includes(paymentMethod) && Number(paidAmount) > 0
+                {!splitting && GATEWAY_METHODS.includes(paymentMethod) && Number(paidAmount) > 0
                   ? `Generate Invoice & Collect by ${paymentMethod}`
                   : 'Generate Invoice & Barcodes'}
               </Button>

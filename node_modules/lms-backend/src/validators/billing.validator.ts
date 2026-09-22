@@ -20,6 +20,16 @@ const invoiceLineSchema = z.object({
   packageName: z.string().optional(),
 });
 
+/**
+ * One leg of a payment: an amount and the method it came in by. A patient
+ * settling half in cash and half by UPI posts two of these against one bill.
+ */
+const paymentTenderSchema = z.object({
+  method: z.enum(COLLECTION_METHOD_VALUES),
+  amount: z.number().min(0.01, 'Every payment line must be greater than 0'),
+  transactionRef: z.string().optional(),
+});
+
 /** Either the priced lines or a bare list of ids - one of them must be there. */
 const hasTests = (v: { testIds?: string[]; items?: unknown[] }) =>
   Boolean(v.testIds?.length) || Boolean(v.items?.length);
@@ -37,6 +47,7 @@ export const createInvoiceSchema = z
     discountReason: z.string().optional(),
     paidAmount: z.number().min(0).optional(),
     paymentMethod: z.enum(COLLECTION_METHOD_VALUES).optional(),
+    paymentSplits: z.array(paymentTenderSchema).optional(),
   })
   .refine(hasTests, { message: 'At least one test must be selected', path: ['testIds'] });
 
@@ -79,6 +90,7 @@ export const createVisitSchema = z
     discountReason: z.string().optional(),
     paidAmount: z.number().min(0).optional(),
     paymentMethod: z.enum(COLLECTION_METHOD_VALUES).optional(),
+    paymentSplits: z.array(paymentTenderSchema).optional(),
   })
   .refine((v) => Boolean(v.patientId) || Boolean(v.patient), {
     message: 'Select an existing patient or fill in the new patient details',
@@ -86,10 +98,21 @@ export const createVisitSchema = z
   })
   .refine(hasTests, { message: 'At least one test must be selected', path: ['testIds'] });
 
-export const addPaymentSchema = z.object({
-  amount: z.number().min(0.01, 'Payment amount must be greater than 0'),
-  paymentMethod: z.enum(COLLECTION_METHOD_VALUES),
-  transactionRef: z.string().optional(),
-  notes: z.string().optional(),
-});
+/**
+ * Collecting against a bill, by one method or several. The single-method form
+ * is what every older client posts and stays valid; `paymentSplits` is the
+ * counter taking part in cash and the rest on the machine.
+ */
+export const addPaymentSchema = z
+  .object({
+    amount: z.number().min(0.01, 'Payment amount must be greater than 0').optional(),
+    paymentMethod: z.enum(COLLECTION_METHOD_VALUES).optional(),
+    paymentSplits: z.array(paymentTenderSchema).optional(),
+    transactionRef: z.string().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((v) => Boolean(v.paymentSplits?.length) || (Boolean(v.amount) && Boolean(v.paymentMethod)), {
+    message: 'Enter an amount and a method, or split the payment across methods',
+    path: ['amount'],
+  });
 

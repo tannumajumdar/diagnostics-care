@@ -11,8 +11,26 @@ import { Badge } from '../../components/ui/badge';
 import { BillPrint } from '../../components/billing/BillPrint';
 import { DoctorBillPrint } from '../../components/billing/DoctorBillPrint';
 import { PaymentGatewayModal } from '../../components/billing/PaymentGatewayModal';
-import { ArrowLeft, Printer, IndianRupee, X, Stethoscope, Truck, Package, Smartphone } from 'lucide-react';
-import { COLLECTION_METHODS } from '../../config/payment-methods';
+import {
+  SplitPaymentEditor,
+  tenderPayload,
+  tenderTotal,
+  type Tender,
+} from '../../components/billing/SplitPaymentEditor';
+import {
+  ArrowLeft,
+  Printer,
+  IndianRupee,
+  X,
+  Stethoscope,
+  Truck,
+  Package,
+  Smartphone,
+  Split,
+  Wallet,
+  ReceiptText,
+} from 'lucide-react';
+import { COLLECTION_METHODS, methodIcon, methodLabel } from '../../config/payment-methods';
 
 /** The methods that go through a machine rather than across the counter. */
 const GATEWAY_METHODS = ['UPI', 'Card'];
@@ -29,6 +47,13 @@ export const InvoiceDetailsPage: React.FC = () => {
   const [payMethod, setPayMethod] = useState('Cash');
   const [gatewayOpen, setGatewayOpen] = useState(false);
   const [paying, setPaying] = useState(false);
+  /**
+   * Whether the desk is entering one method or several. A patient paying the
+   * balance half in cash and half by UPI is two receipts against this bill,
+   * so the dialog switches from one amount to a list of tenders.
+   */
+  const [splitting, setSplitting] = useState(false);
+  const [tenders, setTenders] = useState<Tender[]>([]);
   /**
    * Which sheet is on the preview - and therefore which one Print sends to
    * the printer. Only one is ever in the DOM, so the doctor's copy can never
@@ -49,6 +74,23 @@ export const InvoiceDetailsPage: React.FC = () => {
   const patient = typeof invoice.patient === 'object' ? invoice.patient : {};
   const due = Number(invoice.dueAmount ?? 0);
 
+  /**
+   * What came in by each method. Added up from the receipts rather than read
+   * off the bill's own summary, so bills raised before the summary existed
+   * still show their split, and the figure on screen can never disagree with
+   * the receipts printed underneath it.
+   */
+  const breakdown = (() => {
+    const totals = new Map<string, number>();
+    for (const payment of payments as any[]) {
+      const method = payment?.paymentMethod;
+      if (!method) continue;
+      totals.set(method, (totals.get(method) || 0) + (Number(payment.amount) || 0));
+    }
+    if (!totals.size) return (invoice.paymentBreakdown as any[]) || [];
+    return [...totals.entries()].map(([method, amount]) => ({ method, amount }));
+  })();
+
   const items: any[] = Array.isArray(invoice.items) ? invoice.items : [];
   const doctorName =
     invoice.referringDoctorName ||
@@ -68,16 +110,39 @@ export const InvoiceDetailsPage: React.FC = () => {
     ...new Set(items.filter((item) => item.packageName).map((item) => item.packageName as string)),
   ];
 
+  /** Opens the dialog on the full due, which is what is usually collected. */
+  const openPayDialog = () => {
+    setSplitting(false);
+    setPayAmount('');
+    setTenders([{ method: 'Cash', amount: due }]);
+    setPayOpen(true);
+  };
+
   const recordPayment = async () => {
-    const amount = Number(payAmount);
+    // One method or several - the amount collected is read from whichever
+    // the desk is on, so a stale figure in the hidden half cannot be posted.
+    const splits = splitting ? tenderPayload(tenders) : [];
+    const amount = splitting ? tenderTotal(tenders) : Number(payAmount);
+
+    if (splitting && !splits.length) return showToast('Enter at least one payment line', 'error');
     if (!amount || amount <= 0) return showToast('Enter an amount greater than 0', 'error');
     if (amount > due) return showToast(`Amount cannot exceed the due of INR ${due}`, 'error');
+
     setPaying(true);
     try {
-      await billingApi.addPayment(invoice.id, { amount, paymentMethod: payMethod });
-      showToast('Payment recorded', 'success');
+      await billingApi.addPayment(
+        invoice.id,
+        splitting ? { paymentSplits: splits } : { amount, paymentMethod: payMethod }
+      );
+      showToast(
+        splits.length > 1
+          ? `${money(amount)} recorded across ${splits.length} methods`
+          : 'Payment recorded',
+        'success'
+      );
       setPayOpen(false);
       setPayAmount('');
+      setSplitting(false);
       // The receipt lands in today's collection, so the directory and the
       // dashboard have to be re-read rather than served from cache.
       MONEY_QUERY_KEYS.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
@@ -109,7 +174,7 @@ export const InvoiceDetailsPage: React.FC = () => {
               </Button>
               {/* Cash, cheque and bank transfers settle outside any machine,
                   so they are still written straight down. */}
-              <Button size="sm" variant="outline" onClick={() => setPayOpen(true)}>
+              <Button size="sm" variant="outline" onClick={openPayDialog}>
                 <IndianRupee className="mr-1 h-4 w-4" /> Record Payment
               </Button>
             </>
@@ -344,6 +409,111 @@ export const InvoiceDetailsPage: React.FC = () => {
         </Card>
       )}
 
+      {/* How the money actually came in. A bill settled half in cash and half
+          by UPI is two receipts against one bill, and the desk has to be able
+          to see which - a single "Paid ₹1,200" line cannot be reconciled
+          against either the drawer or the statement. */}
+      <Card data-print="hide">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2 text-base font-bold">
+              <Wallet className="h-4 w-4 text-emerald-600" />
+              Payments Received ({payments.length})
+            </CardTitle>
+            {breakdown.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {breakdown.map((entry: any) => {
+                  const Icon = methodIcon(entry.method);
+                  return (
+                    <span
+                      key={entry.method}
+                      className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800"
+                    >
+                      {Icon && <Icon className="h-3 w-3" />}
+                      {methodLabel(entry.method)}
+                      <span className="font-mono">{money(entry.amount)}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {payments.length === 0 ? (
+            <p className="px-6 pb-6 text-xs text-muted-foreground">
+              Nothing collected against this bill yet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead className="border-b bg-muted/50 font-semibold">
+                  <tr>
+                    <th className="p-3">Receipt</th>
+                    <th className="p-3">Date</th>
+                    <th className="p-3">Method</th>
+                    <th className="p-3">Reference</th>
+                    <th className="p-3">Received by</th>
+                    <th className="p-3 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {payments.map((payment: any) => {
+                    const Icon = methodIcon(payment.paymentMethod);
+                    return (
+                      <tr key={payment._id || payment.id || payment.receiptNumber}>
+                        <td className="p-3 font-mono font-bold text-blue-600">
+                          <span className="flex items-center gap-1.5">
+                            <ReceiptText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                            {payment.receiptNumber}
+                          </span>
+                        </td>
+                        <td className="p-3 whitespace-nowrap text-muted-foreground">
+                          {new Date(payment.createdAt).toLocaleString('en-IN', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          })}
+                        </td>
+                        <td className="p-3">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 font-semibold">
+                            {Icon && <Icon className="h-3 w-3" />}
+                            {methodLabel(payment.paymentMethod)}
+                          </span>
+                        </td>
+                        <td className="p-3 font-mono text-muted-foreground">{payment.transactionRef || '-'}</td>
+                        <td className="p-3 text-muted-foreground">{payment.receivedBy?.name || '-'}</td>
+                        <td className="p-3 text-right font-mono font-bold text-emerald-700">
+                          {money(payment.amount)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="border-t-2 bg-muted/40 font-bold">
+                  <tr>
+                    <td className="p-3" colSpan={5}>
+                      Collected
+                    </td>
+                    <td className="p-3 text-right font-mono text-emerald-700">{money(invoice.paidAmount)}</td>
+                  </tr>
+                  {due > 0 && (
+                    <tr>
+                      <td className="p-3 text-muted-foreground" colSpan={5}>
+                        Still due
+                      </td>
+                      <td className="p-3 text-right font-mono text-amber-600">{money(due)}</td>
+                    </tr>
+                  )}
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card data-print="hide">
         <CardHeader>
           <CardTitle className="text-base font-bold">Test Samples ({samples.length})</CardTitle>
@@ -412,45 +582,81 @@ export const InvoiceDetailsPage: React.FC = () => {
                 <span className="text-slate-500">Outstanding due</span>
                 <span className="font-semibold text-slate-900">₹{due}</span>
               </div>
-              <div>
-                <label className="mb-1 block font-semibold text-slate-700">Amount</label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={due}
-                  value={payAmount}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPayAmount(e.target.value)}
-                  placeholder={String(due)}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block font-semibold text-slate-700">Method</label>
-                <select
-                  className="h-10 w-full rounded-xl border border-input bg-background px-3 text-xs"
-                  value={payMethod}
-                  onChange={(e) => setPayMethod(e.target.value)}
+
+              {/* A patient covering the balance part in cash and the rest on
+                  the machine is two receipts, not one - so the dialog changes
+                  shape rather than asking the desk to record it twice. */}
+              <div className="flex overflow-hidden rounded-lg border">
+                <button
+                  type="button"
+                  onClick={() => setSplitting(false)}
+                  className={`flex-1 px-3 py-1.5 font-semibold transition ${
+                    !splitting ? 'bg-slate-900 text-white' : 'bg-background hover:bg-muted'
+                  }`}
                 >
-                  {COLLECTION_METHODS.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
+                  One method
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Opens on the full due so the desk types only the first
+                    // leg and the remainder is already sitting on the second.
+                    if (!tenders.length) setTenders([{ method: 'Cash', amount: due }]);
+                    setSplitting(true);
+                  }}
+                  className={`flex flex-1 items-center justify-center gap-1 px-3 py-1.5 font-semibold transition ${
+                    splitting ? 'bg-slate-900 text-white' : 'bg-background hover:bg-muted'
+                  }`}
+                >
+                  <Split className="h-3 w-3" /> Split payment
+                </button>
               </div>
 
-              {/* Money that moves through a machine cannot be asserted from
-                  this screen - the gateway has to confirm it was captured, or
-                  a declined card would land in the day's takings. */}
-              {GATEWAY_METHODS.includes(payMethod) && (
-                <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-800">
-                  {payMethod} is collected through the machine, so it is confirmed by the gateway rather than typed in
-                  here.
-                </p>
+              {splitting ? (
+                <SplitPaymentEditor tenders={tenders} onChange={setTenders} target={due} />
+              ) : (
+                <>
+                  <div>
+                    <label className="mb-1 block font-semibold text-slate-700">Amount</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={due}
+                      value={payAmount}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPayAmount(e.target.value)}
+                      placeholder={String(due)}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-semibold text-slate-700">Method</label>
+                    <select
+                      className="h-10 w-full rounded-xl border border-input bg-background px-3 text-xs"
+                      value={payMethod}
+                      onChange={(e) => setPayMethod(e.target.value)}
+                    >
+                      {COLLECTION_METHODS.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Money that moves through a machine cannot be asserted from
+                      this screen - the gateway has to confirm it was captured, or
+                      a declined card would land in the day's takings. */}
+                  {GATEWAY_METHODS.includes(payMethod) && (
+                    <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-800">
+                      {payMethod} is collected through the machine, so it is confirmed by the gateway rather than typed
+                      in here.
+                    </p>
+                  )}
+                </>
               )}
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-100 px-4 py-3">
               <Button variant="outline" onClick={() => setPayOpen(false)}>Cancel</Button>
-              {GATEWAY_METHODS.includes(payMethod) ? (
+              {!splitting && GATEWAY_METHODS.includes(payMethod) ? (
                 <Button
                   onClick={() => {
                     setPayOpen(false);
@@ -462,7 +668,7 @@ export const InvoiceDetailsPage: React.FC = () => {
                 </Button>
               ) : (
                 <Button isLoading={paying} onClick={recordPayment} className="bg-emerald-600 hover:bg-emerald-700">
-                  Save payment
+                  {splitting ? `Save ${money(tenderTotal(tenders))}` : 'Save payment'}
                 </Button>
               )}
             </div>

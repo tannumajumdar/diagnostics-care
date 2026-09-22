@@ -24,6 +24,7 @@ import { useToast } from '../../context/ToastContext';
 import { asList } from '../../utils/api-list';
 import { catalogueQuery, MONEY_QUERY_KEYS } from '../../utils/query-options';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { PatientSearchSelect } from '../../components/patients/PatientSearchSelect';
 import { yearsSince, ageLabel, ageYmdLabel, ageDaysLabel } from '../../utils/age';
 import { matchesTestQuery } from '../../utils/test-search';
 import {
@@ -40,8 +41,15 @@ import {
   Package,
   Truck,
   Building2,
+  Split,
 } from 'lucide-react';
 import { COLLECTION_METHODS } from '../../config/payment-methods';
+import {
+  SplitPaymentEditor,
+  tenderPayload,
+  tenderTotal,
+  type Tender,
+} from '../../components/billing/SplitPaymentEditor';
 import { PaymentGatewayModal } from '../../components/billing/PaymentGatewayModal';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission, PERMISSIONS } from '../../config/roles';
@@ -52,6 +60,10 @@ import { hasPermission, PERMISSIONS } from '../../config/roles';
  * capture, so a declined card cannot leave a paid invoice behind it.
  */
 const GATEWAY_METHODS = ['UPI', 'Card'];
+
+/** Picked from the method list to switch the counter into split entry. It is
+    never a method in its own right, so it never reaches the server. */
+const SPLIT_OPTION = '__split__';
 
 const selectClass =
   'flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -150,7 +162,6 @@ export const NewVisitPage: React.FC = () => {
   const queryClient = useQueryClient();
 
   const [mode, setMode] = useState<'existing' | 'new'>('new');
-  const [patientSearch, setPatientSearch] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const { user } = useAuth();
   const canSeeHistory = hasPermission(user, PERMISSIONS.PATIENT_HISTORY);
@@ -174,6 +185,13 @@ export const NewVisitPage: React.FC = () => {
   const [discountReason, setDiscountReason] = useState('');
   const [paidAmount, setPaidAmount] = useState<number | ''>('');
   const [paymentMethod, setPaymentMethod] = useState('Cash');
+  /**
+   * Whether the intake is taking one method or several. A patient settling
+   * part in cash and the rest by UPI is two receipts against the new bill,
+   * so the counter takes the legs rather than a single method.
+   */
+  const [splitting, setSplitting] = useState(false);
+  const [tenders, setTenders] = useState<Tender[]>([{ method: 'Cash', amount: '' }]);
   /** Set once a visit needing a machine collection has been registered. */
   const [gatewayInvoice, setGatewayInvoice] = useState<{
     id: string;
@@ -183,12 +201,6 @@ export const NewVisitPage: React.FC = () => {
   } | null>(null);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-  const { data: patientsData } = useQuery({
-    queryKey: ['visit-patients', patientSearch],
-    queryFn: () => patientApi.getAll({ search: patientSearch || undefined, limit: 25 }),
-    enabled: mode === 'existing',
-  });
 
   // A returning patient's past bills and unpaid balance, so the desk sees the
   // history before taking money rather than after.
@@ -619,7 +631,9 @@ export const NewVisitPage: React.FC = () => {
 
   const concessionPercent =
     catalogueTotal > 0 ? ((catalogueTotal - netAmount) / catalogueTotal) * 100 : 0;
-  const paid = paidAmount === '' ? netAmount : Number(paidAmount);
+  const paid = splitting
+    ? tenderTotal(tenders)
+    : paidAmount === '' ? netAmount : Number(paidAmount);
   const balance = Math.max(0, netAmount - paid);
 
   const fastingTests = selectedTests.filter((t) => t.fastingRequired);
@@ -693,8 +707,15 @@ export const NewVisitPage: React.FC = () => {
         discountType,
         discountValue: Number(discountValue) || 0,
         discountReason: discountReason.trim() || undefined,
-        paidAmount: GATEWAY_METHODS.includes(paymentMethod) ? 0 : paid,
-        paymentMethod,
+        // Split legs are the payment when the desk is splitting; otherwise
+        // the single amount and method, exactly as before. A gateway method
+        // still collects nothing up front - the machine confirms it after.
+        ...(splitting
+          ? { paymentSplits: tenderPayload(tenders) }
+          : {
+              paidAmount: GATEWAY_METHODS.includes(paymentMethod) ? 0 : paid,
+              paymentMethod,
+            }),
       };
 
       if (mode === 'existing') {
@@ -723,9 +744,11 @@ export const NewVisitPage: React.FC = () => {
       // the directory and the dashboard have to say so straight away rather
       // than after the five-minute cache expires.
       MONEY_QUERY_KEYS.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
-      queryClient.invalidateQueries({ queryKey: ['visit-patients'] });
+      // A patient registered by this intake has to be findable by the next
+      // one, so the picker's cached matches are dropped.
+      queryClient.invalidateQueries({ queryKey: ['patient-search'] });
 
-      if (GATEWAY_METHODS.includes(paymentMethod) && paid > 0) {
+      if (!splitting && GATEWAY_METHODS.includes(paymentMethod) && paid > 0) {
         setGatewayInvoice({
           id: res.invoice._id,
           number: res.invoice.invoiceNumber,
@@ -821,33 +844,18 @@ export const NewVisitPage: React.FC = () => {
 
               {mode === 'existing' ? (
                 <div className="space-y-3">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={patientSearch}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPatientSearch(e.target.value)}
-                      placeholder="Search by name, UHID or mobile"
-                      className="pl-9"
-                    />
-                  </div>
-
+                  {/* One control, not two: the matches drop under the box
+                      they were typed into, so the desk never has to go and
+                      open a second list to find what it just searched for. */}
                   <Field label="Patient" required error={errors.patient}>
-                    <select
-                      className={selectClass}
-                      value={selectedPatient?.id || ''}
-                      onChange={(e) => {
-                        const p = asList<Patient>(patientsData, 'patients').find((pt) => pt.id === e.target.value);
-                        setSelectedPatient(p || null);
+                    <PatientSearchSelect
+                      value={selectedPatient}
+                      invalid={Boolean(errors.patient)}
+                      onChange={(p) => {
+                        setSelectedPatient(p);
                         setErrors((prev) => ({ ...prev, patient: '' }));
                       }}
-                    >
-                      <option value="">Select the patient</option>
-                      {asList<Patient>(patientsData, 'patients').map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.patientName} · {p.uhid} · {p.mobile}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </Field>
 
                   {selectedPatient && (
@@ -1618,26 +1626,32 @@ export const NewVisitPage: React.FC = () => {
                 <span className="font-mono">{money(netAmount)}</span>
               </div>
 
-              <div className="space-y-2 border-t pt-3">
-                <label className="block font-semibold">Amount Received (₹)</label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={paidAmount}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setPaidAmount(e.target.value === '' ? '' : Number(e.target.value))
-                  }
-                  placeholder={String(netAmount)}
-                  className="h-9 font-bold text-emerald-600"
-                />
-                <p className="text-[10px] text-muted-foreground">Leave blank to take the full amount.</p>
-              </div>
-
-              <div>
+              {/* How the patient is settling. "Split across methods" sits in
+                  this list rather than off to one side, because the method
+                  dropdown is where the desk looks to answer that question -
+                  a patient paying part in cash and the rest on UPI is just
+                  another answer to it. */}
+              <div className="border-t pt-3">
                 <label className="mb-1 block font-semibold">Payment Method</label>
                 <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  value={splitting ? SPLIT_OPTION : paymentMethod}
+                  onChange={(e) => {
+                    // Whatever was already typed carries across in both
+                    // directions, so changing the method never silently
+                    // drops an amount the receptionist entered.
+                    if (e.target.value === SPLIT_OPTION) {
+                      setTenders([
+                        { method: paymentMethod, amount: paidAmount === '' ? netAmount : Number(paidAmount) },
+                      ]);
+                      setSplitting(true);
+                      return;
+                    }
+                    if (splitting) {
+                      setPaidAmount(tenderTotal(tenders));
+                      setSplitting(false);
+                    }
+                    setPaymentMethod(e.target.value);
+                  }}
                   className="h-9 w-full rounded-lg border bg-background px-2 text-xs"
                 >
                   {COLLECTION_METHODS.map((m) => (
@@ -1645,11 +1659,37 @@ export const NewVisitPage: React.FC = () => {
                       {m.label}
                     </option>
                   ))}
+                  <option value={SPLIT_OPTION}>Split across methods (cash + UPI, etc.)</option>
                 </select>
-                {GATEWAY_METHODS.includes(paymentMethod) && paid > 0 && (
+                {!splitting && GATEWAY_METHODS.includes(paymentMethod) && paid > 0 && (
                   <p className="mt-1 text-[10px] text-blue-700">
                     The visit is registered first, then {paymentMethod} is collected on the machine.
                   </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-1.5 font-semibold">
+                  {splitting && <Split className="h-3.5 w-3.5 text-blue-600" />}
+                  Amount Received {splitting ? '(by method)' : '(₹)'}
+                </label>
+
+                {splitting ? (
+                  <SplitPaymentEditor tenders={tenders} onChange={setTenders} target={netAmount} />
+                ) : (
+                  <>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={paidAmount}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setPaidAmount(e.target.value === '' ? '' : Number(e.target.value))
+                      }
+                      placeholder={String(netAmount)}
+                      className="h-9 font-bold text-emerald-600"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Leave blank to take the full amount.</p>
+                  </>
                 )}
               </div>
 

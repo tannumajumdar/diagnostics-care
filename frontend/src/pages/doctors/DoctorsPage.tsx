@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { doctorApi } from '../../api/doctor.api';
 import { departmentApi } from '../../api/department.api';
 import { useToast } from '../../context/ToastContext';
-import { exportToCSV } from '../../utils/csv-export';
+import { exportToExcel } from '../../utils/excel-export';
 import { asList } from '../../utils/api-list';
 import { Button } from '../../components/ui/button';
 import {
@@ -215,8 +215,8 @@ export const DoctorsPage: React.FC = () => {
       showToast('Nothing to export', 'info');
       return;
     }
-    exportToCSV(
-      `doctors-${new Date().toISOString().slice(0, 10)}.csv`,
+    exportToExcel(
+      'doctors',
       source.map((d: any) => ({
         'Dr. Name': d.doctorName,
         Department: typeof d.department === 'object' ? d.department?.departmentName ?? '' : '',

@@ -41,6 +41,12 @@ export const accountsApi = {
   getCollectionTrend: async (params?: { from?: string; to?: string; days?: number }): Promise<any> =>
     api.get('/accounts/collections/trend', { params }),
 
+  /**
+   * Everything the centre has ever taken, with no window around it - what is
+   * billed, collected, refunded, paid out and still owed since it opened.
+   */
+  getOverallCollections: async (): Promise<any> => api.get('/accounts/collections/overall'),
+
   getAllRefunds: async (params?: any): Promise<any> => api.get('/accounts/refunds', { params }),
   createRefund: async (data: CreateRefundParams): Promise<any> => api.post('/accounts/refunds', data),
 

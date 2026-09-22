@@ -120,6 +120,104 @@ export class AccountsService {
    * Days are the server's calendar days, the same boundary the daily figure
    * uses, so the two always agree on what "today" means.
    */
+  /**
+   * Every rupee the centre has ever taken, with no window around it.
+   *
+   * The dashboard answers "how did today go" and "how did the week go", and
+   * both are the wrong question when the owner wants to know what the place
+   * has done since it opened - a figure nobody could get without exporting
+   * the whole ledger and adding it up by hand. This is that figure, with the
+   * pieces it is made of: what patients were billed, what they have paid and
+   * by which method, what was handed back to them, and what is still owed.
+   *
+   * Payouts - the ambulance, the courier, a doctor's cut - are counted here
+   * too, but they are the centre's own spending and not patient money, so
+   * they are kept well away from the collection figure. Netting them off it
+   * answered a question nobody asked and turned a centre with money in the
+   * bank into one reading a negative balance.
+   *
+   * Counted in the database rather than by loading the receipts, so it stays
+   * one round trip whether the centre is a month old or ten years old.
+   */
+  static async getOverallCollections() {
+    const [collections, billing, refunds, payouts, firstReceipt] = await Promise.all([
+      Payment.aggregate([
+        {
+          $group: {
+            _id: '$paymentMethod',
+            amount: { $sum: '$amount' },
+            receipts: { $sum: 1 },
+          },
+        },
+      ]),
+      Invoice.aggregate([
+        {
+          $group: {
+            _id: null,
+            bills: { $sum: 1 },
+            billed: { $sum: '$netAmount' },
+            // The gap between gross and net - there is no `discountAmount` on
+            // a bill, that field lives on its lines.
+            discount: { $sum: { $subtract: ['$subtotal', '$netAmount'] } },
+            due: { $sum: '$dueAmount' },
+          },
+        },
+      ]),
+      Refund.aggregate([{ $group: { _id: null, total: { $sum: '$refundAmount' }, count: { $sum: 1 } } }]),
+      Payout.aggregate([
+        { $match: { status: 'Paid' } },
+        { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
+      ]),
+      // When the centre took its first payment, so the figure above can be
+      // read as "since <date>" rather than as a number without a period.
+      Payment.findOne().sort({ createdAt: 1 }).select('createdAt'),
+    ]);
+
+    // One entry per method on the shared list, including the methods nobody
+    // has ever used - a zero against Cheque is information when you are
+    // reading what the centre actually takes money by.
+    const byMethod: Record<string, number> = Object.fromEntries(METHOD_FIELDS.map((field) => [field, 0]));
+    let collected = 0;
+    let receipts = 0;
+
+    for (const row of collections) {
+      const field = METHOD_FIELD[row._id as CollectionMethod];
+      if (field) byMethod[field] += row.amount || 0;
+      collected += row.amount || 0;
+      receipts += row.receipts || 0;
+    }
+
+    const bills = billing[0] || {};
+    const refunded = refunds[0]?.total || 0;
+    const paidOut = payouts[0]?.total || 0;
+
+    return {
+      since: (firstReceipt as any)?.createdAt || null,
+      collected,
+      receipts,
+      byMethod,
+      billed: bills.billed || 0,
+      bills: bills.bills || 0,
+      discount: bills.discount || 0,
+      outstanding: bills.due || 0,
+      refunded,
+      refunds: refunds[0]?.count || 0,
+      /**
+       * What patients have actually paid the centre, net of what was handed
+       * back to them. This is the collection figure - it has nothing taken
+       * off it for the centre's own spending.
+       */
+      netFromPatients: collected - refunded,
+      /** How much of everything billed has been collected, as a percentage. */
+      collectionRate: bills.billed ? Math.round((collected / bills.billed) * 100) : 0,
+      // Reported for completeness, and deliberately not netted off the
+      // collection above - this is the centre spending, not patients paying.
+      paidOut,
+      payouts: payouts[0]?.count || 0,
+      netInHand: collected - refunded - paidOut,
+    };
+  }
+
   static async getCollectionTrend(query: { from?: string; to?: string; days?: number | string } = {}) {
     const requestedDays = Math.min(92, Math.max(1, Number(query.days) || 7));
 

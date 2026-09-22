@@ -12,7 +12,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { hasPermission, PERMISSIONS } from '../../config/roles';
 import { asList } from '../../utils/api-list';
-import { exportToCSV } from '../../utils/csv-export';
+import { exportToExcel } from '../../utils/excel-export';
 import {
   Wallet,
   Plus,
@@ -169,7 +169,7 @@ export const PayoutsPage: React.FC = () => {
   );
 
   const handleExport = () => {
-    exportToCSV(
+    exportToExcel(
       `payouts-${from}-to-${to}`,
       payouts.map((p) => ({
         'Payout ID': p.expenseId,

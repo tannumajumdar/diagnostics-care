@@ -67,6 +67,7 @@ export const MONEY_QUERY_KEYS = [
   'dashboard-invoices',
   'dashboard-collections',
   'dashboard-collection-trend',
+  'dashboard-overall-collections',
   'daily-collections',
   'dashboard-payouts',
   'sample-stats',

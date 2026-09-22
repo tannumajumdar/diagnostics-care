@@ -3,19 +3,50 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { landingPathFor } from '../config/roles';
 import { Button } from '../components/ui/button';
-import { Lock, Mail, Eye, EyeOff, AlertCircle, Check, ArrowRight, FlaskConical } from 'lucide-react';
-
-const HIGHLIGHTS = [
-  'Chain-of-custody tracking from accession to report',
-  'Two-step result entry and pathologist verification',
-  'Role-based access across every operational desk',
-];
+import {
+  Lock,
+  Mail,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  ArrowRight,
+  FlaskConical,
+  ShieldCheck,
+} from 'lucide-react';
 
 const DEMO_ACCOUNTS = [
-  { label: 'Admin', email: 'admin@lms.com', password: 'Admin@123456', dot: 'bg-blue-600' },
-  { label: 'Pathologist', email: 'pathologist@lms.com', password: 'User@123456', dot: 'bg-violet-600' },
-  { label: 'Technician', email: 'technician@lms.com', password: 'User@123456', dot: 'bg-emerald-600' },
-  { label: 'Receptionist', email: 'receptionist@lms.com', password: 'User@123456', dot: 'bg-amber-500' },
+  {
+    label: 'Admin',
+    desk: 'Full access',
+    email: 'admin@lms.com',
+    password: 'Admin@123456',
+    initials: 'AD',
+    tint: 'bg-blue-50 text-blue-700 ring-blue-200',
+  },
+  {
+    label: 'Pathologist',
+    desk: 'Verify & sign',
+    email: 'pathologist@lms.com',
+    password: 'User@123456',
+    initials: 'PA',
+    tint: 'bg-violet-50 text-violet-700 ring-violet-200',
+  },
+  {
+    label: 'Technician',
+    desk: 'Result entry',
+    email: 'technician@lms.com',
+    password: 'User@123456',
+    initials: 'TE',
+    tint: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  },
+  {
+    label: 'Receptionist',
+    desk: 'Front desk',
+    email: 'receptionist@lms.com',
+    password: 'User@123456',
+    initials: 'RE',
+    tint: 'bg-amber-50 text-amber-700 ring-amber-200',
+  },
 ];
 
 export const LoginPage: React.FC = () => {
@@ -26,6 +57,7 @@ export const LoginPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [activeDemo, setActiveDemo] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,91 +76,45 @@ export const LoginPage: React.FC = () => {
   const applyDemo = (account: (typeof DEMO_ACCOUNTS)[number]) => {
     setEmail(account.email);
     setPassword(account.password);
+    setActiveDemo(account.email);
     setError('');
   };
 
   const fieldClass =
-    'h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10';
+    'h-12 w-full rounded-xl border border-slate-200 bg-slate-50/60 pl-11 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10';
 
   return (
-    <div className="min-h-screen w-full bg-white lg:grid lg:grid-cols-[1.05fr_1fr]">
-      {/* Brand panel */}
-      <aside className="relative hidden select-none flex-col justify-between overflow-hidden bg-slate-950 p-12 text-white lg:flex xl:p-16">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(59,130,246,0.30),transparent_55%),radial-gradient(circle_at_88%_82%,rgba(56,189,248,0.16),transparent_50%)]" />
-        <div className="pointer-events-none absolute inset-0 opacity-[0.06] bg-[linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] bg-[size:44px_44px]" />
+    <div className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-slate-950 px-5 py-10">
+      {/* Two slow blooms give the page depth; the grid drawn over them keeps it
+          reading as an instrument rather than a poster. */}
+      <div className="pointer-events-none absolute -left-40 -top-40 h-[38rem] w-[38rem] rounded-full bg-blue-600/25 blur-[130px] lms-drift" />
+      <div
+        className="pointer-events-none absolute -bottom-52 -right-32 h-[34rem] w-[34rem] rounded-full bg-sky-400/20 blur-[130px] lms-drift"
+        style={{ animationDelay: '-11s' }}
+      />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.06] bg-[linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] bg-[size:52px_52px] [mask-image:radial-gradient(ellipse_at_center,#000_30%,transparent_72%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/70 via-transparent to-slate-950/80" />
 
-        <div className="relative flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 shadow-lg shadow-blue-900/40">
-            <FlaskConical className="h-5 w-5" />
+      <div className="lms-rise relative w-full max-w-[26rem]">
+        {/* Brand mark sits above the card, so the card itself stays the form. */}
+        <div className="mb-7 flex flex-col items-center text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-400 to-blue-700 text-white shadow-lg shadow-blue-900/50 ring-1 ring-white/20">
+            <FlaskConical className="h-6 w-6" />
           </div>
-          <div className="leading-tight">
-            <p className="text-sm font-semibold tracking-tight">LMS</p>
-            <p className="text-[11px] text-slate-400">Laboratory Management System</p>
-          </div>
+          <p className="mt-3.5 text-lg font-semibold tracking-tight text-white">LMS</p>
+          <p className="text-[11px] text-slate-400">Laboratory Management System</p>
         </div>
 
-        <div className="relative max-w-md">
-          <h2 className="text-[2.6rem] font-semibold leading-[1.1] tracking-tight">
-            Diagnostics,
-            <br />
-            <span className="bg-gradient-to-r from-blue-300 to-sky-200 bg-clip-text text-transparent">
-              end to end.
-            </span>
-          </h2>
-          <p className="mt-5 text-sm leading-relaxed text-slate-400">
-            Registration, billing, sample logistics, result verification and reporting — running on one auditable
-            record for every patient.
-          </p>
-
-          <ul className="mt-9 space-y-4">
-            {HIGHLIGHTS.map((item) => (
-              <li key={item} className="flex items-start gap-3">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-blue-500/15 ring-1 ring-inset ring-blue-400/30">
-                  <Check className="h-3 w-3 text-blue-300" />
-                </span>
-                <span className="text-sm leading-snug text-slate-300">{item}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="relative grid grid-cols-3 gap-px overflow-hidden rounded-xl bg-white/10 ring-1 ring-white/10">
-          {[
-            { value: '7', label: 'Access roles' },
-            { value: 'Full', label: 'Sample audit trail' },
-            { value: 'Versioned', label: 'Result history' },
-          ].map((stat) => (
-            <div key={stat.label} className="bg-slate-950/80 px-4 py-4">
-              <p className="text-base font-semibold tracking-tight text-white">{stat.value}</p>
-              <p className="mt-0.5 text-[11px] text-slate-400">{stat.label}</p>
-            </div>
-          ))}
-        </div>
-      </aside>
-
-      {/* Form panel */}
-      <main className="flex min-h-screen items-center justify-center px-6 py-12 sm:px-10 lg:min-h-0">
-        <div className="w-full max-w-sm">
-          {/* Compact brand mark for small screens */}
-          <div className="mb-10 flex items-center gap-3 lg:hidden">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-lg shadow-blue-500/25">
-              <FlaskConical className="h-5 w-5" />
-            </div>
-            <div className="leading-tight">
-              <p className="text-sm font-semibold tracking-tight text-slate-900">LMS</p>
-              <p className="text-[11px] text-slate-500">Laboratory Management System</p>
-            </div>
-          </div>
-
-          <header className="mb-8">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Welcome back</h1>
+        <div className="rounded-3xl border border-white/10 bg-white p-7 shadow-[0_32px_80px_-24px_rgba(2,6,23,0.75)] sm:p-9">
+          <header className="mb-7">
+            <h1 className="text-[1.75rem] font-semibold tracking-tight text-slate-900">Welcome back</h1>
             <p className="mt-1.5 text-sm text-slate-500">Sign in to reach your role dashboard.</p>
           </header>
 
           {error && (
             <div
               role="alert"
-              className="mb-5 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-xs font-medium text-red-700"
+              className="lms-rise mb-5 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-xs font-medium text-red-700"
             >
               <AlertCircle className="mt-px h-4 w-4 shrink-0" />
               <span>{error}</span>
@@ -140,8 +126,8 @@ export const LoginPage: React.FC = () => {
               <label htmlFor="email" className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Email address
               </label>
-              <div className="relative">
-                <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <div className="group relative">
+                <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-600" />
                 <input
                   id="email"
                   type="email"
@@ -159,8 +145,8 @@ export const LoginPage: React.FC = () => {
               <label htmlFor="password" className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Password
               </label>
-              <div className="relative">
-                <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <div className="group relative">
+                <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-600" />
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
@@ -168,14 +154,14 @@ export const LoginPage: React.FC = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
-                  className={`${fieldClass} pr-11`}
+                  className={`${fieldClass} pr-12`}
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -185,45 +171,63 @@ export const LoginPage: React.FC = () => {
             <Button
               type="submit"
               isLoading={isLoading}
-              className="group h-11 w-full gap-2 rounded-xl bg-slate-900 text-sm shadow-lg shadow-slate-900/10 transition hover:bg-slate-800"
+              className="group h-12 w-full gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-sm text-white shadow-lg shadow-blue-600/25 transition hover:from-blue-700 hover:to-indigo-700 hover:shadow-xl hover:shadow-blue-600/30"
             >
               <span>Sign in</span>
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </Button>
           </form>
 
-          <div className="mt-9">
+          <div className="mt-8">
             <div className="flex items-center gap-3">
               <span className="h-px flex-1 bg-slate-200" />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                 Demo accounts
               </span>
               <span className="h-px flex-1 bg-slate-200" />
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              {DEMO_ACCOUNTS.map((account, index) => (
-                <button
-                  key={account.email}
-                  type="button"
-                  onClick={() => applyDemo(account)}
-                  className={`flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:shadow ${
-                    index === DEMO_ACCOUNTS.length - 1 && DEMO_ACCOUNTS.length % 2 !== 0 ? 'col-span-2' : ''
-                  }`}
-                >
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${account.dot}`} />
-                  <span className="truncate">{account.label}</span>
-                </button>
-              ))}
+            <div className="mt-4 grid grid-cols-2 gap-2.5">
+              {DEMO_ACCOUNTS.map((account) => {
+                const isActive = activeDemo === account.email;
+                return (
+                  <button
+                    key={account.email}
+                    type="button"
+                    onClick={() => applyDemo(account)}
+                    aria-pressed={isActive}
+                    className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
+                      isActive
+                        ? 'border-blue-500 bg-blue-50/70 ring-2 ring-blue-500/15'
+                        : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md hover:shadow-slate-900/5'
+                    }`}
+                  >
+                    <span
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ring-1 ring-inset ${account.tint}`}
+                    >
+                      {account.initials}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-semibold text-slate-800">{account.label}</span>
+                      <span className="block truncate text-[10px] text-slate-400">{account.desk}</span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
-            <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
-              Selecting an account fills the form — press <span className="font-medium text-slate-500">Sign in</span> to
-              continue.
+            <p className="mt-3.5 text-[11px] leading-relaxed text-slate-400">
+              Selecting an account fills the form — press{' '}
+              <span className="font-medium text-slate-500">Sign in</span> to continue.
             </p>
           </div>
         </div>
-      </main>
+
+        <p className="mt-6 flex items-center justify-center gap-1.5 text-[11px] text-slate-500">
+          <ShieldCheck className="h-3.5 w-3.5" />
+          Encrypted session · Access is logged against your role
+        </p>
+      </div>
     </div>
   );
 };

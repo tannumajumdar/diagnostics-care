@@ -16,6 +16,13 @@ router.use(authenticate);
 router.get('/collections/daily', requirePermission(PERMISSIONS.BILL_VIEW), AccountsController.getDailyCollections);
 // The same money, day by day, for the desk and the dashboard.
 router.get('/collections/trend', requirePermission(PERMISSIONS.BILL_VIEW), AccountsController.getCollectionTrend);
+// Everything ever taken, with no window around it - what the owner asks for
+// once the day and the week have been answered.
+router.get(
+  '/collections/overall',
+  requirePermission(PERMISSIONS.BILL_VIEW),
+  AccountsController.getOverallCollections
+);
 
 router.get('/refunds', requirePermission(PERMISSIONS.REFUND_VIEW), AccountsController.getAllRefunds);
 router.post(

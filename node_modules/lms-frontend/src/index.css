@@ -129,3 +129,64 @@ body {
     box-shadow: none !important;
   }
 }
+
+/**
+ * Sign-in screen. The panel behind the form is a slow drift of two coloured
+ * blooms rather than a flat fill, and the card and its rows arrive in sequence
+ * instead of all at once - motion small enough to read as depth, not as an
+ * animation. A visitor who asks for less motion gets the same screen, still.
+ */
+@keyframes lms-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lms-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(3%, -4%, 0) scale(1.08);
+  }
+  100% {
+    transform: translate3d(-3%, 3%, 0) scale(0.96);
+  }
+}
+
+@keyframes lms-pulse-ring {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.35);
+  }
+}
+
+.lms-rise {
+  animation: lms-rise 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.lms-drift {
+  animation: lms-drift 22s ease-in-out infinite alternate;
+}
+
+.lms-pulse-ring {
+  animation: lms-pulse-ring 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lms-rise,
+  .lms-drift,
+  .lms-pulse-ring {
+    animation: none;
+  }
+}

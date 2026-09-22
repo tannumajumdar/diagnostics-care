@@ -1,5 +1,23 @@
 import { Schema, model } from 'mongoose';
 import { IInvoiceDocument } from '../types/invoice.interface';
+import { COLLECTION_METHODS } from '../constants/payment-methods';
+
+/**
+ * How much of a bill came in by each method.
+ *
+ * A patient paying half in cash and half by UPI is two tenders against one
+ * bill, and each still has to reach the books as its own receipt - so the
+ * Payment records remain the ledger. This is the running total per method
+ * kept on the bill itself, so the directory can say what a bill was paid by
+ * without reading every receipt behind it.
+ */
+const paymentSplitSchema = new Schema(
+  {
+    method: { type: String, enum: COLLECTION_METHODS, required: true },
+    amount: { type: Number, required: true, min: 0 },
+  },
+  { _id: false }
+);
 
 const invoiceItemSchema = new Schema(
   {
@@ -118,12 +136,20 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
       default: 'Unpaid',
       index: true,
     },
+    /**
+     * The tender the bill is filed under - the largest one when it was split.
+     * Written out by hand here once, which left Cheque off the list while the
+     * counter offered it, so a cheque bill failed validation on save. Read
+     * from the one list every screen uses instead.
+     */
     paymentMethod: {
       type: String,
-      enum: ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Online', 'Credit'],
+      enum: COLLECTION_METHODS,
       default: 'Cash',
       index: true,
     },
+    /** What came in by each method. One entry for a bill paid one way. */
+    paymentBreakdown: { type: [paymentSplitSchema], default: [] },
     barcode: { type: String, required: true, index: true },
     createdBy: {
       userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },

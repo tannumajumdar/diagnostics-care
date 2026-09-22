@@ -12,6 +12,7 @@ import { asList } from '../utils/api-list';
 import { ROLE_INTRO, hasPermission, PERMISSIONS, type Role } from '../config/roles';
 import { SERIES, INK, inr, compactInr, axisProps, gridProps } from '../config/charts';
 import { relativeDayLabel, weekdayLabel } from '../utils/dates';
+import { COLLECTION_METHODS, METHOD_FIELD, methodColor } from '../config/payment-methods';
 import { Button } from '../components/ui/button';
 import {
   Users,
@@ -209,6 +210,18 @@ export const DashboardPage: React.FC = () => {
     enabled: needsPayouts,
   });
 
+  /**
+   * Everything since the centre opened. The day and the week answer whether
+   * today went well; neither answers what the place has actually taken, which
+   * is the figure the owner asks for and could not get without exporting the
+   * whole ledger and adding it up by hand.
+   */
+  const { data: overall } = useQuery({
+    queryKey: ['dashboard-overall-collections'],
+    queryFn: () => accountsApi.getOverallCollections(),
+    enabled: needsBilling,
+  });
+
   const invoices = asList<any>(invoiceData, 'invoices');
   const pending = asList<any>(pendingResults, 'results');
   const patientTotal = patientData?.meta?.total ?? asList(patientData, 'patients').length;
@@ -388,6 +401,26 @@ export const DashboardPage: React.FC = () => {
   const showQueue = needsResults && pending.length > 0;
   const showInvoices = needsBilling;
   const showCollections = needsBilling && chartDays.length > 0;
+  // Shown once there is anything to show - a centre on its first morning gets
+  // the day's card and no empty all-time panel above it.
+  const showOverall = needsBilling && Boolean(overall) && (overall.bills > 0 || overall.collected > 0);
+
+  /** When the first receipt was written, so the total reads as "since ...". */
+  const overallSince = overall?.since
+    ? new Date(overall.since).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    : '';
+
+  /**
+   * Every method the centre takes, with what it has brought in - ordered by
+   * the shared list rather than by size, so the colours mean the same thing
+   * here as they do on the reports donut and do not reshuffle as one method
+   * overtakes another.
+   */
+  const overallMethods = COLLECTION_METHODS.map((method) => ({
+    value: method.value,
+    label: method.label,
+    amount: Number(overall?.byMethod?.[METHOD_FIELD[method.value]] ?? 0),
+  }));
   // The receptionist sees the same figures but has no accounts screen to be
   // sent to - the money link has to land somewhere their token opens.
   const collectionsLink = hasPermission(user, PERMISSIONS.REFUND_VIEW) ? '/accounts' : '/billing';
@@ -478,6 +511,122 @@ export const DashboardPage: React.FC = () => {
           <StatTile key={tile.label} tile={tile} onClick={tile.to ? () => navigate(tile.to!) : undefined} />
         ))}
       </div>
+
+      {/* Since the centre opened. The day and the week sit below this, so the
+          page reads from the whole down to the most recent rather than
+          leaving the total to be worked out from a seven-day window. */}
+      {showOverall && (
+        <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Overall collections from patients</h2>
+              <p className="text-[11px] text-slate-500">
+                All time{overallSince ? ` · since ${overallSince}` : ''} ·{' '}
+                {overall.receipts ?? 0} receipt{overall.receipts === 1 ? '' : 's'} across{' '}
+                {overall.bills ?? 0} bill{overall.bills === 1 ? '' : 's'}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 px-2 text-[11px] text-slate-500 hover:text-slate-900"
+              onClick={() => navigate(collectionsLink)}
+            >
+              {collectionsLink === '/accounts' ? 'Accounts' : 'Billing'} <ArrowRight className="h-3 w-3" />
+            </Button>
+          </header>
+
+          {/* Patient money only. What the centre spends on couriers, the
+              ambulance and doctors' cuts is its own outgoing and belongs on
+              the payouts screen - netted off here it turned a centre with
+              money in the bank into one showing a negative balance. */}
+          <div className="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-3 lg:grid-cols-5">
+            {[
+              { label: 'Billed to patients', value: overall.billed, tone: 'text-slate-900' },
+              { label: 'Collected', value: overall.collected, tone: 'text-emerald-600' },
+              { label: 'Still outstanding', value: overall.outstanding, tone: 'text-amber-600' },
+              { label: 'Refunded to patients', value: overall.refunded, tone: 'text-rose-600' },
+              { label: 'Net from patients', value: overall.netFromPatients, tone: 'text-blue-700' },
+            ].map((figure) => (
+              <div key={figure.label} className="bg-white px-5 py-4">
+                <p className="text-[10px] uppercase tracking-wide text-slate-500">{figure.label}</p>
+                <p className={`mt-0.5 text-lg font-semibold tabular-nums ${figure.tone}`}>
+                  {money(figure.value ?? 0)}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* How much of everything ever billed has actually been recovered -
+              the question the outstanding figure raises but does not answer. */}
+          <div className="border-t border-slate-100 px-5 py-4">
+            <div className="mb-1.5 flex items-center justify-between text-[11px]">
+              <span className="text-slate-500">
+                Recovered <span className="font-semibold text-slate-900">{overall.collectionRate ?? 0}%</span> of
+                everything billed
+              </span>
+              <span className="tabular-nums text-slate-500">
+                {money(overall.collected ?? 0)} of {money(overall.billed ?? 0)}
+              </span>
+            </div>
+            <div
+              className="h-2 w-full overflow-hidden rounded-full bg-amber-100"
+              role="progressbar"
+              aria-valuenow={overall.collectionRate ?? 0}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div
+                className="h-full rounded-full bg-emerald-500"
+                style={{ width: `${Math.min(100, Math.max(0, overall.collectionRate ?? 0))}%` }}
+              />
+            </div>
+          </div>
+
+          {/* How the money came in, all time. Every method the centre takes is
+              listed, including the ones nobody has used - a zero against
+              Cheque is an answer, not a gap. */}
+          {overall.collected > 0 && (
+            <div className="border-t border-slate-100 px-5 py-4">
+              <p className="mb-2 text-[10px] uppercase tracking-wide text-slate-500">
+                How patients paid
+              </p>
+
+              <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                {overallMethods
+                  .filter((m) => m.amount > 0)
+                  .map((m) => (
+                    <span
+                      key={m.value}
+                      title={`${m.label} · ${money(m.amount)}`}
+                      style={{
+                        width: `${(m.amount / overall.collected) * 100}%`,
+                        backgroundColor: methodColor(m.value),
+                      }}
+                    />
+                  ))}
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4">
+                {overallMethods.map((m) => (
+                  <div key={m.value} className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="flex min-w-0 items-center gap-1.5 text-slate-600">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: m.amount > 0 ? methodColor(m.value) : '#cbd5e1' }}
+                      />
+                      <span className="truncate">{m.label}</span>
+                    </span>
+                    <span className={`shrink-0 tabular-nums ${m.amount > 0 ? 'font-semibold text-slate-900' : 'text-slate-400'}`}>
+                      {money(m.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {showCollections && (
         <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">

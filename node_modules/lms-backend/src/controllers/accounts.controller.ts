@@ -35,6 +35,20 @@ export class AccountsController {
     }
   };
 
+  static getOverallCollections = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const result = await AccountsService.getOverallCollections();
+      sendResponse({
+        res,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Overall collections retrieved',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   static createRefund = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const currentUser = (req as any).user as JwtPayload;

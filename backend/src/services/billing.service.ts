@@ -19,6 +19,104 @@ import { HTTP_STATUS } from '../constants/messages';
 import { JwtPayload } from '../types/auth.interface';
 import { PERMISSIONS, can, MAX_STAFF_DISCOUNT_PERCENT } from '../constants/permissions';
 import { getNextUhid } from '../models/counter.model';
+import { COLLECTION_METHODS, type CollectionMethod } from '../constants/payment-methods';
+
+/** Rupees, to the paisa - money added up in floating point drifts otherwise. */
+const rupeePrecision = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
+
+/**
+ * What the desk actually collected, as a list of tenders.
+ *
+ * A patient settling half in cash and half by UPI is one payment to them and
+ * two entries in the books, because the day's cash has to reconcile against
+ * the drawer and the UPI against the statement. Both the single-method form
+ * the older screens post and the split form the counter now sends arrive
+ * here, so there is one definition of a payment behind both.
+ *
+ * "Credit" is the absence of a payment - the patient is billed and pays
+ * later - so it can never be one leg of a split.
+ */
+const readTenders = (input: {
+  paymentSplits?: PaymentTender[];
+  paidAmount?: number;
+  paymentMethod?: CollectionMethod;
+}): PaymentTender[] => {
+  const splits = (input.paymentSplits || [])
+    .map((tender) => ({
+      method: tender.method,
+      amount: rupeePrecision(tender.amount),
+      transactionRef: tender.transactionRef || '',
+    }))
+    .filter((tender) => tender.amount > 0);
+
+  if (splits.length) {
+    for (const tender of splits) {
+      if (!COLLECTION_METHODS.includes(tender.method)) {
+        throw new ApiError(HTTP_STATUS.BAD_REQUEST, `${tender.method} is not a payment method the centre takes`);
+      }
+      if (tender.method === 'Credit' && splits.length > 1) {
+        throw new ApiError(
+          HTTP_STATUS.BAD_REQUEST,
+          'Credit is money not collected, so it cannot be one leg of a split payment'
+        );
+      }
+    }
+    return splits;
+  }
+
+  const amount = rupeePrecision(input.paidAmount ?? 0);
+  if (amount <= 0) return [];
+  return [{ method: (input.paymentMethod || 'Cash') as CollectionMethod, amount, transactionRef: '' }];
+};
+
+/** The tenders scaled to fit what is actually owed, largest leg absorbing the
+    rounding so the legs still add up to the total to the paisa. */
+const capTenders = (tenders: PaymentTender[], ceiling: number): PaymentTender[] => {
+  const offered = rupeePrecision(tenders.reduce((sum, tender) => sum + tender.amount, 0));
+  if (offered <= ceiling) return tenders;
+
+  // Overpaying is the desk mistyping, not a decision - the excess comes off
+  // the largest leg rather than being taken and owed back.
+  const order = [...tenders].sort((a, b) => b.amount - a.amount);
+  let excess = rupeePrecision(offered - ceiling);
+  for (const tender of order) {
+    if (excess <= 0) break;
+    const cut = Math.min(tender.amount, excess);
+    tender.amount = rupeePrecision(tender.amount - cut);
+    excess = rupeePrecision(excess - cut);
+  }
+  return tenders.filter((tender) => tender.amount > 0);
+};
+
+/** The running per-method total on a bill, with new tenders folded in. */
+const mergeBreakdown = (
+  existing: Array<{ method: string; amount: number }> = [],
+  tenders: PaymentTender[]
+): Array<{ method: CollectionMethod; amount: number }> => {
+  const totals = new Map<string, number>();
+  for (const entry of existing) {
+    totals.set(entry.method, rupeePrecision((totals.get(entry.method) || 0) + entry.amount));
+  }
+  for (const tender of tenders) {
+    totals.set(tender.method, rupeePrecision((totals.get(tender.method) || 0) + tender.amount));
+  }
+  // Ordered as the centre's method list is, so two bills paid the same two
+  // ways read the same way round on screen.
+  return COLLECTION_METHODS.filter((method) => (totals.get(method) || 0) > 0).map((method) => ({
+    method,
+    amount: totals.get(method) as number,
+  }));
+};
+
+/** The method a bill is filed under: whichever tender brought in the most. */
+const headlineMethod = (
+  breakdown: Array<{ method: CollectionMethod; amount: number }>,
+  fallback: CollectionMethod
+): CollectionMethod =>
+  breakdown.reduce<{ method: CollectionMethod; amount: number } | null>(
+    (top, entry) => (!top || entry.amount > top.amount ? entry : top),
+    null
+  )?.method || fallback;
 
 /**
  * Turns a test's turnaroundTime ("24 Hours", "45 Minutes", "3 Days") into a
@@ -72,6 +170,14 @@ export interface InvoiceLinePayload {
   packageName?: string;
 }
 
+/** One tender against a bill: an amount and the method it came in by. */
+export interface PaymentTender {
+  method: CollectionMethod;
+  amount: number;
+  /** A UPI reference, cheque number or card approval code. */
+  transactionRef?: string;
+}
+
 export interface CreateInvoicePayload {
   patientId: string;
   doctorId?: string;
@@ -85,7 +191,13 @@ export interface CreateInvoicePayload {
   discountValue?: number;
   discountReason?: string;
   paidAmount?: number;
-  paymentMethod?: 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Online' | 'Credit';
+  paymentMethod?: CollectionMethod;
+  /**
+   * A counter payment split across methods - half in cash, the rest by UPI.
+   * When present it is the payment, and `paidAmount` / `paymentMethod` are
+   * derived from it rather than read.
+   */
+  paymentSplits?: PaymentTender[];
   chiefComplaint?: string;
   clinicalNotes?: string;
   priority?: 'Routine' | 'Urgent';
@@ -112,6 +224,13 @@ export interface CreateVisitPayload extends Omit<CreateInvoicePayload, 'patientI
 }
 
 export class BillingService {
+  /**
+   * The most rows one call to the directory will ever return. An export asks
+   * for the whole filtered window, so it walks pages of this size rather than
+   * naming a page size of its own.
+   */
+  static readonly MAX_PAGE_SIZE = 500;
+
   /**
    * One front-desk intake. The receptionist takes the patient's details, what
    * they have come in for, the referring doctor and the tests, and this turns
@@ -183,6 +302,7 @@ export class BillingService {
       discountReason = '',
       paidAmount = 0,
       paymentMethod = 'Cash',
+      paymentSplits,
       chiefComplaint = '',
       clinicalNotes = '',
       priority = 'Routine',
@@ -427,8 +547,17 @@ export class BillingService {
     // no discount the desk gave the patient comes off it, because it is not
     // the same money.
     const referralTotal = rupees(items.reduce((sum, item) => sum + (Number(item.referralRate) || 0), 0));
-    const validPaidAmount = Math.min(finalNetAmount, Math.max(0, paidAmount));
-    const finalDueAmount = Math.max(0, finalNetAmount - validPaidAmount);
+
+    // What the desk took at the counter - one tender, or several when the
+    // patient settled part in cash and the rest on the machine. Nothing may
+    // be collected beyond the bill, so the tenders are capped at its total.
+    // Credit can only ever arrive on its own - `readTenders` refuses it as a
+    // leg of a split - so it is left to book exactly as it always has rather
+    // than being reinterpreted here.
+    const collecting = capTenders(readTenders({ paymentSplits, paidAmount, paymentMethod }), finalNetAmount);
+    const validPaidAmount = rupees(collecting.reduce((sum, tender) => sum + tender.amount, 0));
+    const finalDueAmount = Math.max(0, rupees(finalNetAmount - validPaidAmount));
+    const breakdown = mergeBreakdown([], collecting);
 
     let paymentStatus: 'Paid' | 'Partial' | 'Unpaid' | 'Credit' = 'Unpaid';
     if (validPaidAmount >= finalNetAmount && finalNetAmount > 0) {
@@ -438,6 +567,10 @@ export class BillingService {
     } else if (paymentMethod === 'Credit') {
       paymentStatus = 'Credit';
     }
+
+    // The bill is filed under whichever tender brought in the most, so a
+    // single-method bill reads exactly as it always did.
+    const headline = headlineMethod(breakdown, paymentMethod as CollectionMethod);
 
     // A paneled doctor's own name wins over anything typed, so the printed
     // bill and the master can never disagree.
@@ -475,7 +608,8 @@ export class BillingService {
       paidAmount: validPaidAmount,
       dueAmount: finalDueAmount,
       paymentStatus,
-      paymentMethod,
+      paymentMethod: headline,
+      paymentBreakdown: breakdown,
       barcode: barcodeStr,
       createdBy: {
         userId,
@@ -483,22 +617,33 @@ export class BillingService {
       },
     });
 
-    let paymentRecord = null;
-    if (validPaidAmount > 0) {
+    // One receipt per tender: the day's cash reconciles against the drawer
+    // and the UPI against the statement, so a split payment cannot be filed
+    // as a single row under one of its methods.
+    const paymentRecords = [];
+    for (const tender of collecting) {
       const receiptNumber = await getNextReceiptNumber();
-      paymentRecord = await Payment.create({
-        receiptNumber,
-        invoice: invoice._id,
-        patient: patient._id,
-        amount: validPaidAmount,
-        paymentMethod,
-        notes: 'Initial invoice payment',
-        receivedBy: {
-          userId,
-          name: userName,
-        },
-      });
+      paymentRecords.push(
+        await Payment.create({
+          receiptNumber,
+          invoice: invoice._id,
+          patient: patient._id,
+          amount: tender.amount,
+          paymentMethod: tender.method,
+          transactionRef: tender.transactionRef || '',
+          notes:
+            collecting.length > 1
+              ? `Initial invoice payment (split ${collecting.length} ways)`
+              : 'Initial invoice payment',
+          receivedBy: {
+            userId,
+            name: userName,
+          },
+        })
+      );
     }
+    // The first receipt is the one the printed bill quotes, as it always was.
+    const paymentRecord = paymentRecords[0] || null;
 
     const sampleRecords = [];
     // Walked over the priced lines rather than the bare tests, so a line the
@@ -552,13 +697,26 @@ export class BillingService {
   static async getAllInvoices(query: {
     search?: string;
     paymentStatus?: string;
+    patient?: string;
     from?: string;
     to?: string;
     page?: number;
     limit?: number;
   }) {
-    const { search, paymentStatus, from, to, page = 1, limit = 10 } = query;
+    const { search, paymentStatus, patient, from, to, page = 1, limit = 10 } = query;
     const filter: any = {};
+
+    // The directory reads ten rows at a time; an export asks for the whole
+    // window at once. Both go through here, so the page size is clamped
+    // rather than trusted - a client asking for everything in one request
+    // would otherwise pull the entire collection into memory.
+    const pageSize = Math.min(Math.max(Number(limit) || 10, 1), BillingService.MAX_PAGE_SIZE);
+    const pageNumber = Math.max(Number(page) || 1, 1);
+
+    // One patient's bills - what their profile exports and prints.
+    if (patient && mongoose.isValidObjectId(patient)) {
+      filter.patient = new mongoose.Types.ObjectId(patient);
+    }
 
     if (search) {
       filter.$or = [
@@ -602,7 +760,7 @@ export class BillingService {
       if (Object.keys(range).length) filter.createdAt = range;
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    const skip = (pageNumber - 1) * pageSize;
     const [invoices, total, totals] = await Promise.all([
       Invoice.find(filter)
         .populate('patient', 'uhid patientName gender age mobile')
@@ -610,7 +768,7 @@ export class BillingService {
         .populate('organization', 'organizationName contractRate')
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(Number(limit)),
+        .limit(pageSize),
       Invoice.countDocuments(filter),
       // Totals for everything the filter matched, not for the ten rows on
       // screen - a day's billing is the question being asked, and adding up
@@ -623,7 +781,12 @@ export class BillingService {
             billed: { $sum: '$netAmount' },
             collected: { $sum: '$paidAmount' },
             due: { $sum: '$dueAmount' },
-            discount: { $sum: '$discountAmount' },
+            // What the desk gave away, taken from the two totals. There is no
+            // `discountAmount` on a bill - the field of that name lives on the
+            // lines - so summing it returned zero for every window. The gap
+            // between gross and net is the whole of it: the per-line discounts
+            // and the bill-wide one together.
+            discount: { $sum: { $subtract: ['$subtotal', '$netAmount'] } },
           },
         },
       ]),
@@ -635,9 +798,9 @@ export class BillingService {
       invoices,
       pagination: {
         total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / Number(limit)),
+        page: pageNumber,
+        limit: pageSize,
+        totalPages: Math.ceil(total / pageSize),
         summary: {
           invoices: total,
           billed: summed.billed || 0,
@@ -689,11 +852,21 @@ export class BillingService {
     };
   }
 
+  /**
+   * Money collected against an outstanding bill.
+   *
+   * Takes either one method and an amount, or `paymentSplits` when the patient
+   * settled part in cash and the rest on the machine. Each leg becomes its own
+   * receipt, because that is how the day reconciles - the cash against the
+   * drawer, the UPI against the statement - but together they move the bill's
+   * due down once.
+   */
   static async addPayment(
     invoiceId: string,
     payload: {
-      amount: number;
-      paymentMethod: 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Online' | 'Credit';
+      amount?: number;
+      paymentMethod?: CollectionMethod;
+      paymentSplits?: PaymentTender[];
       transactionRef?: string;
       notes?: string;
     },
@@ -708,31 +881,59 @@ export class BillingService {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invoice is already fully paid');
     }
 
-    const payAmount = Math.min(invoice.dueAmount, Math.max(0, payload.amount));
+    const offered = readTenders({
+      paymentSplits: payload.paymentSplits,
+      paidAmount: payload.amount,
+      paymentMethod: payload.paymentMethod,
+    });
+
+    // Credit can only ever arrive on its own - `readTenders` refuses it as a
+    // leg of a split - so it books exactly as it always has.
+    const tenders = capTenders(offered, invoice.dueAmount);
+    const payAmount = rupeePrecision(tenders.reduce((sum, tender) => sum + tender.amount, 0));
     if (payAmount <= 0) {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Payment amount must be greater than zero');
     }
 
-    const receiptNumber = await getNextReceiptNumber();
     const rawUserId = currentUser.userId || (currentUser as any).id || (currentUser as any)._id;
     const userId = mongoose.Types.ObjectId.isValid(rawUserId) ? rawUserId : new mongoose.Types.ObjectId();
 
-    const paymentRecord = await Payment.create({
-      receiptNumber,
-      invoice: invoice._id,
-      patient: invoice.patient,
-      amount: payAmount,
-      paymentMethod: payload.paymentMethod,
-      transactionRef: payload.transactionRef || '',
-      notes: payload.notes || 'Additional invoice due payment',
-      receivedBy: {
-        userId,
-        name: currentUser.name,
-      },
-    });
+    const paymentRecords = [];
+    for (const tender of tenders) {
+      const receiptNumber = await getNextReceiptNumber();
+      paymentRecords.push(
+        await Payment.create({
+          receiptNumber,
+          invoice: invoice._id,
+          patient: invoice.patient,
+          amount: tender.amount,
+          paymentMethod: tender.method,
+          transactionRef: tender.transactionRef || payload.transactionRef || '',
+          notes:
+            payload.notes ||
+            (tenders.length > 1
+              ? `Invoice due payment (split ${tenders.length} ways)`
+              : 'Additional invoice due payment'),
+          receivedBy: {
+            userId,
+            name: currentUser.name,
+          },
+        })
+      );
+    }
 
-    invoice.paidAmount += payAmount;
-    invoice.dueAmount = Math.max(0, invoice.netAmount - invoice.paidAmount);
+    // A bill raised before the per-method summary existed carries money but
+    // no breakdown. Folding only the new tender in would file the whole bill
+    // under whatever was collected last, so the money already on it is
+    // seeded against the method it was filed under first.
+    const priorBreakdown =
+      (invoice.paymentBreakdown?.length ? invoice.paymentBreakdown : null) ||
+      (invoice.paidAmount > 0 ? [{ method: invoice.paymentMethod, amount: invoice.paidAmount }] : []);
+
+    invoice.paidAmount = rupeePrecision(invoice.paidAmount + payAmount);
+    invoice.dueAmount = Math.max(0, rupeePrecision(invoice.netAmount - invoice.paidAmount));
+    invoice.paymentBreakdown = mergeBreakdown(priorBreakdown as any, tenders) as any;
+    invoice.paymentMethod = headlineMethod(invoice.paymentBreakdown as any, invoice.paymentMethod);
 
     if (invoice.dueAmount === 0) {
       invoice.paymentStatus = 'Paid';
@@ -744,7 +945,9 @@ export class BillingService {
 
     return {
       invoice,
-      paymentRecord,
+      // The last receipt written, as the single-payment caller always got.
+      paymentRecord: paymentRecords[paymentRecords.length - 1] || null,
+      paymentRecords,
     };
   }
 }
