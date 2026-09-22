@@ -77,21 +77,24 @@ export const DoctorBillPrint: React.FC<DoctorBillPrintProps> = ({ invoice, centr
   return (
     <div className="doctor-bill-sheet bg-white font-sans text-black">
       <div className="border border-black">
-        {/* Letterhead */}
-        <div className="flex items-stretch border-b border-black">
-          <div className="flex w-[92px] shrink-0 flex-col items-center justify-center border-r border-black px-1 py-1 text-center">
+        {/* The band keeps a fixed height and a logo cell of its own whether or
+            not artwork is configured: the centre prints on its own letterhead,
+            and a header that collapsed with no logo set would move every line
+            below it the day `logo.png` is dropped into `frontend/public`. */}
+        <div className="flex min-h-[86px] items-stretch border-b border-black">
+          <div className="flex w-[120px] shrink-0 flex-col items-center justify-center border-r border-black px-1 py-1 text-center">
             {logoShown && (
               <img
                 src={centre.logoUrl}
                 alt=""
-                className="max-h-[46px] max-w-full object-contain"
+                className="max-h-[62px] max-w-full object-contain"
                 onError={() => setLogoShown(false)}
               />
             )}
             {centre.tagline && <span className="mt-[2px] text-[6px] leading-[7px]">{centre.tagline}</span>}
           </div>
 
-          <div className="min-w-0 flex-1 px-2 py-1">
+          <div className="flex min-w-0 flex-1 flex-col justify-center px-2 py-1">
             <p className="text-[13px] font-bold leading-[15px]">{centre.name}</p>
             {centre.address && <p className="text-[8px] leading-[10px]">{centre.address}</p>}
             {phoneLine && <p className="text-[8px] leading-[10px]">{phoneLine}</p>}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { asList } from '../../utils/api-list';
@@ -111,6 +111,11 @@ export const LabReportPage: React.FC = () => {
     ['Email', CENTRE.email],
   ]);
 
+  // The logo's space in the header is held either way; this only decides
+  // whether artwork is drawn in it, so an unconfigured `logo.png` leaves the
+  // cell blank rather than printing a broken-image box on a patient's report.
+  const [logoShown, setLogoShown] = useState(Boolean(CENTRE.logoUrl));
+
   const allCritical = reportable.flatMap((sheet) =>
     parametersOf(sheet).filter((p: any) => p.flag === 'Critical')
   );
@@ -181,10 +186,33 @@ export const LabReportPage: React.FC = () => {
         {/* Letterhead. Read from the same centre profile the bill prints, so
             the report a patient carries home names the centre that ran the
             test - not a placeholder, and not a different name to their bill. */}
-        <div className="space-y-1 border-b pb-4 text-center">
-          <h2 className="text-xl font-bold text-blue-600">{CENTRE.name}</h2>
-          {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-          {reportContact && <p className="font-mono text-xs text-muted-foreground">{reportContact}</p>}
+        <div className="flex min-h-[96px] items-center gap-4 border-b pb-4">
+          {/* The logo keeps a cell of its own whether or not artwork is
+              configured, so the header is the same height on every report -
+              the centre can print on stationery that already carries its
+              letterhead, and nothing below moves the day `logo.png` is
+              dropped into `frontend/public`. */}
+          <div className="flex h-[72px] w-[120px] shrink-0 items-center justify-center overflow-hidden">
+            {logoShown && (
+              <img
+                src={CENTRE.logoUrl}
+                alt=""
+                className="max-h-full max-w-full object-contain"
+                onError={() => setLogoShown(false)}
+              />
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1 space-y-1 text-center">
+            <h2 className="text-xl font-bold text-blue-600">{CENTRE.name}</h2>
+            {CENTRE.tagline && <p className="text-xs text-muted-foreground">{CENTRE.tagline}</p>}
+            {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+            {reportContact && <p className="font-mono text-xs text-muted-foreground">{reportContact}</p>}
+          </div>
+
+          {/* Balances the logo cell so the centre's name stays centred on the
+              sheet rather than sitting off to the right of it. */}
+          <div className="h-[72px] w-[120px] shrink-0" aria-hidden />
         </div>
 
         {/* Printed once for the whole visit: who it is for, who asked for it,

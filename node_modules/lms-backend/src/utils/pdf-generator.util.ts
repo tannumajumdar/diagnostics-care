@@ -5,6 +5,10 @@ import { CENTRE, contactLine } from '../config/centre';
 const LEFT = 40;
 const RIGHT = 570;
 
+/** The letterhead band: the logo's cell, and the height held for the whole. */
+const LOGO_CELL = 110;
+const HEADER_BAND = 78;
+
 const COLUMNS = [
   { key: 'parameterName', label: 'Test Parameter', x: 40, width: 215 },
   { key: 'value', label: 'Result', x: 255, width: 90 },
@@ -61,19 +65,45 @@ export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer>
 
     // The centre's own letterhead, the same one the bill and the on-screen
     // report print. A line with nothing configured behind it is skipped.
-    doc.fillColor('#2563eb').fontSize(18).text(CENTRE.name, { align: 'center' });
-    doc.fillColor('#4b5563').fontSize(9);
+    //
+    // The band is a fixed height with a cell held for the logo whether or not
+    // artwork is configured: a centre printing on its own stationery needs the
+    // room at the top, and every report then starts its patient block on the
+    // same line whatever the letterhead happens to fill.
+    const headerTop = doc.y;
+
+    if (CENTRE.logoPath) {
+      try {
+        doc.image(CENTRE.logoPath, LEFT, headerTop, { fit: [LOGO_CELL - 10, HEADER_BAND - 8] });
+      } catch {
+        // Missing or unreadable artwork must never cost a patient their
+        // report - the cell is simply left blank.
+      }
+    }
+
+    // Kept clear of the logo on the left and balanced by the same width on the
+    // right, so the centre's name sits centred on the sheet either way.
+    const headerLeft = LEFT + LOGO_CELL;
+    const headerWidth = RIGHT - LEFT - LOGO_CELL * 2;
 
     const subtitle = [CENTRE.accreditation, CENTRE.address].filter(Boolean).join(' | ');
-    if (subtitle) doc.text(subtitle, { align: 'center' });
-
     const contact = contactLine([
       ['Phone', CENTRE.reportingEnquiryNumbers || CENTRE.phones || CENTRE.mobiles],
       ['Email', CENTRE.email],
     ]);
-    if (contact) doc.text(contact, { align: 'center' });
 
-    doc.moveDown(1);
+    doc.fillColor('#2563eb').fontSize(18).text(CENTRE.name, headerLeft, headerTop + 8, {
+      width: headerWidth,
+      align: 'center',
+    });
+    doc.fillColor('#4b5563').fontSize(9);
+    if (subtitle) doc.text(subtitle, headerLeft, doc.y, { width: headerWidth, align: 'center' });
+    if (contact) doc.text(contact, headerLeft, doc.y, { width: headerWidth, align: 'center' });
+
+    // The body starts below the whole band, not below whatever the text
+    // happened to reach.
+    doc.y = Math.max(doc.y, headerTop + HEADER_BAND);
+    doc.x = LEFT;
 
     rule(doc);
     doc.moveDown(0.8);

@@ -25,6 +25,13 @@ export const CENTRE = {
   reportingEnquiryNumbers: env('CENTRE_ENQUIRY_NUMBERS'),
   /** Only ever what the centre actually holds, e.g. "NABL Accredited". */
   accreditation: env('CENTRE_ACCREDITATION'),
+  /**
+   * The logo drawn on the PDF letterhead - an absolute path, or one relative
+   * to where the server runs, e.g. `../frontend/public/logo.png` so the PDF
+   * and the browser print the same artwork. Left unset the header still keeps
+   * the space for it and simply prints nothing there.
+   */
+  logoPath: env('CENTRE_LOGO_PATH'),
 };
 
 /** Joins labelled contact parts, dropping the ones with nothing set. */
