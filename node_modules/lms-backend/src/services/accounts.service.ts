@@ -53,13 +53,24 @@ export interface PayoutQuery {
   limit?: number;
 }
 
-/** Inclusive day window for a date filter, defaulting to the current month. */
-const dateWindow = (from?: string, to?: string) => {
+/** Inclusive day and time window for a date/time filter, defaulting to the current month. */
+const dateWindow = (from?: string, to?: string, fromTime?: string, toTime?: string) => {
   const now = new Date();
   const start = from ? new Date(from) : new Date(now.getFullYear(), now.getMonth(), 1);
-  start.setHours(0, 0, 0, 0);
+  if (fromTime && fromTime.trim()) {
+    const [h, m] = fromTime.trim().split(':').map(Number);
+    start.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+  } else {
+    start.setHours(0, 0, 0, 0);
+  }
+
   const end = to ? new Date(to) : new Date();
-  end.setHours(23, 59, 59, 999);
+  if (toTime && toTime.trim()) {
+    const [h, m] = toTime.trim().split(':').map(Number);
+    end.setHours(Number.isFinite(h) ? h : 23, Number.isFinite(m) ? m : 59, 59, 999);
+  } else {
+    end.setHours(23, 59, 59, 999);
+  }
   return { start, end };
 };
 
@@ -665,17 +676,19 @@ export class AccountsService {
     search?: string;
     from?: string;
     to?: string;
+    fromTime?: string;
+    toTime?: string;
     paymentMethod?: string;
     flowType?: 'all' | 'collection' | 'payout' | 'refund';
     payeeType?: string;
     page?: number;
     limit?: number;
   }) {
-    const { patientId, search, from, to, paymentMethod, flowType, payeeType, page = 1, limit = 50 } = query;
+    const { patientId, search, from, to, fromTime, toTime, paymentMethod, flowType, payeeType, page = 1, limit = 50 } = query;
 
     let dateFilter: any = null;
-    if (from || to) {
-      const { start, end } = dateWindow(from, to);
+    if (from || to || fromTime || toTime) {
+      const { start, end } = dateWindow(from, to, fromTime, toTime);
       dateFilter = { $gte: start, $lte: end };
     }
 

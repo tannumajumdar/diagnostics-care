@@ -30,6 +30,7 @@ import {
   Stethoscope,
   RefreshCw,
   ArrowRight,
+  Clock,
 } from 'lucide-react';
 import {
   COLLECTION_METHODS,
@@ -57,6 +58,8 @@ export const PaymentLedgerPage: React.FC = () => {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [from, setFrom] = useState(initialPatientId ? '' : monthStartIso());
   const [to, setTo] = useState(initialPatientId ? '' : todayIso());
+  const [fromTime, setFromTime] = useState('');
+  const [toTime, setToTime] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('All');
   const [flowType, setFlowType] = useState<'all' | 'collection' | 'payout' | 'refund'>('all');
   const [payeeType, setPayeeType] = useState('All');
@@ -83,6 +86,8 @@ export const PaymentLedgerPage: React.FC = () => {
     search: searchQuery.trim() || undefined,
     from: from || undefined,
     to: to || undefined,
+    fromTime: fromTime.trim() || undefined,
+    toTime: toTime.trim() || undefined,
     paymentMethod: paymentMethod !== 'All' ? paymentMethod : undefined,
     flowType: flowType !== 'all' ? flowType : undefined,
     payeeType: payeeType !== 'All' ? payeeType : undefined,
@@ -121,23 +126,29 @@ export const PaymentLedgerPage: React.FC = () => {
   const patientSummary = ledgerData?.patientSummary;
   const patientInvoices: any[] = ledgerData?.invoices || [];
 
-  const isViewingToday = from === todayIso() && to === todayIso();
+  const isViewingToday = from === todayIso() && to === todayIso() && !fromTime && !toTime;
 
   const filterTodayOnly = () => {
     setFrom(todayIso());
     setTo(todayIso());
+    setFromTime('');
+    setToTime('');
     setActiveTab('transactions');
   };
 
   const handleFilterDay = (dayDate: string) => {
     setFrom(dayDate);
     setTo(dayDate);
+    setFromTime('');
+    setToTime('');
     setActiveTab('transactions');
   };
 
   const showAllDays = () => {
     setFrom(monthStartIso());
     setTo(todayIso());
+    setFromTime('');
+    setToTime('');
   };
 
   const handlePrint = () => {
@@ -184,8 +195,9 @@ export const PaymentLedgerPage: React.FC = () => {
       Handled_By: t.handledBy || '-',
     }));
 
+    const timeSuffix = fromTime || toTime ? `_${fromTime || '0000'}-${toTime || '2359'}` : '';
     exportToExcel(
-      `Ledger_Report_${activePatientId ? patientProfile?.patientName : 'All'}_${from}_${to}`,
+      `Ledger_Report_${activePatientId ? patientProfile?.patientName : 'All'}_${from}_${to}${timeSuffix}`,
       rows
     );
   };
@@ -195,6 +207,8 @@ export const PaymentLedgerPage: React.FC = () => {
     setSearchParams({});
     setFrom(monthStartIso());
     setTo(todayIso());
+    setFromTime('');
+    setToTime('');
     setPaymentMethod('All');
     setFlowType('all');
     setPayeeType('All');
@@ -237,6 +251,223 @@ export const PaymentLedgerPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* ── Comprehensive Filters Card (Hidden when printing) ── */}
+      <Card className="border-slate-200 shadow-xs print:hidden">
+        <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-2.5 pt-2.5 px-3 sm:px-6">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-700">
+              <Filter className="h-3.5 w-3.5 text-indigo-600" />
+              <span>Filter Ledger Records</span>
+            </CardTitle>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-indigo-600 transition-colors"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Reset All</span>
+            </button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3 p-3 sm:p-5">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+            {/* 1. Patient Picker */}
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-semibold text-slate-700">
+                Filter by Patient (Select for Patient Ledger Bill)
+              </label>
+              <PatientSearchSelect
+                value={selectedPatient}
+                onChange={(p) => {
+                  setSelectedPatient(p);
+                  if (p?.id) {
+                    setSearchParams({ patientId: p.id });
+                  } else {
+                    setSearchParams({});
+                  }
+                }}
+              />
+            </div>
+
+            {/* 2: From Date & From Time */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">From Date &amp; Time</label>
+              </div>
+              <div className="grid grid-cols-5 gap-1.5">
+                <Input
+                  type="date"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                  className="h-9 text-xs col-span-3 px-2"
+                />
+                <Input
+                  type="time"
+                  value={fromTime}
+                  onChange={(e) => setFromTime(e.target.value)}
+                  className="h-9 text-xs col-span-2 px-1 text-center"
+                  placeholder="00:00"
+                  title="From Time (e.g. 09:00 AM)"
+                />
+              </div>
+            </div>
+
+            {/* 3: To Date & To Time */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">To Date &amp; Time</label>
+              </div>
+              <div className="grid grid-cols-5 gap-1.5">
+                <Input
+                  type="date"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                  className="h-9 text-xs col-span-3 px-2"
+                />
+                <Input
+                  type="time"
+                  value={toTime}
+                  onChange={(e) => setToTime(e.target.value)}
+                  className="h-9 text-xs col-span-2 px-1 text-center"
+                  placeholder="23:59"
+                  title="To Time (e.g. 06:00 PM)"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Shift Timing Presets Row */}
+          <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-slate-100">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                <Clock className="h-3 w-3 text-indigo-600" />
+                <span>Shift Timing:</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => { setFromTime(''); setToTime(''); }}
+                className={`text-[11px] px-2 py-0.5 rounded-md font-medium border transition-colors ${
+                  !fromTime && !toTime
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                All Day (Full 24h)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setFromTime('07:00'); setToTime('14:00'); }}
+                className={`text-[11px] px-2 py-0.5 rounded-md font-medium border transition-colors ${
+                  fromTime === '07:00' && toTime === '14:00'
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Morning Shift (07:00 - 14:00)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setFromTime('14:00'); setToTime('21:00'); }}
+                className={`text-[11px] px-2 py-0.5 rounded-md font-medium border transition-colors ${
+                  fromTime === '14:00' && toTime === '21:00'
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Evening Shift (14:00 - 21:00)
+              </button>
+              {(fromTime || toTime) && (
+                <button
+                  type="button"
+                  onClick={() => { setFromTime(''); setToTime(''); }}
+                  className="text-[11px] px-1.5 py-0.5 text-rose-600 hover:underline font-semibold"
+                >
+                  Clear Time ({fromTime || '00:00'} - {toTime || '23:59'})
+                </button>
+              )}
+            </div>
+            {(fromTime || toTime) && (
+              <span className="text-[11px] text-indigo-600 font-medium">
+                Active time filter: <strong>{fromTime || '00:00'}</strong> to <strong>{toTime || '23:59'}</strong>
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+            {/* 4. Payment Method Filter */}
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700">Payment Method</label>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="h-9 w-full rounded-lg border bg-background px-2.5 text-xs font-medium"
+              >
+                <option value="All">All Methods (Cash, UPI, Card, Split...)</option>
+                <option value="Split">Split Payment (Cash + UPI, etc.)</option>
+                <option value="Cash">Cash</option>
+                <option value="UPI">UPI</option>
+                <option value="Card">Card</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Online">Online</option>
+                <option value="Credit">Credit (pay later)</option>
+              </select>
+            </div>
+
+            {/* 5. Flow Type Filter */}
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700">Transaction Flow</label>
+              <select
+                value={flowType}
+                onChange={(e) => setFlowType(e.target.value as any)}
+                className="h-9 w-full rounded-lg border bg-background px-2.5 text-xs font-medium"
+              >
+                <option value="all">All Flows (Inflows + Outflows)</option>
+                <option value="collection">Collections (Patient Receipts)</option>
+                <option value="payout">All Outflows (Payouts &amp; Refunds)</option>
+                <option value="refund">Patient Refunds Only</option>
+              </select>
+            </div>
+
+            {/* 6. Payee Type */}
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700">
+                Payout Recipient / Payee Type
+              </label>
+              <select
+                value={payeeType}
+                onChange={(e) => setPayeeType(e.target.value)}
+                className="h-9 w-full rounded-lg border bg-background px-2.5 text-xs font-medium"
+              >
+                <option value="All">All Payees / Recipients</option>
+                <option value="Patient Refund">Patient Refund</option>
+                <option value="Doctor Referral">Doctor Referral Cut</option>
+                <option value="Ambulance">Ambulance</option>
+                <option value="Courier">Courier</option>
+                <option value="Supplier">Supplier / Lab Consumables</option>
+                <option value="Staff Salary">Staff / Salary</option>
+                <option value="Other Expense">Other Expense</option>
+              </select>
+            </div>
+
+            {/* 7. Search Text */}
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700">Keyword Search</label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Receipt #, Bill #, Name..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 pl-8 text-xs"
+                />
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ── Today's Live Collection Summary Banner ── */}
       <Card className="border-indigo-200/90 bg-gradient-to-br from-indigo-50/70 via-white to-sky-50/40 shadow-xs print:hidden">
@@ -352,140 +583,6 @@ export const PaymentLedgerPage: React.FC = () => {
                 ) : (
                   <span className="text-[11px] text-slate-400 italic">No collections yet today</span>
                 )}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Comprehensive Filters Card (Hidden when printing) ── */}
-      <Card className="border-slate-200 shadow-xs print:hidden">
-        <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-2.5 pt-2.5 px-3 sm:px-6">
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-700">
-              <Filter className="h-3.5 w-3.5 text-indigo-600" />
-              <span>Filter Ledger Records</span>
-            </CardTitle>
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-indigo-600 transition-colors"
-            >
-              <RotateCcw className="h-3 w-3" />
-              <span>Reset All</span>
-            </button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3 p-3 sm:p-5">
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-            {/* 1. Patient Picker */}
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-xs font-semibold text-slate-700">
-                Filter by Patient (Select for Patient Ledger Bill)
-              </label>
-              <PatientSearchSelect
-                value={selectedPatient}
-                onChange={(p) => {
-                  setSelectedPatient(p);
-                  if (p?.id) {
-                    setSearchParams({ patientId: p.id });
-                  } else {
-                    setSearchParams({});
-                  }
-                }}
-              />
-            </div>
-
-            {/* 2 & 3: Date From & To in a 2-col subgrid on mobile */}
-            <div className="grid grid-cols-2 gap-2 sm:contents">
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-700">From Date</label>
-                <Input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                  className="h-9 text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-700">To Date</label>
-                <Input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  className="h-9 text-xs"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
-            {/* 4. Payment Method Filter */}
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-700">Payment Method</label>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="h-9 w-full rounded-lg border bg-background px-2.5 text-xs font-medium"
-              >
-                <option value="All">All Methods (Cash, UPI, Card, Split...)</option>
-                {FILTER_PAYMENT_METHODS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* 5. Flow Type Filter */}
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-700">Transaction Flow</label>
-              <select
-                value={flowType}
-                onChange={(e) => setFlowType(e.target.value as any)}
-                className="h-9 w-full rounded-lg border bg-background px-2.5 text-xs font-medium"
-              >
-                <option value="all">All Flows (Inflows + Outflows)</option>
-                <option value="collection">Collections (Patient Receipts)</option>
-                <option value="payout">All Outflows (Payouts &amp; Refunds)</option>
-                <option value="refund">Patient Refunds Only</option>
-              </select>
-            </div>
-
-            {/* 6. Payee Type */}
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-700">
-                Payout Recipient / Payee Type
-              </label>
-              <select
-                value={payeeType}
-                onChange={(e) => setPayeeType(e.target.value)}
-                className="h-9 w-full rounded-lg border bg-background px-2.5 text-xs font-medium"
-              >
-                <option value="All">All Payees / Recipients</option>
-                <option value="Patient Refund">Patient Refund</option>
-                <option value="Doctor Referral">Doctor Referral Cut</option>
-                <option value="Ambulance">Ambulance</option>
-                <option value="Courier">Courier</option>
-                <option value="Supplier">Supplier / Lab Consumables</option>
-                <option value="Staff Salary">Staff / Salary</option>
-                <option value="Other Expense">Other Expense</option>
-              </select>
-            </div>
-
-            {/* 7. Search Text */}
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-700">Keyword Search</label>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Receipt #, Bill #, Name..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-9 pl-8 text-xs"
-                />
               </div>
             </div>
           </div>
@@ -608,13 +705,23 @@ export const PaymentLedgerPage: React.FC = () => {
         </Card>
       )}
 
-      {/* ── Active Date Filter Notice (If single day filtered) ── */}
-      {from && to && from === to && (
-        <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 px-3.5 py-2 rounded-xl text-xs text-indigo-900 print:hidden">
-          <div className="flex items-center gap-2">
+      {/* ── Active Date & Time Filter Notice (If single day or custom time filtered) ── */}
+      {((from && to && from === to) || fromTime || toTime) && (
+        <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 px-3.5 py-2 rounded-xl text-xs text-indigo-900 print:hidden flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Calendar className="h-4 w-4 text-indigo-600 shrink-0" />
             <span>
-              Filtered to single day: <strong>{formatDay(from)}</strong> ({relativeDayLabel(from)})
+              {from && to && from === to ? (
+                <>Filtered Day: <strong>{formatDay(from)}</strong> ({relativeDayLabel(from)})</>
+              ) : (
+                <>Period: <strong>{formatDay(from)}</strong> to <strong>{formatDay(to)}</strong></>
+              )}
+              {(fromTime || toTime) && (
+                <span className="ml-1.5 inline-flex items-center gap-1 font-semibold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-md">
+                  <Clock className="h-3 w-3" />
+                  Time: {fromTime || '00:00'} - {toTime || '23:59'}
+                </span>
+              )}
             </span>
           </div>
           <Button
