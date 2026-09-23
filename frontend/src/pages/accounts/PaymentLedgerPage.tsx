@@ -11,6 +11,8 @@ import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
 import { PatientSearchSelect } from '../../components/patients/PatientSearchSelect';
 import { PatientLedgerBill } from '../../components/billing/PatientLedgerBill';
+import { LedgerVoucherPrint } from '../../components/billing/LedgerVoucherPrint';
+import { DayCollectionPrint } from '../../components/billing/DayCollectionPrint';
 import { exportToExcel } from '../../utils/excel-export';
 import { formatDay, formatDateTime, relativeDayLabel, todayKey, daysAgoKey } from '../../utils/dates';
 import { ageSexLabel } from '../../utils/age';
@@ -71,6 +73,11 @@ export const PaymentLedgerPage: React.FC = () => {
   const [payeeType, setPayeeType] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'transactions' | 'daywise'>('transactions');
+  // The single row being printed, if any - a ledger entry's voucher or a day's
+  // collection statement. Null means a print covers the page as a whole.
+  const [printTarget, setPrintTarget] = useState<
+    { kind: 'transaction' | 'day'; data: any } | null
+  >(null);
 
   // Fetch center users/staff for the User / Handled By filter
   const { data: usersData } = useQuery({
@@ -168,8 +175,37 @@ export const PaymentLedgerPage: React.FC = () => {
   };
 
   const handlePrint = () => {
+    setPrintTarget(null);
     window.print();
   };
+
+  /**
+   * Printing one row rather than the whole ledger: the sheet for that row is
+   * mounted first, the browser's print dialog opens on the next frame, and the
+   * sheet is dropped again once the dialog closes - so a row print never leaves
+   * a stray voucher behind for the next "Print Ledger Bill".
+   */
+  const handlePrintTransaction = (transaction: any) => {
+    setPrintTarget({ kind: 'transaction', data: transaction });
+  };
+
+  const handlePrintDay = (day: any) => {
+    setPrintTarget({ kind: 'day', data: day });
+  };
+
+  React.useEffect(() => {
+    if (!printTarget) return;
+
+    const clearTarget = () => setPrintTarget(null);
+    window.addEventListener('afterprint', clearTarget);
+    // A frame for the sheet to paint before the dialog freezes the page.
+    const timer = window.setTimeout(() => window.print(), 80);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('afterprint', clearTarget);
+    };
+  }, [printTarget]);
 
   const handleExportExcel = () => {
     if (activeTab === 'daywise') {
@@ -978,15 +1014,25 @@ export const PaymentLedgerPage: React.FC = () => {
                         </div>
                       )}
 
-                      <div className="pt-1">
+                      <div className="pt-1 flex items-center gap-2">
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => handleFilterDay(day.date)}
-                          className="w-full h-8 text-xs font-semibold text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                          className="flex-1 h-8 text-xs font-semibold text-indigo-700 border-indigo-200 hover:bg-indigo-50"
                         >
                           View {day.totalCount} Day's Transactions
                           <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handlePrintDay(day)}
+                          title="Print Daily Collection Statement"
+                          className="h-8 text-xs font-semibold text-slate-700 border-slate-200 hover:bg-slate-50"
+                        >
+                          <Printer className="mr-1 h-3.5 w-3.5" />
+                          Print
                         </Button>
                       </div>
                     </div>
@@ -1089,15 +1135,27 @@ export const PaymentLedgerPage: React.FC = () => {
                             </div>
                           </td>
                           <td className="px-4 py-3 text-center whitespace-nowrap">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleFilterDay(day.date)}
-                              className="h-7 text-xs font-semibold text-indigo-700 border-indigo-200 hover:bg-indigo-50"
-                            >
-                              View Transactions
-                              <ArrowRight className="ml-1 h-3 w-3" />
-                            </Button>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleFilterDay(day.date)}
+                                className="h-7 text-xs font-semibold text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                              >
+                                View Transactions
+                                <ArrowRight className="ml-1 h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handlePrintDay(day)}
+                                title="Print Daily Collection Statement"
+                                className="h-7 text-xs font-semibold text-slate-700 border-slate-200 hover:bg-slate-50"
+                              >
+                                <Printer className="mr-1 h-3 w-3" />
+                                Print
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1238,6 +1296,16 @@ export const PaymentLedgerPage: React.FC = () => {
                         {t.notes && <span className="text-slate-400 ml-0.5 truncate">({t.notes})</span>}
                       </div>
                     </div>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handlePrintTransaction(t)}
+                      className="w-full h-8 text-xs font-semibold text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                    >
+                      <Printer className="mr-1.5 h-3.5 w-3.5" />
+                      Print {isInflow ? 'Receipt' : isRefund ? 'Refund Voucher' : 'Payment Voucher'}
+                    </Button>
                   </div>
                 );
               })
@@ -1269,18 +1337,19 @@ export const PaymentLedgerPage: React.FC = () => {
                   <th className="px-4 py-3">Handled By</th>
                   <th className="px-4 py-3 text-right">Inflow (+)</th>
                   <th className="px-4 py-3 text-right">Outflow (-)</th>
+                  <th className="px-4 py-3 text-center">Print</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-slate-500">
+                    <td colSpan={10} className="p-8 text-center text-slate-500">
                       Loading ledger records...
                     </td>
                   </tr>
                 ) : transactions.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-slate-500">
+                    <td colSpan={10} className="p-8 text-center text-slate-500">
                       No transactions found matching the selected filters.
                     </td>
                   </tr>
@@ -1380,6 +1449,18 @@ export const PaymentLedgerPage: React.FC = () => {
                         <td className="px-4 py-3 text-right font-mono font-bold text-rose-600">
                           {!isInflow ? money(t.amount) : '-'}
                         </td>
+                        <td className="px-4 py-3 text-center whitespace-nowrap">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handlePrintTransaction(t)}
+                            title={isInflow ? 'Print Payment Receipt' : 'Print Payment Voucher'}
+                            className="h-7 text-xs font-semibold text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                          >
+                            <Printer className="mr-1 h-3 w-3" />
+                            Print
+                          </Button>
+                        </td>
                       </tr>
                     );
                   })
@@ -1397,6 +1478,7 @@ export const PaymentLedgerPage: React.FC = () => {
                     <td className="px-4 py-3 text-right font-mono text-rose-700">
                       {money(summary.totalPayouts)}
                     </td>
+                    <td className="px-4 py-3" />
                   </tr>
                 </tfoot>
               )}
@@ -1406,8 +1488,21 @@ export const PaymentLedgerPage: React.FC = () => {
       </Card>
       )}
 
+      {/* ── Printable Single Row Sheets (Receipt / Voucher / Day Statement) ── */}
+      {printTarget?.kind === 'transaction' && (
+        <div className="hidden print:block">
+          <LedgerVoucherPrint transaction={printTarget.data} />
+        </div>
+      )}
+
+      {printTarget?.kind === 'day' && (
+        <div className="hidden print:block">
+          <DayCollectionPrint day={printTarget.data} transactions={transactions} />
+        </div>
+      )}
+
       {/* ── Printable Patient Ledger Bill (Activated on Print) ── */}
-      {selectedPatient && patientProfile && (
+      {!printTarget && selectedPatient && patientProfile && (
         <div className="hidden print:block">
           <PatientLedgerBill
             patient={patientProfile}
