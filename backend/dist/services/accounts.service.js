@@ -597,31 +597,46 @@ class AccountsService {
                 paymentQuery.patient = patientId;
             if (dateFilter)
                 paymentQuery.createdAt = dateFilter;
-            if (paymentMethod && paymentMethod !== 'All')
+            if (paymentMethod && paymentMethod !== 'All' && paymentMethod !== 'Split') {
                 paymentQuery.paymentMethod = paymentMethod;
+            }
             const payments = await payment_model_1.Payment.find(paymentQuery)
                 .populate('patient', 'patientName uhid mobile age gender address')
-                .populate('invoice', 'invoiceNumber netAmount dueAmount')
+                .populate('invoice', 'invoiceNumber netAmount dueAmount paymentBreakdown paymentMethod')
                 .sort({ createdAt: -1 })
                 .limit(500);
-            paymentTransactions = payments.map((p) => ({
-                id: p._id,
-                date: p.createdAt,
-                flow: 'INFLOW',
-                type: 'Patient Collection',
-                receiptNumber: p.receiptNumber,
-                invoiceNumber: p.invoice?.invoiceNumber || '-',
-                invoiceId: p.invoice?._id || p.invoice,
-                patientId: p.patient?._id,
-                partyName: p.patient?.patientName || 'Patient',
-                partyUhid: p.patient?.uhid || '',
-                partyMobile: p.patient?.mobile || '',
-                paymentMethod: p.paymentMethod,
-                amount: p.amount,
-                transactionRef: p.transactionRef || '',
-                notes: p.notes || '',
-                handledBy: p.receivedBy?.name || '',
-            }));
+            paymentTransactions = payments.map((p) => {
+                const breakdown = Array.isArray(p.invoice?.paymentBreakdown) ? p.invoice.paymentBreakdown : [];
+                const isSplit = Boolean(breakdown.length > 1 ||
+                    /split/i.test(p.notes || '') ||
+                    p.paymentMethod === 'Split');
+                const splitSummary = breakdown.length > 1
+                    ? breakdown.map((s) => `${s.method}: ₹${s.amount}`).join(' + ')
+                    : (/split/i.test(p.notes || '') ? p.notes : '');
+                return {
+                    id: p._id,
+                    date: p.createdAt,
+                    flow: 'INFLOW',
+                    type: 'Patient Collection',
+                    receiptNumber: p.receiptNumber,
+                    invoiceNumber: p.invoice?.invoiceNumber || '-',
+                    invoiceId: p.invoice?._id || p.invoice,
+                    patientId: p.patient?._id,
+                    partyName: p.patient?.patientName || 'Patient',
+                    partyUhid: p.patient?.uhid || '',
+                    partyMobile: p.patient?.mobile || '',
+                    paymentMethod: p.paymentMethod,
+                    isSplit,
+                    splitSummary,
+                    amount: p.amount,
+                    transactionRef: p.transactionRef || '',
+                    notes: p.notes || '',
+                    handledBy: p.receivedBy?.name || '',
+                };
+            });
+            if (paymentMethod === 'Split') {
+                paymentTransactions = paymentTransactions.filter((t) => t.isSplit);
+            }
         }
         // 3. Query Outflows (Payouts & Patient Refunds)
         let outflowTransactions = [];
@@ -639,8 +654,9 @@ class AccountsService {
                 if (dateFilter) {
                     refundQuery.$or = [{ date: dateFilter }, { createdAt: dateFilter }];
                 }
-                if (paymentMethod && paymentMethod !== 'All')
+                if (paymentMethod && paymentMethod !== 'All' && paymentMethod !== 'Split') {
                     refundQuery.paymentMethod = paymentMethod;
+                }
                 const refunds = await refund_model_1.Refund.find(refundQuery)
                     .populate('patient', 'patientName uhid mobile age gender address')
                     .populate('invoice', 'invoiceNumber netAmount dueAmount')
@@ -680,8 +696,9 @@ class AccountsService {
                 }
                 if (dateFilter)
                     payoutQuery.expenseDate = dateFilter;
-                if (paymentMethod && paymentMethod !== 'All')
+                if (paymentMethod && paymentMethod !== 'All' && paymentMethod !== 'Split') {
                     payoutQuery.paymentMethod = paymentMethod;
+                }
                 if (payeeType && payeeType !== 'All')
                     payoutQuery.payeeType = payeeType;
                 const payouts = await expense_model_1.Payout.find(payoutQuery)
@@ -714,6 +731,9 @@ class AccountsService {
                 }));
             }
             outflowTransactions = [...refundTransactions, ...payoutTransactions];
+            if (paymentMethod === 'Split') {
+                outflowTransactions = outflowTransactions.filter((t) => /split/i.test(t.notes || '') || t.paymentMethod === 'Split');
+            }
         }
         // 4. Group and sequence transactions for patients/parties
         // "same naam, no. ya uhid wale multiple times pay kr rhe h to unko sequence me rakho"

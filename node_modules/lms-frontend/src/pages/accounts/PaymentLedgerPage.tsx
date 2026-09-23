@@ -10,7 +10,7 @@ import { Badge } from '../../components/ui/badge';
 import { PatientSearchSelect } from '../../components/patients/PatientSearchSelect';
 import { PatientLedgerBill } from '../../components/billing/PatientLedgerBill';
 import { exportToExcel } from '../../utils/excel-export';
-import { formatDay, formatDateTime } from '../../utils/dates';
+import { formatDay, formatDateTime, relativeDayLabel, todayKey, daysAgoKey } from '../../utils/dates';
 import { ageSexLabel } from '../../utils/age';
 import {
   BookOpen,
@@ -28,9 +28,12 @@ import {
   Receipt,
   Building2,
   Stethoscope,
+  RefreshCw,
+  ArrowRight,
 } from 'lucide-react';
 import {
   COLLECTION_METHODS,
+  FILTER_PAYMENT_METHODS,
   DISBURSEMENT_METHODS,
   methodLabel,
   methodColor,
@@ -58,6 +61,7 @@ export const PaymentLedgerPage: React.FC = () => {
   const [flowType, setFlowType] = useState<'all' | 'collection' | 'payout' | 'refund'>('all');
   const [payeeType, setPayeeType] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'transactions' | 'daywise'>('transactions');
 
   // Fetch patient profile if patientId was passed in query params
   const { data: initialPatientData } = useQuery({
@@ -85,9 +89,10 @@ export const PaymentLedgerPage: React.FC = () => {
     limit: 100,
   };
 
-  const { data: ledgerData, isLoading, refetch } = useQuery({
+  const { data: ledgerData, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['accounts-ledger', filters],
     queryFn: () => accountsApi.getLedger(filters),
+    refetchInterval: 20000,
   });
 
   const summary = ledgerData?.summary || {
@@ -99,16 +104,70 @@ export const PaymentLedgerPage: React.FC = () => {
     payoutCount: 0,
   };
 
+  const todaySummary = ledgerData?.todaySummary || {
+    date: todayKey(),
+    collections: 0,
+    payouts: 0,
+    net: 0,
+    collectionCount: 0,
+    payoutCount: 0,
+    totalCount: 0,
+    byMethod: {},
+  };
+
+  const byDay: any[] = ledgerData?.byDay || [];
   const transactions: any[] = ledgerData?.transactions || [];
   const patientProfile = ledgerData?.patient || selectedPatient;
   const patientSummary = ledgerData?.patientSummary;
   const patientInvoices: any[] = ledgerData?.invoices || [];
+
+  const isViewingToday = from === todayIso() && to === todayIso();
+
+  const filterTodayOnly = () => {
+    setFrom(todayIso());
+    setTo(todayIso());
+    setActiveTab('transactions');
+  };
+
+  const handleFilterDay = (dayDate: string) => {
+    setFrom(dayDate);
+    setTo(dayDate);
+    setActiveTab('transactions');
+  };
+
+  const showAllDays = () => {
+    setFrom(monthStartIso());
+    setTo(todayIso());
+  };
 
   const handlePrint = () => {
     window.print();
   };
 
   const handleExportExcel = () => {
+    if (activeTab === 'daywise') {
+      const dayRows = byDay.map((d: any, index: number) => ({
+        Sr: index + 1,
+        Date: formatDay(d.date),
+        Day: relativeDayLabel(d.date),
+        Collections_Inflow: d.collections,
+        Receipt_Count: d.collectionCount,
+        Payouts_Outflow: d.payouts,
+        Payout_Count: d.payoutCount,
+        Net_Cash_Flow: d.net,
+        Total_Records: d.totalCount,
+        Methods: Object.entries(d.byMethod || {})
+          .map(([m, amt]) => `${m}: ₹${amt}`)
+          .join(', '),
+      }));
+
+      exportToExcel(
+        `DayWise_Collection_${activePatientId ? patientProfile?.patientName : 'All'}_${from || 'start'}_${to || 'today'}`,
+        dayRows
+      );
+      return;
+    }
+
     const rows = transactions.map((t: any, index: number) => ({
       Sr: index + 1,
       Date: formatDateTime(t.date),
@@ -178,6 +237,126 @@ export const PaymentLedgerPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* ── Today's Live Collection Summary Banner ── */}
+      <Card className="border-indigo-200/90 bg-gradient-to-br from-indigo-50/70 via-white to-sky-50/40 shadow-xs print:hidden">
+        <CardContent className="p-3.5 sm:p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between border-b border-indigo-100/70 pb-3">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-xs">
+                <Calendar className="h-4 w-4" />
+              </span>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                    Today's Live Collection Summary
+                  </h2>
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    LIVE DAILY UPDATES
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs text-slate-500">
+                  {formatDay(new Date())} · Real-time auto-updating center collection &amp; daily cash flow
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-start md:self-auto">
+              {isViewingToday ? (
+                <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs font-semibold py-1">
+                  Viewing Today's Transactions
+                </Badge>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={filterTodayOnly}
+                  className="h-8 text-xs font-semibold border-indigo-200 hover:bg-indigo-50 text-indigo-700"
+                >
+                  <Calendar className="mr-1.5 h-3.5 w-3.5 text-indigo-600" />
+                  Filter Today in Ledger
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                title="Refresh Live Data"
+                className="h-8 w-8 p-0 text-slate-600 hover:text-indigo-600"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin text-indigo-600' : ''}`} />
+              </Button>
+            </div>
+          </div>
+
+          {/* Today KPI Stat Tiles */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 pt-3">
+            {/* 1. Today Collections */}
+            <div className="rounded-xl border border-emerald-200 bg-white p-2.5 sm:p-3 shadow-2xs">
+              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1">
+                <ArrowDownLeft className="h-3 w-3 text-emerald-600" /> Today's Inflow
+              </span>
+              <p className="mt-1 text-base sm:text-xl font-bold text-emerald-700 font-mono">
+                {money(todaySummary.collections)}
+              </p>
+              <p className="text-[10px] font-medium text-emerald-600">
+                {todaySummary.collectionCount} receipt{todaySummary.collectionCount === 1 ? '' : 's'}
+              </p>
+            </div>
+
+            {/* 2. Today Outflows */}
+            <div className="rounded-xl border border-rose-200 bg-white p-2.5 sm:p-3 shadow-2xs">
+              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-rose-800 flex items-center gap-1">
+                <ArrowUpRight className="h-3 w-3 text-rose-600" /> Today's Outflows
+              </span>
+              <p className="mt-1 text-base sm:text-xl font-bold text-rose-700 font-mono">
+                {money(todaySummary.payouts)}
+              </p>
+              <p className="text-[10px] font-medium text-rose-600">
+                {todaySummary.payoutCount} payout/refund{todaySummary.payoutCount === 1 ? '' : 's'}
+              </p>
+            </div>
+
+            {/* 3. Today Net Cash */}
+            <div className="col-span-2 sm:col-span-1 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 shadow-2xs">
+              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <IndianRupee className="h-3 w-3 text-slate-500" /> Today's Net Balance
+              </span>
+              <p className={`mt-1 text-base sm:text-xl font-bold font-mono ${todaySummary.net >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                {money(todaySummary.net)}
+              </p>
+              <p className="text-[10px] font-medium text-slate-500">
+                Net Cash Flow Today
+              </p>
+            </div>
+
+            {/* 4. Payment Methods Breakdown Today */}
+            <div className="col-span-2 sm:col-span-3 lg:col-span-1 rounded-xl border border-indigo-100 bg-indigo-50/40 p-2.5 sm:p-3 shadow-2xs flex flex-col justify-between">
+              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-indigo-900 mb-1">
+                Today By Method
+              </span>
+              <div className="flex flex-wrap gap-1.5 items-center">
+                {Object.keys(todaySummary.byMethod || {}).length > 0 ? (
+                  Object.entries(todaySummary.byMethod).map(([m, amt]) => (
+                    <span
+                      key={m}
+                      className="inline-flex items-center gap-1 text-[11px] bg-white border border-slate-200 px-2 py-0.5 rounded-md font-medium text-slate-800 shadow-2xs"
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: methodColor(m) }} />
+                      <span className="text-slate-600">{methodLabel(m)}:</span>
+                      <span className="font-bold font-mono">{money(amt as number)}</span>
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-[11px] text-slate-400 italic">No collections yet today</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ── Comprehensive Filters Card (Hidden when printing) ── */}
       <Card className="border-slate-200 shadow-xs print:hidden">
@@ -250,8 +429,8 @@ export const PaymentLedgerPage: React.FC = () => {
                 onChange={(e) => setPaymentMethod(e.target.value)}
                 className="h-9 w-full rounded-lg border bg-background px-2.5 text-xs font-medium"
               >
-                <option value="All">All Methods (Cash, UPI, Card...)</option>
-                {COLLECTION_METHODS.map((m) => (
+                <option value="All">All Methods (Cash, UPI, Card, Split...)</option>
+                {FILTER_PAYMENT_METHODS.map((m) => (
                   <option key={m.value} value={m.value}>
                     {m.label}
                   </option>
@@ -314,10 +493,10 @@ export const PaymentLedgerPage: React.FC = () => {
       </Card>
 
       {/* ── Summary KPI Tiles (Hidden when printing) ── */}
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 print:hidden">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3 print:hidden">
         <div className="rounded-xl sm:rounded-2xl border border-emerald-200/80 bg-emerald-50/50 p-3 sm:p-4 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] sm:text-xs font-semibold text-emerald-800">Collections</span>
+            <span className="text-[11px] sm:text-xs font-semibold text-emerald-800">Collections (Inflow)</span>
             <span className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg sm:rounded-xl bg-emerald-100 text-emerald-700">
               <ArrowDownLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </span>
@@ -345,17 +524,34 @@ export const PaymentLedgerPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="col-span-2 sm:col-span-1 rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-xs flex sm:block items-center justify-between">
-          <div>
-            <span className="text-[11px] sm:text-xs font-semibold text-slate-600">Total Entries</span>
-            <p className="mt-0.5 sm:mt-2 text-lg sm:text-2xl font-bold tracking-tight text-slate-900">
-              {summary.totalCount}
-            </p>
-            <p className="hidden sm:block mt-0.5 text-[10px] sm:text-[11px] font-medium text-slate-500">Matching active filters</p>
+        <div className="rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-700">Net Cash Flow</span>
+            <span className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg sm:rounded-xl bg-slate-100 text-slate-700">
+              <IndianRupee className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            </span>
           </div>
-          <span className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg sm:rounded-xl bg-slate-100 text-slate-700 sm:hidden">
-            <Receipt className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-          </span>
+          <p className={`mt-1.5 sm:mt-2 text-lg sm:text-2xl font-bold tracking-tight truncate ${summary.netBalance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+            {money(summary.netBalance)}
+          </p>
+          <p className="mt-0.5 text-[10px] sm:text-[11px] font-medium text-slate-500 truncate">
+            Filtered period net
+          </p>
+        </div>
+
+        <div className="rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-600">Total Entries</span>
+            <span className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg sm:rounded-xl bg-slate-100 text-slate-700">
+              <Receipt className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            </span>
+          </div>
+          <p className="mt-1.5 sm:mt-2 text-lg sm:text-2xl font-bold tracking-tight text-slate-900 truncate">
+            {summary.totalCount}
+          </p>
+          <p className="mt-0.5 text-[10px] sm:text-[11px] font-medium text-slate-500 truncate">
+            Matching active filters
+          </p>
         </div>
       </div>
 
@@ -412,8 +608,307 @@ export const PaymentLedgerPage: React.FC = () => {
         </Card>
       )}
 
-      {/* ── Detailed Ledger Table (Desktop) & Cards (Mobile) ── */}
-      <Card className="border-slate-200 shadow-xs print:hidden">
+      {/* ── Active Date Filter Notice (If single day filtered) ── */}
+      {from && to && from === to && (
+        <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 px-3.5 py-2 rounded-xl text-xs text-indigo-900 print:hidden">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-indigo-600 shrink-0" />
+            <span>
+              Filtered to single day: <strong>{formatDay(from)}</strong> ({relativeDayLabel(from)})
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={showAllDays}
+            className="h-7 text-xs font-semibold text-indigo-700 hover:text-indigo-900 hover:bg-indigo-100/60"
+          >
+            Show All Days ({formatDay(monthStartIso())} - Today)
+          </Button>
+        </div>
+      )}
+
+      {/* ── Ledger View Switcher Tabs ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200 pb-2 print:hidden">
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl w-fit">
+          <button
+            type="button"
+            onClick={() => setActiveTab('transactions')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              activeTab === 'transactions'
+                ? 'bg-white text-indigo-700 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Receipt className="h-3.5 w-3.5" />
+            <span>All Transactions</span>
+            <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0 font-semibold">
+              {transactions.length}
+            </Badge>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('daywise')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              activeTab === 'daywise'
+                ? 'bg-white text-indigo-700 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Calendar className="h-3.5 w-3.5" />
+            <span>Day-Wise Collection</span>
+            <Badge
+              variant="secondary"
+              className="ml-1 text-[10px] px-1.5 py-0 font-semibold bg-indigo-50 text-indigo-700"
+            >
+              {byDay.length} Days
+            </Badge>
+          </button>
+        </div>
+
+        <span className="text-xs text-muted-foreground hidden sm:block">
+          {activeTab === 'transactions'
+            ? 'Itemized patient receipts & disbursement vouchers'
+            : 'Aggregated daily collections, outflows & net cash breakdown'}
+        </span>
+      </div>
+
+      {activeTab === 'daywise' ? (
+        <Card className="border-slate-200 shadow-xs print:hidden">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-2.5 pt-2.5 px-3 sm:px-6">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-indigo-600" />
+                <span>Day-Wise Daily Collection Summary ({byDay.length} Days)</span>
+              </CardTitle>
+              <span className="text-[11px] font-medium text-slate-500">
+                Period: {from ? formatDay(from) : 'Start'} to {to ? formatDay(to) : 'Today'}
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {/* 1. Mobile Cards for Day-Wise */}
+            <div className="block md:hidden divide-y divide-slate-100">
+              {isLoading ? (
+                <div className="p-6 text-center text-slate-500 text-xs">
+                  Loading day-wise collections...
+                </div>
+              ) : byDay.length === 0 ? (
+                <div className="p-6 text-center text-slate-500 text-xs">
+                  No day-wise collection records found for the selected period.
+                </div>
+              ) : (
+                byDay.map((day: any) => {
+                  const isToday = day.date === todayKey();
+                  const isYesterday = day.date === daysAgoKey(1);
+
+                  return (
+                    <div key={day.date} className="p-3.5 hover:bg-slate-50 transition-colors space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-xs text-slate-900">
+                            {formatDay(day.date)}
+                          </span>
+                          {isToday && (
+                            <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] px-1.5 py-0 font-bold">
+                              Today
+                            </Badge>
+                          )}
+                          {isYesterday && (
+                            <Badge variant="outline" className="text-slate-600 text-[10px] px-1.5 py-0 font-medium">
+                              Yesterday
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] text-slate-500 block">Net Balance</span>
+                          <span className={`font-mono font-bold text-xs ${day.net >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            {money(day.net)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-2">
+                          <span className="text-[10px] font-semibold text-emerald-800 block">Collections (Inflow)</span>
+                          <span className="font-bold font-mono text-emerald-700 text-xs sm:text-sm">{money(day.collections)}</span>
+                          <span className="text-[10px] text-emerald-600 block">{day.collectionCount} receipt{day.collectionCount === 1 ? '' : 's'}</span>
+                        </div>
+                        <div className="rounded-lg border border-rose-100 bg-rose-50/60 p-2">
+                          <span className="text-[10px] font-semibold text-rose-800 block">Payouts &amp; Refunds</span>
+                          <span className="font-bold font-mono text-rose-700 text-xs sm:text-sm">{money(day.payouts)}</span>
+                          <span className="text-[10px] text-rose-600 block">{day.payoutCount} payout{day.payoutCount === 1 ? '' : 's'}</span>
+                        </div>
+                      </div>
+
+                      {/* Payment Methods breakdown */}
+                      {Object.keys(day.byMethod || {}).length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-0.5">
+                          {Object.entries(day.byMethod).map(([m, amt]) => (
+                            <span
+                              key={m}
+                              className="inline-flex items-center gap-1 text-[10px] bg-slate-100 px-1.5 py-0.5 rounded font-medium text-slate-700"
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: methodColor(m) }} />
+                              {methodLabel(m)}: <span className="font-bold font-mono">{money(amt as number)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="pt-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleFilterDay(day.date)}
+                          className="w-full h-8 text-xs font-semibold text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                        >
+                          View {day.totalCount} Day's Transactions
+                          <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* 2. Desktop Table for Day-Wise */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-slate-200 bg-slate-50 font-bold uppercase tracking-wider text-slate-600">
+                  <tr>
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3 text-right">Collections (Inflow)</th>
+                    <th className="px-4 py-3 text-right">Payouts &amp; Refunds</th>
+                    <th className="px-4 py-3 text-right">Net Cash Flow</th>
+                    <th className="px-4 py-3">Methods Breakdown</th>
+                    <th className="px-4 py-3 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                        Loading day-wise collections...
+                      </td>
+                    </tr>
+                  ) : byDay.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                        No day-wise collection records found for the selected period.
+                      </td>
+                    </tr>
+                  ) : (
+                    byDay.map((day: any) => {
+                      const isToday = day.date === todayKey();
+                      const isYesterday = day.date === daysAgoKey(1);
+
+                      return (
+                        <tr key={day.date} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900">{formatDay(day.date)}</span>
+                              {isToday && (
+                                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] px-1.5 py-0 font-bold">
+                                  Today
+                                </Badge>
+                              )}
+                              {isYesterday && (
+                                <Badge variant="outline" className="text-slate-600 text-[10px] px-1.5 py-0 font-medium">
+                                  Yesterday
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-slate-400">
+                              {day.totalCount} total record{day.totalCount === 1 ? '' : 's'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <span className="font-mono font-bold text-emerald-700 text-sm">
+                              +{money(day.collections)}
+                            </span>
+                            <span className="block text-[11px] text-emerald-600">
+                              {day.collectionCount} receipt{day.collectionCount === 1 ? '' : 's'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <span className="font-mono font-bold text-rose-700 text-sm">
+                              {day.payouts > 0 ? `-${money(day.payouts)}` : '₹0'}
+                            </span>
+                            <span className="block text-[11px] text-rose-600">
+                              {day.payoutCount} payout{day.payoutCount === 1 ? '' : 's'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <span className={`font-mono font-bold text-sm ${day.net >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                              {money(day.net)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1.5 max-w-[340px]">
+                              {Object.keys(day.byMethod || {}).length > 0 ? (
+                                Object.entries(day.byMethod).map(([m, amt]) => (
+                                  <span
+                                    key={m}
+                                    className="inline-flex items-center gap-1 text-[11px] bg-slate-100 px-2 py-0.5 rounded font-medium text-slate-800"
+                                  >
+                                    <span
+                                      className="h-1.5 w-1.5 rounded-full shrink-0"
+                                      style={{ backgroundColor: methodColor(m) }}
+                                    />
+                                    <span>{methodLabel(m)}:</span>
+                                    <span className="font-mono font-bold">{money(amt as number)}</span>
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-[11px] text-slate-400 italic">—</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleFilterDay(day.date)}
+                              className="h-7 text-xs font-semibold text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                            >
+                              View Transactions
+                              <ArrowRight className="ml-1 h-3 w-3" />
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+                {byDay.length > 0 && (
+                  <tfoot className="border-t-2 border-slate-300 bg-slate-50 font-bold text-xs">
+                    <tr>
+                      <td className="px-4 py-3 text-slate-700">PERIOD TOTALS ({byDay.length} DAYS):</td>
+                      <td className="px-4 py-3 text-right font-mono text-emerald-700 text-sm">
+                        +{money(summary.totalCollections)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-rose-700 text-sm">
+                        -{money(summary.totalPayouts)}
+                      </td>
+                      <td className={`px-4 py-3 text-right font-mono text-sm ${summary.netBalance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {money(summary.netBalance)}
+                      </td>
+                      <td colSpan={2} className="px-4 py-3 text-right text-slate-500">
+                        {summary.totalCount} total entries
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        /* ── Detailed Ledger Table (Desktop) & Cards (Mobile) ── */
+        <Card className="border-slate-200 shadow-xs print:hidden">
         <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-2.5 pt-2.5 px-3 sm:px-6">
           <div className="flex items-center justify-between">
             <CardTitle className="text-xs sm:text-sm font-bold text-slate-800">
@@ -478,14 +973,29 @@ export const PaymentLedgerPage: React.FC = () => {
                           </p>
                         )}
                       </div>
-                      {/* Payment Method Pill */}
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                        <span
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: methodColor(t.paymentMethod) }}
-                        />
-                        {methodLabel(t.paymentMethod)}
-                      </span>
+                      {/* Payment Method Pill & Split Indicator */}
+                      <div className="flex flex-col items-end shrink-0">
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                          <span
+                            className="h-1.5 w-1.5 rounded-full"
+                            style={{ backgroundColor: methodColor(t.paymentMethod) }}
+                          />
+                          {methodLabel(t.paymentMethod)}
+                          {t.isSplit && (
+                            <span className="text-[9px] font-bold text-violet-700 ml-0.5">
+                              (Split)
+                            </span>
+                          )}
+                        </span>
+                        {t.isSplit && t.splitSummary && (
+                          <span
+                            className="text-[9px] text-violet-600 font-medium truncate max-w-[140px] text-right mt-0.5"
+                            title={t.splitSummary}
+                          >
+                            {t.splitSummary}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Bottom Row: Receipt/Bill & Category/Notes */}
@@ -584,15 +1094,33 @@ export const PaymentLedgerPage: React.FC = () => {
                           )}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1.5">
-                            <span
-                              className="h-2 w-2 rounded-full shrink-0"
-                              style={{ backgroundColor: methodColor(t.paymentMethod) }}
-                            />
-                            <span className="font-medium text-slate-800">
-                              {methodLabel(t.paymentMethod)}
+                          <div className="flex flex-col">
+                            <span className="inline-flex items-center gap-1.5">
+                              <span
+                                className="h-2 w-2 rounded-full shrink-0"
+                                style={{ backgroundColor: methodColor(t.paymentMethod) }}
+                              />
+                              <span className="font-medium text-slate-800">
+                                {methodLabel(t.paymentMethod)}
+                              </span>
+                              {t.isSplit && (
+                                <Badge
+                                  variant="outline"
+                                  className="ml-1 text-[9px] px-1.5 py-0 font-bold bg-violet-50 text-violet-700 border-violet-200"
+                                >
+                                  Split
+                                </Badge>
+                              )}
                             </span>
-                          </span>
+                            {t.isSplit && t.splitSummary && (
+                              <span
+                                className="text-[10px] text-violet-600 font-medium mt-0.5"
+                                title={t.splitSummary}
+                              >
+                                {t.splitSummary}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-slate-600 max-w-[240px]">
                           <span
@@ -638,6 +1166,7 @@ export const PaymentLedgerPage: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* ── Printable Patient Ledger Bill (Activated on Print) ── */}
       {selectedPatient && patientProfile && (

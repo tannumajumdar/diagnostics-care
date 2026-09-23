@@ -1,4 +1,4 @@
-import { Banknote, Smartphone, CreditCard, Landmark, FileText, Globe, Clock, type LucideIcon } from 'lucide-react';
+import { Banknote, Smartphone, CreditCard, Landmark, FileText, Globe, Clock, Split, type LucideIcon } from 'lucide-react';
 import { SERIES } from './charts';
 
 /**
@@ -30,6 +30,12 @@ export const COLLECTION_METHODS: PaymentMethodOption[] = [
   { value: 'Credit', label: 'Credit (pay later)', icon: Clock, hint: 'Billed now, collected afterwards' },
 ];
 
+/** Options available in ledger & transaction filter dropdowns */
+export const FILTER_PAYMENT_METHODS: PaymentMethodOption[] = [
+  ...COLLECTION_METHODS,
+  { value: 'Split', label: 'Split Payment (Cash + UPI, etc.)', icon: Split, hint: 'Settled across multiple payment methods' },
+];
+
 /**
  * Money going back out. There is no refunding somebody by promising to pay
  * them later, so credit is not on this list.
@@ -39,9 +45,15 @@ export const DISBURSEMENT_METHODS: PaymentMethodOption[] = COLLECTION_METHODS.fi
 const byValue = new Map(COLLECTION_METHODS.map((m) => [m.value, m]));
 
 /** The label for a stored value, falling back to the value itself. */
-export const methodLabel = (value?: string | null): string => byValue.get(String(value))?.label ?? value ?? '—';
+export const methodLabel = (value?: string | null): string => {
+  if (value === 'Split' || value === '__split__') return 'Split Payment';
+  return byValue.get(String(value))?.label ?? value ?? '—';
+};
 
-export const methodIcon = (value?: string | null): LucideIcon | undefined => byValue.get(String(value))?.icon;
+export const methodIcon = (value?: string | null): LucideIcon | undefined => {
+  if (value === 'Split' || value === '__split__') return Split;
+  return byValue.get(String(value))?.icon;
+};
 
 /**
  * A method's colour, fixed to its position on the list above.
@@ -55,6 +67,7 @@ export const methodIcon = (value?: string | null): LucideIcon | undefined => byV
 const methodIndex = new Map(COLLECTION_METHODS.map((m, i) => [m.value, i]));
 
 export const methodColor = (value?: string | null): string => {
+  if (value === 'Split' || value === '__split__') return '#8b5cf6';
   const index = methodIndex.get(String(value));
   return index === undefined ? '#94a3b8' : SERIES[index % SERIES.length];
 };
