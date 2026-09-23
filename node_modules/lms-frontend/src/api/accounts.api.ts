@@ -33,6 +33,18 @@ export interface PayoutFilters {
   limit?: number;
 }
 
+export interface LedgerFilters {
+  patientId?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+  paymentMethod?: string;
+  flowType?: 'all' | 'collection' | 'payout' | 'refund';
+  payeeType?: string;
+  page?: number;
+  limit?: number;
+}
+
 export const accountsApi = {
   getDailyCollections: async (date?: string): Promise<any> =>
     api.get('/accounts/collections/daily', { params: { date } }),
@@ -46,6 +58,10 @@ export const accountsApi = {
    * billed, collected, refunded, paid out and still owed since it opened.
    */
   getOverallCollections: async (): Promise<any> => api.get('/accounts/collections/overall'),
+
+  /** Unified Patient Ledger & Cash Flow report */
+  getLedger: async (params?: LedgerFilters): Promise<any> =>
+    api.get('/accounts/ledger', { params }),
 
   getAllRefunds: async (params?: any): Promise<any> => api.get('/accounts/refunds', { params }),
   createRefund: async (data: CreateRefundParams): Promise<any> => api.post('/accounts/refunds', data),

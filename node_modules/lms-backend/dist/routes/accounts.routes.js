@@ -14,6 +14,8 @@ router.get('/collections/trend', (0, auth_middleware_1.requirePermission)(permis
 // Everything ever taken, with no window around it - what the owner asks for
 // once the day and the week have been answered.
 router.get('/collections/overall', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.BILL_VIEW), accounts_controller_1.AccountsController.getOverallCollections);
+// Unified Patient Ledger & Cash Flow
+router.get('/ledger', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.BILL_VIEW), accounts_controller_1.AccountsController.getLedger);
 router.get('/refunds', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.REFUND_VIEW), accounts_controller_1.AccountsController.getAllRefunds);
 router.post('/refunds', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.REFUND_ISSUE), (0, validate_middleware_1.validateRequest)(accounts_validator_1.createRefundSchema), accounts_controller_1.AccountsController.createRefund);
 // Money going out: the ambulance, the courier, a doctor cut. Literal segments

@@ -21,6 +21,7 @@ import {
   Package as PackageIcon,
   ClipboardList,
   Undo2,
+  BookOpen,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -359,6 +360,14 @@ export const NAV_ITEMS: NavItem[] = [
     icon: IndianRupee,
     group: 'Finance',
     permissions: [P.REFUND_VIEW],
+  },
+  {
+    label: 'Payment Ledger',
+    path: '/ledger',
+    icon: BookOpen,
+    group: 'Finance',
+    permissions: [P.BILL_VIEW],
+    groupForRole: { Receptionist: 'Front Office' },
   },
   { label: 'Analytics Reports', path: '/reports', icon: BarChart3, group: 'Finance', permissions: [P.REPORT_VIEW] },
 ];

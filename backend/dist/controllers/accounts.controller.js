@@ -174,5 +174,30 @@ class AccountsController {
             next(error);
         }
     };
+    static getLedger = async (req, res, next) => {
+        try {
+            const { patientId, search, from, to, paymentMethod, flowType, payeeType, page, limit } = req.query;
+            const result = await accounts_service_1.AccountsService.getLedger({
+                patientId,
+                search,
+                from,
+                to,
+                paymentMethod,
+                flowType: flowType,
+                payeeType,
+                page: page ? Number(page) : undefined,
+                limit: limit ? Number(limit) : undefined,
+            });
+            (0, api_response_util_1.sendResponse)({
+                res,
+                statusCode: messages_1.HTTP_STATUS.OK,
+                message: 'Payment ledger retrieved',
+                data: result,
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    };
 }
 exports.AccountsController = AccountsController;

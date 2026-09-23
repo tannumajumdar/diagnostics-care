@@ -38,6 +38,14 @@ export const LabReportPage: React.FC = () => {
   const { resultId } = useParams<{ resultId: string }>();
   const navigate = useNavigate();
 
+  // The logo's space in the header is held either way; this only decides
+  // whether artwork is drawn in it, so an unconfigured `logo.png` leaves the
+  // cell blank rather than printing a broken-image box on a patient's report.
+  // It sits with the other hooks, above the loading and error returns - behind
+  // them it was skipped on the first render and React threw "Rendered more
+  // hooks than during the previous render" the moment the report arrived.
+  const [logoShown, setLogoShown] = useState(Boolean(CENTRE.logoUrl));
+
   const { data: opened, isLoading, isError, error } = useQuery({
     queryKey: ['lab-report', resultId],
     queryFn: () => resultApi.getById(resultId!),
@@ -110,11 +118,6 @@ export const LabReportPage: React.FC = () => {
     ['Phone', CENTRE.reportingEnquiryNumbers || CENTRE.phones || CENTRE.mobiles],
     ['Email', CENTRE.email],
   ]);
-
-  // The logo's space in the header is held either way; this only decides
-  // whether artwork is drawn in it, so an unconfigured `logo.png` leaves the
-  // cell blank rather than printing a broken-image box on a patient's report.
-  const [logoShown, setLogoShown] = useState(Boolean(CENTRE.logoUrl));
 
   const allCritical = reportable.flatMap((sheet) =>
     parametersOf(sheet).filter((p: any) => p.flag === 'Critical')

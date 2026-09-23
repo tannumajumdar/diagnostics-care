@@ -19,6 +19,7 @@ import {
   ChevronDown,
   Phone,
   Inbox,
+  BookOpen,
 } from 'lucide-react';
 
 const money = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
@@ -127,6 +128,13 @@ export const PatientHistoryPage: React.FC = () => {
                 className="h-9 gap-1.5"
               >
                 <Receipt className="h-3.5 w-3.5" /> New bill
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => navigate(`/ledger?patientId=${patient._id ?? id}`)}
+                className="h-9 gap-1.5 bg-indigo-500/20 text-white ring-1 ring-inset ring-indigo-400/30 hover:bg-indigo-500/30 hover:text-white"
+              >
+                <BookOpen className="h-3.5 w-3.5" /> Ledger Bill
               </Button>
               <Button
                 variant="ghost"

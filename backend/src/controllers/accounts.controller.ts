@@ -174,4 +174,32 @@ export class AccountsController {
       next(error);
     }
   };
+
+  static getLedger = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { patientId, search, from, to, paymentMethod, flowType, payeeType, page, limit } = req.query as Record<
+        string,
+        string
+      >;
+      const result = await AccountsService.getLedger({
+        patientId,
+        search,
+        from,
+        to,
+        paymentMethod,
+        flowType: flowType as any,
+        payeeType,
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+      });
+      sendResponse({
+        res,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Payment ledger retrieved',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

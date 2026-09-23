@@ -24,6 +24,9 @@ router.get(
   AccountsController.getOverallCollections
 );
 
+// Unified Patient Ledger & Cash Flow
+router.get('/ledger', requirePermission(PERMISSIONS.BILL_VIEW), AccountsController.getLedger);
+
 router.get('/refunds', requirePermission(PERMISSIONS.REFUND_VIEW), AccountsController.getAllRefunds);
 router.post(
   '/refunds',

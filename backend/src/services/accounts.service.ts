@@ -4,6 +4,7 @@ import { Payment } from '../models/payment.model';
 import { Refund } from '../models/refund.model';
 import { Payout } from '../models/expense.model';
 import { Doctor } from '../models/doctor.model';
+import { Patient } from '../models/patient.model';
 import { getNextRefundId, getNextExpenseId } from '../models/counter.model';
 import { ApiError } from '../utils/api-error.util';
 import { HTTP_STATUS } from '../constants/messages';
@@ -652,5 +653,318 @@ export class AccountsService {
     );
 
     return report;
+  }
+
+  /**
+   * Patient Payment Ledger & Centre Cash Flow report.
+   * Merges patient collections (inflow) and payouts/refunds (outflow) with
+   * comprehensive filters by patient, date, payment method, and payee type.
+   */
+  static async getLedger(query: {
+    patientId?: string;
+    search?: string;
+    from?: string;
+    to?: string;
+    paymentMethod?: string;
+    flowType?: 'all' | 'collection' | 'payout' | 'refund';
+    payeeType?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const { patientId, search, from, to, paymentMethod, flowType, payeeType, page = 1, limit = 50 } = query;
+
+    let dateFilter: any = null;
+    if (from || to) {
+      const { start, end } = dateWindow(from, to);
+      dateFilter = { $gte: start, $lte: end };
+    }
+
+    // 1. Fetch patient profile & invoices if patientId is provided
+    let patientData: any = null;
+    let patientInvoices: any[] = [];
+    let patientSummary = {
+      totalVisits: 0,
+      totalBilled: 0,
+      totalPaid: 0,
+      totalRefunded: 0,
+      balanceDue: 0,
+    };
+
+    if (patientId) {
+      patientData = await Patient.findById(patientId);
+      if (patientData) {
+        patientInvoices = await Invoice.find({ patient: patientId })
+          .populate('referringDoctor', 'doctorName')
+          .sort({ createdAt: -1 });
+
+        const [patientPayments, patientRefunds, patientPayoutRefunds] = await Promise.all([
+          Payment.find({ patient: patientId }),
+          Refund.find({ patient: patientId }),
+          Payout.find({ patient: patientId, payeeType: 'Patient Refund', status: 'Paid' }),
+        ]);
+
+        const totalBilled = patientInvoices.reduce((sum, inv) => sum + (inv.netAmount || 0), 0);
+        const totalPaid = patientPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+        const totalRefunded =
+          patientRefunds.reduce((sum, r) => sum + (r.refundAmount || 0), 0) +
+          patientPayoutRefunds.reduce((sum, p) => sum + (p.amount || 0), 0);
+        const balanceDue = patientInvoices.reduce((sum, inv) => sum + (inv.dueAmount || 0), 0);
+
+        patientSummary = {
+          totalVisits: patientInvoices.length,
+          totalBilled,
+          totalPaid,
+          totalRefunded,
+          balanceDue,
+        };
+      }
+    }
+
+    // 2. Query Collections (Inflow - Payments)
+    let paymentTransactions: any[] = [];
+    if (
+      flowType !== 'payout' &&
+      flowType !== 'refund' &&
+      (!payeeType || payeeType === 'All' || payeeType === 'Patient')
+    ) {
+      const paymentQuery: any = {};
+      if (patientId) paymentQuery.patient = patientId;
+      if (dateFilter) paymentQuery.createdAt = dateFilter;
+      if (paymentMethod && paymentMethod !== 'All') paymentQuery.paymentMethod = paymentMethod;
+
+      const payments = await Payment.find(paymentQuery)
+        .populate('patient', 'patientName uhid mobile age gender address')
+        .populate('invoice', 'invoiceNumber netAmount dueAmount')
+        .sort({ createdAt: -1 })
+        .limit(500);
+
+      paymentTransactions = payments.map((p: any) => ({
+        id: p._id,
+        date: p.createdAt,
+        flow: 'INFLOW',
+        type: 'Patient Collection',
+        receiptNumber: p.receiptNumber,
+        invoiceNumber: p.invoice?.invoiceNumber || '-',
+        invoiceId: p.invoice?._id || p.invoice,
+        patientId: p.patient?._id,
+        partyName: p.patient?.patientName || 'Patient',
+        partyUhid: p.patient?.uhid || '',
+        partyMobile: p.patient?.mobile || '',
+        paymentMethod: p.paymentMethod,
+        amount: p.amount,
+        transactionRef: p.transactionRef || '',
+        notes: p.notes || '',
+        handledBy: p.receivedBy?.name || '',
+      }));
+    }
+
+    // 3. Query Outflows (Payouts & Patient Refunds)
+    let outflowTransactions: any[] = [];
+    if (flowType !== 'collection') {
+      // 3a. Patient Refunds (From Refund collection)
+      let refundTransactions: any[] = [];
+      const includePatientRefunds =
+        !payeeType ||
+        payeeType === 'All' ||
+        payeeType === 'Patient Refund' ||
+        payeeType === 'Patient';
+
+      if (includePatientRefunds) {
+        const refundQuery: any = {};
+        if (patientId) refundQuery.patient = patientId;
+        if (dateFilter) {
+          refundQuery.$or = [{ date: dateFilter }, { createdAt: dateFilter }];
+        }
+        if (paymentMethod && paymentMethod !== 'All') refundQuery.paymentMethod = paymentMethod;
+
+        const refunds = await Refund.find(refundQuery)
+          .populate('patient', 'patientName uhid mobile age gender address')
+          .populate('invoice', 'invoiceNumber netAmount dueAmount')
+          .sort({ date: -1, createdAt: -1 })
+          .limit(500);
+
+        refundTransactions = refunds.map((r: any) => ({
+          id: r._id,
+          date: r.date || r.createdAt,
+          flow: 'OUTFLOW',
+          type: 'Patient Refund',
+          receiptNumber: r.refundId || '-',
+          invoiceNumber: r.invoice?.invoiceNumber || '-',
+          invoiceId: r.invoice?._id || r.invoice,
+          patientId: r.patient?._id,
+          partyName: r.patient?.patientName || 'Patient',
+          partyUhid: r.patient?.uhid || '',
+          partyMobile: r.patient?.mobile || '',
+          paymentMethod: r.paymentMethod,
+          amount: r.refundAmount,
+          transactionRef: r.refundId || '',
+          notes: r.reason ? `${r.reason}${r.remarks ? ` (${r.remarks})` : ''}` : (r.remarks || 'Patient Refund'),
+          handledBy: r.approvedBy?.name || '',
+        }));
+      }
+
+      // 3b. Centre Payouts (From Payout / Expense collection)
+      let payoutTransactions: any[] = [];
+      // Note: If patientId is specified, only include payouts where payeeType is 'Patient Refund',
+      // so centre expenses (ambulance, supplier, doctor cuts) don't pollute the patient's personal ledger bill.
+      const includePayouts =
+        flowType !== 'refund' &&
+        payeeType !== 'Patient' &&
+        (!patientId || !payeeType || payeeType === 'All' || payeeType === 'Patient Refund');
+
+      if (includePayouts) {
+        const payoutQuery: any = { status: 'Paid' };
+        if (patientId) {
+          payoutQuery.patient = patientId;
+          payoutQuery.payeeType = 'Patient Refund';
+        }
+        if (dateFilter) payoutQuery.expenseDate = dateFilter;
+        if (paymentMethod && paymentMethod !== 'All') payoutQuery.paymentMethod = paymentMethod;
+        if (payeeType && payeeType !== 'All') payoutQuery.payeeType = payeeType;
+
+        const payouts = await Payout.find(payoutQuery)
+          .populate('patient', 'patientName uhid mobile age gender address')
+          .populate('doctor', 'doctorName')
+          .populate('invoice', 'invoiceNumber netAmount')
+          .sort({ expenseDate: -1, createdAt: -1 })
+          .limit(500);
+
+        payoutTransactions = payouts.map((p: any) => ({
+          id: p._id,
+          date: p.expenseDate || p.createdAt,
+          flow: 'OUTFLOW',
+          type: p.payeeType === 'Patient Refund' ? 'Patient Refund' : `Payout (${p.payeeType})`,
+          receiptNumber: p.expenseId || p.referenceNo || '-',
+          invoiceNumber: p.invoice?.invoiceNumber || '-',
+          invoiceId: p.invoice?._id || p.invoice,
+          patientId: p.patient?._id,
+          partyName:
+            p.payeeType === 'Patient Refund'
+              ? p.patient?.patientName || p.payeeName || 'Patient'
+              : p.payeeName || 'Payee',
+          partyUhid: p.payeeType === 'Patient Refund' ? p.patient?.uhid || '' : '',
+          partyMobile:
+            p.payeeType === 'Patient Refund'
+              ? p.patient?.mobile || p.payeeContact || ''
+              : p.payeeContact || '',
+          paymentMethod: p.paymentMethod,
+          amount: p.amount,
+          transactionRef: p.referenceNo || '',
+          notes: p.description || '',
+          handledBy: p.recordedBy?.name || '',
+        }));
+      }
+
+      outflowTransactions = [...refundTransactions, ...payoutTransactions];
+    }
+
+    // 4. Group and sequence transactions for patients/parties
+    // "same naam, no. ya uhid wale multiple times pay kr rhe h to unko sequence me rakho"
+    const rawTransactions = [...paymentTransactions, ...outflowTransactions];
+    const groupMap = new Map<string, any[]>();
+
+    rawTransactions.forEach((t) => {
+      let key = '';
+      if (t.type === 'Patient Collection' || t.type === 'Patient Refund') {
+        const uhid = (t.partyUhid || '').trim().toLowerCase();
+        const mobile = (t.partyMobile || '').trim();
+        const name = (t.partyName || '').trim().toLowerCase();
+        if (uhid) key = `uhid_${uhid}`;
+        else if (mobile && mobile.length >= 10) key = `mob_${mobile}`;
+        else if (name) key = `name_${name}`;
+        else key = `txn_${t.id}`;
+      } else {
+        key = `payout_${(t.partyName || t.id).trim().toLowerCase()}`;
+      }
+
+      if (!groupMap.has(key)) {
+        groupMap.set(key, []);
+      }
+      groupMap.get(key)!.push(t);
+    });
+
+    const partyGroups: {
+      key: string;
+      latestDate: number;
+      items: any[];
+    }[] = [];
+
+    groupMap.forEach((items, key) => {
+      // Sort transactions within this party in chronological sequence (oldest to newest: Payment #1, #2, #3, Refund)
+      items.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      const totalPayments = items.filter((x) => x.flow === 'INFLOW').length;
+      let paymentIndex = 0;
+      items.forEach((item, idx) => {
+        if (item.flow === 'INFLOW') {
+          paymentIndex++;
+          item.sequenceNo = paymentIndex;
+          item.totalPartyPayments = totalPayments;
+        } else {
+          item.sequenceNo = idx + 1;
+        }
+        item.partyTransactionCount = items.length;
+        item.partyGroupKey = key;
+      });
+
+      const latestDate = Math.max(...items.map((x) => new Date(x.date).getTime()));
+      partyGroups.push({ key, latestDate, items });
+    });
+
+    // Sort party groups by their most recent activity descending
+    partyGroups.sort((a, b) => b.latestDate - a.latestDate);
+
+    // Flatten into allTransactions with each party's payments kept together in sequence
+    let allTransactions = partyGroups.flatMap((g) => g.items);
+
+    // Apply search filter if provided
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase();
+      allTransactions = allTransactions.filter(
+        (t) =>
+          t.partyName?.toLowerCase().includes(q) ||
+          t.partyUhid?.toLowerCase().includes(q) ||
+          t.partyMobile?.includes(q) ||
+          t.receiptNumber?.toLowerCase().includes(q) ||
+          t.invoiceNumber?.toLowerCase().includes(q) ||
+          t.transactionRef?.toLowerCase().includes(q) ||
+          t.notes?.toLowerCase().includes(q)
+      );
+    }
+
+    // Totals
+    const totalCollections = allTransactions
+      .filter((t) => t.flow === 'INFLOW')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const totalPayouts = allTransactions
+      .filter((t) => t.flow === 'OUTFLOW')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const netBalance = totalCollections - totalPayouts;
+
+    // Pagination
+    const totalCount = allTransactions.length;
+    const skip = (Number(page) - 1) * Number(limit);
+    const paginated = allTransactions.slice(skip, skip + Number(limit));
+
+    return {
+      summary: {
+        totalCollections,
+        totalPayouts,
+        netBalance,
+        totalCount,
+        collectionCount: allTransactions.filter((t) => t.flow === 'INFLOW').length,
+        payoutCount: allTransactions.filter((t) => t.flow === 'OUTFLOW').length,
+      },
+      patient: patientData,
+      patientSummary: patientId ? patientSummary : undefined,
+      invoices: patientInvoices,
+      transactions: paginated,
+      pagination: {
+        total: totalCount,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(totalCount / Number(limit)),
+      },
+    };
   }
 }
