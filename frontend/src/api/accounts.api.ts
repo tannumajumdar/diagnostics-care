@@ -40,6 +40,7 @@ export interface LedgerFilters {
   to?: string;
   fromTime?: string;
   toTime?: string;
+  handledBy?: string;
   paymentMethod?: string;
   flowType?: 'all' | 'collection' | 'payout' | 'refund';
   payeeType?: string;

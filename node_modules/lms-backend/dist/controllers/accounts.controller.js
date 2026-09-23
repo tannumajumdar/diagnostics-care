@@ -176,12 +176,15 @@ class AccountsController {
     };
     static getLedger = async (req, res, next) => {
         try {
-            const { patientId, search, from, to, paymentMethod, flowType, payeeType, page, limit } = req.query;
+            const { patientId, search, from, to, fromTime, toTime, handledBy, paymentMethod, flowType, payeeType, page, limit } = req.query;
             const result = await accounts_service_1.AccountsService.getLedger({
                 patientId,
                 search,
                 from,
                 to,
+                fromTime,
+                toTime,
+                handledBy,
                 paymentMethod,
                 flowType: flowType,
                 payeeType,

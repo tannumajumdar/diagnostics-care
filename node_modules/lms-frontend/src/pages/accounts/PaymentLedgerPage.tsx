@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { accountsApi, type LedgerFilters } from '../../api/accounts.api';
 import { patientApi } from '../../api/patient.api';
+import { userApi } from '../../api/user.api';
+import { asList } from '../../utils/api-list';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -23,6 +25,7 @@ import {
   Calendar,
   Wallet,
   User,
+  UserCheck,
   RotateCcw,
   Search,
   Receipt,
@@ -60,11 +63,23 @@ export const PaymentLedgerPage: React.FC = () => {
   const [to, setTo] = useState(initialPatientId ? '' : todayIso());
   const [fromTime, setFromTime] = useState('');
   const [toTime, setToTime] = useState('');
+  const [handledBy, setHandledBy] = useState('All');
+  const [staffSelectValue, setStaffSelectValue] = useState('All');
+  const [customStaffName, setCustomStaffName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('All');
   const [flowType, setFlowType] = useState<'all' | 'collection' | 'payout' | 'refund'>('all');
   const [payeeType, setPayeeType] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'transactions' | 'daywise'>('transactions');
+
+  // Fetch center users/staff for the User / Handled By filter
+  const { data: usersData } = useQuery({
+    queryKey: ['users-list-ledger'],
+    queryFn: () => userApi.getAll({ limit: 100 }),
+    staleTime: 60000,
+  });
+
+  const staffList = asList(usersData, 'users');
 
   // Fetch patient profile if patientId was passed in query params
   const { data: initialPatientData } = useQuery({
@@ -88,6 +103,7 @@ export const PaymentLedgerPage: React.FC = () => {
     to: to || undefined,
     fromTime: fromTime.trim() || undefined,
     toTime: toTime.trim() || undefined,
+    handledBy: handledBy !== 'All' && handledBy.trim() ? handledBy.trim() : undefined,
     paymentMethod: paymentMethod !== 'All' ? paymentMethod : undefined,
     flowType: flowType !== 'all' ? flowType : undefined,
     payeeType: payeeType !== 'All' ? payeeType : undefined,
@@ -196,8 +212,9 @@ export const PaymentLedgerPage: React.FC = () => {
     }));
 
     const timeSuffix = fromTime || toTime ? `_${fromTime || '0000'}-${toTime || '2359'}` : '';
+    const staffSuffix = handledBy && handledBy !== 'All' ? `_Staff-${handledBy.replace(/\s+/g, '_')}` : '';
     exportToExcel(
-      `Ledger_Report_${activePatientId ? patientProfile?.patientName : 'All'}_${from}_${to}${timeSuffix}`,
+      `Ledger_Report_${activePatientId ? patientProfile?.patientName : 'All'}_${from}_${to}${timeSuffix}${staffSuffix}`,
       rows
     );
   };
@@ -209,6 +226,9 @@ export const PaymentLedgerPage: React.FC = () => {
     setTo(todayIso());
     setFromTime('');
     setToTime('');
+    setHandledBy('All');
+    setStaffSelectValue('All');
+    setCustomStaffName('');
     setPaymentMethod('All');
     setFlowType('all');
     setPayeeType('All');
@@ -270,10 +290,11 @@ export const PaymentLedgerPage: React.FC = () => {
             </button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3 p-3 sm:p-5">
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+        <CardContent className="space-y-3.5 p-3 sm:p-5">
+          {/* Row 1: Patient Filter & Staff / User Filter (Shift Cashier) */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {/* 1. Patient Picker */}
-            <div className="sm:col-span-2">
+            <div>
               <label className="mb-1 block text-xs font-semibold text-slate-700">
                 Filter by Patient (Select for Patient Ledger Bill)
               </label>
@@ -290,64 +311,140 @@ export const PaymentLedgerPage: React.FC = () => {
               />
             </div>
 
-            {/* 2: From Date & From Time */}
+            {/* 2. Staff / User Filter (Shift Cashier) */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700">From Date &amp; Time</label>
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                  <UserCheck className="h-3.5 w-3.5 text-indigo-600" />
+                  <span>Filter by Staff / User (Shift Cashier)</span>
+                </label>
+                {handledBy !== 'All' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHandledBy('All');
+                      setStaffSelectValue('All');
+                      setCustomStaffName('');
+                    }}
+                    className="text-[10px] font-semibold text-rose-600 hover:underline"
+                  >
+                    Clear Staff
+                  </button>
+                )}
               </div>
-              <div className="grid grid-cols-5 gap-1.5">
-                <Input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                  className="h-9 text-xs col-span-3 px-2"
-                />
-                <Input
-                  type="time"
-                  value={fromTime}
-                  onChange={(e) => setFromTime(e.target.value)}
-                  className="h-9 text-xs col-span-2 px-1 text-center"
-                  placeholder="00:00"
-                  title="From Time (e.g. 09:00 AM)"
-                />
-              </div>
-            </div>
-
-            {/* 3: To Date & To Time */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700">To Date &amp; Time</label>
-              </div>
-              <div className="grid grid-cols-5 gap-1.5">
-                <Input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  className="h-9 text-xs col-span-3 px-2"
-                />
-                <Input
-                  type="time"
-                  value={toTime}
-                  onChange={(e) => setToTime(e.target.value)}
-                  className="h-9 text-xs col-span-2 px-1 text-center"
-                  placeholder="23:59"
-                  title="To Time (e.g. 06:00 PM)"
-                />
+              <div className="flex items-center gap-2">
+                <select
+                  value={staffSelectValue}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setStaffSelectValue(val);
+                    if (val === 'CUSTOM') {
+                      setHandledBy(customStaffName);
+                    } else {
+                      setHandledBy(val);
+                    }
+                  }}
+                  className="h-9 flex-1 rounded-lg border border-slate-300 bg-background px-2.5 text-xs font-medium text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="All">All Staff / Users (Entire Center)</option>
+                  {staffList.map((u: any) => (
+                    <option key={u.id || u._id} value={u.name}>
+                      {u.name} — {u.role || 'Staff'}
+                    </option>
+                  ))}
+                  <option value="CUSTOM">Type Name Manually / Search Name...</option>
+                </select>
+                {staffSelectValue === 'CUSTOM' && (
+                  <Input
+                    type="text"
+                    placeholder="Type cashier name..."
+                    value={customStaffName}
+                    onChange={(e) => {
+                      setCustomStaffName(e.target.value);
+                      setHandledBy(e.target.value);
+                    }}
+                    className="h-9 w-44 text-xs font-medium"
+                    autoFocus
+                  />
+                )}
               </div>
             </div>
           </div>
 
-          {/* Quick Shift Timing Presets Row */}
-          <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-slate-100">
+          {/* Row 2: Date & Shift Time (Separated columns - Full year 100% visible, no clipping) */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+            {/* 1: From Date */}
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700 flex items-center gap-1">
+                <Calendar className="h-3 w-3 text-indigo-600" />
+                <span>From Date</span>
+              </label>
+              <Input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="h-9 text-xs w-full min-w-[140px] px-2.5 font-medium text-slate-900"
+              />
+            </div>
+
+            {/* 2: From Time (Shift Start) */}
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700 flex items-center gap-1">
+                <Clock className="h-3 w-3 text-indigo-600" />
+                <span>From Time (Shift Start)</span>
+              </label>
+              <Input
+                type="time"
+                value={fromTime}
+                onChange={(e) => setFromTime(e.target.value)}
+                className="h-9 text-xs w-full px-2.5 font-medium text-slate-900"
+                placeholder="00:00"
+                title="Shift Start Time (e.g. 07:00 AM)"
+              />
+            </div>
+
+            {/* 3: To Date */}
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700 flex items-center gap-1">
+                <Calendar className="h-3 w-3 text-indigo-600" />
+                <span>To Date</span>
+              </label>
+              <Input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="h-9 text-xs w-full min-w-[140px] px-2.5 font-medium text-slate-900"
+              />
+            </div>
+
+            {/* 4: To Time (Shift End) */}
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-700 flex items-center gap-1">
+                <Clock className="h-3 w-3 text-indigo-600" />
+                <span>To Time (Shift End)</span>
+              </label>
+              <Input
+                type="time"
+                value={toTime}
+                onChange={(e) => setToTime(e.target.value)}
+                className="h-9 text-xs w-full px-2.5 font-medium text-slate-900"
+                placeholder="23:59"
+                title="Shift End Time (e.g. 02:00 PM)"
+              />
+            </div>
+          </div>
+
+          {/* Row 3: Quick Shift Timing Presets Row */}
+          <div className="flex items-center justify-between flex-wrap gap-2 pt-1.5 border-t border-slate-100">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
                 <Clock className="h-3 w-3 text-indigo-600" />
-                <span>Shift Timing:</span>
+                <span>Shift Timing Presets:</span>
               </span>
               <button
                 type="button"
                 onClick={() => { setFromTime(''); setToTime(''); }}
-                className={`text-[11px] px-2 py-0.5 rounded-md font-medium border transition-colors ${
+                className={`text-[11px] px-2.5 py-0.5 rounded-md font-medium border transition-colors ${
                   !fromTime && !toTime
                     ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -358,7 +455,7 @@ export const PaymentLedgerPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => { setFromTime('07:00'); setToTime('14:00'); }}
-                className={`text-[11px] px-2 py-0.5 rounded-md font-medium border transition-colors ${
+                className={`text-[11px] px-2.5 py-0.5 rounded-md font-medium border transition-colors ${
                   fromTime === '07:00' && toTime === '14:00'
                     ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -369,7 +466,7 @@ export const PaymentLedgerPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => { setFromTime('14:00'); setToTime('21:00'); }}
-                className={`text-[11px] px-2 py-0.5 rounded-md font-medium border transition-colors ${
+                className={`text-[11px] px-2.5 py-0.5 rounded-md font-medium border transition-colors ${
                   fromTime === '14:00' && toTime === '21:00'
                     ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -377,19 +474,30 @@ export const PaymentLedgerPage: React.FC = () => {
               >
                 Evening Shift (14:00 - 21:00)
               </button>
+              <button
+                type="button"
+                onClick={() => { setFromTime('21:00'); setToTime('07:00'); }}
+                className={`text-[11px] px-2.5 py-0.5 rounded-md font-medium border transition-colors ${
+                  fromTime === '21:00' && toTime === '07:00'
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Night Shift (21:00 - 07:00)
+              </button>
               {(fromTime || toTime) && (
                 <button
                   type="button"
                   onClick={() => { setFromTime(''); setToTime(''); }}
-                  className="text-[11px] px-1.5 py-0.5 text-rose-600 hover:underline font-semibold"
+                  className="text-[11px] px-2 py-0.5 text-rose-600 hover:underline font-semibold"
                 >
-                  Clear Time ({fromTime || '00:00'} - {toTime || '23:59'})
+                  Clear Shift Time ({fromTime || '00:00'} - {toTime || '23:59'})
                 </button>
               )}
             </div>
             {(fromTime || toTime) && (
               <span className="text-[11px] text-indigo-600 font-medium">
-                Active time filter: <strong>{fromTime || '00:00'}</strong> to <strong>{toTime || '23:59'}</strong>
+                Active shift window: <strong>{fromTime || '00:00'}</strong> to <strong>{toTime || '23:59'}</strong>
               </span>
             )}
           </div>
@@ -705,8 +813,8 @@ export const PaymentLedgerPage: React.FC = () => {
         </Card>
       )}
 
-      {/* ── Active Date & Time Filter Notice (If single day or custom time filtered) ── */}
-      {((from && to && from === to) || fromTime || toTime) && (
+      {/* ── Active Date, Time & Staff Filter Notice ── */}
+      {((from && to && from === to) || fromTime || toTime || (handledBy && handledBy !== 'All')) && (
         <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 px-3.5 py-2 rounded-xl text-xs text-indigo-900 print:hidden flex-wrap gap-2">
           <div className="flex items-center gap-2 flex-wrap">
             <Calendar className="h-4 w-4 text-indigo-600 shrink-0" />
@@ -719,7 +827,13 @@ export const PaymentLedgerPage: React.FC = () => {
               {(fromTime || toTime) && (
                 <span className="ml-1.5 inline-flex items-center gap-1 font-semibold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-md">
                   <Clock className="h-3 w-3" />
-                  Time: {fromTime || '00:00'} - {toTime || '23:59'}
+                  Shift: {fromTime || '00:00'} - {toTime || '23:59'}
+                </span>
+              )}
+              {handledBy && handledBy !== 'All' && (
+                <span className="ml-1.5 inline-flex items-center gap-1 font-semibold text-indigo-800 bg-indigo-200/80 px-2 py-0.5 rounded-md">
+                  <UserCheck className="h-3 w-3 text-indigo-700" />
+                  Staff: <strong>{handledBy}</strong>
                 </span>
               )}
             </span>
@@ -1105,17 +1219,23 @@ export const PaymentLedgerPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Bottom Row: Receipt/Bill & Category/Notes */}
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-100 pt-1.5">
+                    {/* Bottom Row: Receipt/Bill & Category/Notes & Handled By */}
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-100 pt-1.5 flex-wrap gap-1">
                       <div className="font-mono text-[10px] text-slate-600 truncate max-w-[50%]">
                         {t.receiptNumber && <span>Rec: {t.receiptNumber}</span>}
                         {t.invoiceNumber && t.invoiceNumber !== '-' && (
                           <span className="ml-1 text-slate-400">· Bill: {t.invoiceNumber}</span>
                         )}
                       </div>
-                      <div className="text-[11px] text-slate-600 font-medium truncate text-right">
+                      <div className="text-[11px] text-slate-600 font-medium truncate text-right flex items-center gap-1.5 ml-auto">
+                        {t.handledBy && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-medium">
+                            <UserCheck className="h-2.5 w-2.5 text-indigo-600" />
+                            {t.handledBy}
+                          </span>
+                        )}
                         <span>{t.type}</span>
-                        {t.notes && <span className="text-slate-400 ml-1 truncate">({t.notes})</span>}
+                        {t.notes && <span className="text-slate-400 ml-0.5 truncate">({t.notes})</span>}
                       </div>
                     </div>
                   </div>
@@ -1146,6 +1266,7 @@ export const PaymentLedgerPage: React.FC = () => {
                   <th className="px-4 py-3">Party / Patient</th>
                   <th className="px-4 py-3">Payment Method</th>
                   <th className="px-4 py-3">Category / Details</th>
+                  <th className="px-4 py-3">Handled By</th>
                   <th className="px-4 py-3 text-right">Inflow (+)</th>
                   <th className="px-4 py-3 text-right">Outflow (-)</th>
                 </tr>
@@ -1153,13 +1274,13 @@ export const PaymentLedgerPage: React.FC = () => {
               <tbody className="divide-y divide-slate-100 font-medium">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-500">
+                    <td colSpan={9} className="p-8 text-center text-slate-500">
                       Loading ledger records...
                     </td>
                   </tr>
                 ) : transactions.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-500">
+                    <td colSpan={9} className="p-8 text-center text-slate-500">
                       No transactions found matching the selected filters.
                     </td>
                   </tr>
@@ -1243,6 +1364,16 @@ export const PaymentLedgerPage: React.FC = () => {
                             </span>
                           )}
                         </td>
+                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">
+                          {t.handledBy ? (
+                            <span className="inline-flex items-center gap-1 font-medium text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md text-[11px]">
+                              <UserCheck className="h-3 w-3 text-indigo-600" />
+                              {t.handledBy}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">-</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600">
                           {isInflow ? money(t.amount) : '-'}
                         </td>
@@ -1257,7 +1388,7 @@ export const PaymentLedgerPage: React.FC = () => {
               {transactions.length > 0 && (
                 <tfoot className="border-t-2 border-slate-300 bg-slate-50 font-bold text-xs">
                   <tr>
-                    <td colSpan={6} className="px-4 py-3 text-right text-slate-700">
+                    <td colSpan={7} className="px-4 py-3 text-right text-slate-700">
                       PAGE TOTALS:
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-emerald-700">

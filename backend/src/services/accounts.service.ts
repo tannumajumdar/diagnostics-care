@@ -678,13 +678,14 @@ export class AccountsService {
     to?: string;
     fromTime?: string;
     toTime?: string;
+    handledBy?: string;
     paymentMethod?: string;
     flowType?: 'all' | 'collection' | 'payout' | 'refund';
     payeeType?: string;
     page?: number;
     limit?: number;
   }) {
-    const { patientId, search, from, to, fromTime, toTime, paymentMethod, flowType, payeeType, page = 1, limit = 50 } = query;
+    const { patientId, search, from, to, fromTime, toTime, handledBy, paymentMethod, flowType, payeeType, page = 1, limit = 50 } = query;
 
     let dateFilter: any = null;
     if (from || to || fromTime || toTime) {
@@ -745,6 +746,9 @@ export class AccountsService {
       if (dateFilter) paymentQuery.createdAt = dateFilter;
       if (paymentMethod && paymentMethod !== 'All' && paymentMethod !== 'Split') {
         paymentQuery.paymentMethod = paymentMethod;
+      }
+      if (handledBy && handledBy !== 'All' && handledBy.trim()) {
+        paymentQuery['receivedBy.name'] = { $regex: handledBy.trim(), $options: 'i' };
       }
 
       const payments = await Payment.find(paymentQuery)
@@ -812,6 +816,9 @@ export class AccountsService {
         if (paymentMethod && paymentMethod !== 'All' && paymentMethod !== 'Split') {
           refundQuery.paymentMethod = paymentMethod;
         }
+        if (handledBy && handledBy !== 'All' && handledBy.trim()) {
+          refundQuery['approvedBy.name'] = { $regex: handledBy.trim(), $options: 'i' };
+        }
 
         const refunds = await Refund.find(refundQuery)
           .populate('patient', 'patientName uhid mobile age gender address')
@@ -859,6 +866,10 @@ export class AccountsService {
           payoutQuery.paymentMethod = paymentMethod;
         }
         if (payeeType && payeeType !== 'All') payoutQuery.payeeType = payeeType;
+        if (handledBy && handledBy !== 'All' && handledBy.trim()) {
+          const r = { $regex: handledBy.trim(), $options: 'i' };
+          payoutQuery.$or = [{ 'recordedBy.name': r }, { 'approvedBy.name': r }];
+        }
 
         const payouts = await Payout.find(payoutQuery)
           .populate('patient', 'patientName uhid mobile age gender address')
@@ -972,8 +983,14 @@ export class AccountsService {
           t.receiptNumber?.toLowerCase().includes(q) ||
           t.invoiceNumber?.toLowerCase().includes(q) ||
           t.transactionRef?.toLowerCase().includes(q) ||
-          t.notes?.toLowerCase().includes(q)
+          t.notes?.toLowerCase().includes(q) ||
+          t.handledBy?.toLowerCase().includes(q)
       );
+    }
+
+    if (handledBy && handledBy !== 'All' && handledBy.trim()) {
+      const hb = handledBy.trim().toLowerCase();
+      allTransactions = allTransactions.filter((t) => t.handledBy?.toLowerCase().includes(hb));
     }
 
     // Totals

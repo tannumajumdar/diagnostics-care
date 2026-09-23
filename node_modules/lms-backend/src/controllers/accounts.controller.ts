@@ -177,7 +177,7 @@ export class AccountsController {
 
   static getLedger = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { patientId, search, from, to, fromTime, toTime, paymentMethod, flowType, payeeType, page, limit } = req.query as Record<
+      const { patientId, search, from, to, fromTime, toTime, handledBy, paymentMethod, flowType, payeeType, page, limit } = req.query as Record<
         string,
         string
       >;
@@ -188,6 +188,7 @@ export class AccountsController {
         to,
         fromTime,
         toTime,
+        handledBy,
         paymentMethod,
         flowType: flowType as any,
         payeeType,

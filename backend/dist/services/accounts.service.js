@@ -16,13 +16,25 @@ const api_error_util_1 = require("../utils/api-error.util");
 const messages_1 = require("../constants/messages");
 const permissions_1 = require("../constants/permissions");
 const payment_methods_1 = require("../constants/payment-methods");
-/** Inclusive day window for a date filter, defaulting to the current month. */
-const dateWindow = (from, to) => {
+/** Inclusive day and time window for a date/time filter, defaulting to the current month. */
+const dateWindow = (from, to, fromTime, toTime) => {
     const now = new Date();
     const start = from ? new Date(from) : new Date(now.getFullYear(), now.getMonth(), 1);
-    start.setHours(0, 0, 0, 0);
+    if (fromTime && fromTime.trim()) {
+        const [h, m] = fromTime.trim().split(':').map(Number);
+        start.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+    }
+    else {
+        start.setHours(0, 0, 0, 0);
+    }
     const end = to ? new Date(to) : new Date();
-    end.setHours(23, 59, 59, 999);
+    if (toTime && toTime.trim()) {
+        const [h, m] = toTime.trim().split(':').map(Number);
+        end.setHours(Number.isFinite(h) ? h : 23, Number.isFinite(m) ? m : 59, 59, 999);
+    }
+    else {
+        end.setHours(23, 59, 59, 999);
+    }
     return { start, end };
 };
 class AccountsService {
@@ -546,10 +558,10 @@ class AccountsService {
      * comprehensive filters by patient, date, payment method, and payee type.
      */
     static async getLedger(query) {
-        const { patientId, search, from, to, paymentMethod, flowType, payeeType, page = 1, limit = 50 } = query;
+        const { patientId, search, from, to, fromTime, toTime, handledBy, paymentMethod, flowType, payeeType, page = 1, limit = 50 } = query;
         let dateFilter = null;
-        if (from || to) {
-            const { start, end } = dateWindow(from, to);
+        if (from || to || fromTime || toTime) {
+            const { start, end } = dateWindow(from, to, fromTime, toTime);
             dateFilter = { $gte: start, $lte: end };
         }
         // 1. Fetch patient profile & invoices if patientId is provided
@@ -599,6 +611,9 @@ class AccountsService {
                 paymentQuery.createdAt = dateFilter;
             if (paymentMethod && paymentMethod !== 'All' && paymentMethod !== 'Split') {
                 paymentQuery.paymentMethod = paymentMethod;
+            }
+            if (handledBy && handledBy !== 'All' && handledBy.trim()) {
+                paymentQuery['receivedBy.name'] = { $regex: handledBy.trim(), $options: 'i' };
             }
             const payments = await payment_model_1.Payment.find(paymentQuery)
                 .populate('patient', 'patientName uhid mobile age gender address')
@@ -657,6 +672,9 @@ class AccountsService {
                 if (paymentMethod && paymentMethod !== 'All' && paymentMethod !== 'Split') {
                     refundQuery.paymentMethod = paymentMethod;
                 }
+                if (handledBy && handledBy !== 'All' && handledBy.trim()) {
+                    refundQuery['approvedBy.name'] = { $regex: handledBy.trim(), $options: 'i' };
+                }
                 const refunds = await refund_model_1.Refund.find(refundQuery)
                     .populate('patient', 'patientName uhid mobile age gender address')
                     .populate('invoice', 'invoiceNumber netAmount dueAmount')
@@ -701,6 +719,10 @@ class AccountsService {
                 }
                 if (payeeType && payeeType !== 'All')
                     payoutQuery.payeeType = payeeType;
+                if (handledBy && handledBy !== 'All' && handledBy.trim()) {
+                    const r = { $regex: handledBy.trim(), $options: 'i' };
+                    payoutQuery.$or = [{ 'recordedBy.name': r }, { 'approvedBy.name': r }];
+                }
                 const payouts = await expense_model_1.Payout.find(payoutQuery)
                     .populate('patient', 'patientName uhid mobile age gender address')
                     .populate('doctor', 'doctorName')
@@ -796,7 +818,12 @@ class AccountsService {
                 t.receiptNumber?.toLowerCase().includes(q) ||
                 t.invoiceNumber?.toLowerCase().includes(q) ||
                 t.transactionRef?.toLowerCase().includes(q) ||
-                t.notes?.toLowerCase().includes(q));
+                t.notes?.toLowerCase().includes(q) ||
+                t.handledBy?.toLowerCase().includes(q));
+        }
+        if (handledBy && handledBy !== 'All' && handledBy.trim()) {
+            const hb = handledBy.trim().toLowerCase();
+            allTransactions = allTransactions.filter((t) => t.handledBy?.toLowerCase().includes(hb));
         }
         // Totals
         const totalCollections = allTransactions
@@ -806,6 +833,73 @@ class AccountsService {
             .filter((t) => t.flow === 'OUTFLOW')
             .reduce((sum, t) => sum + t.amount, 0);
         const netBalance = totalCollections - totalPayouts;
+        // 5. Calculate Day-wise Collections and Cash Flow
+        const dayMap = new Map();
+        allTransactions.forEach((t) => {
+            if (!t.date)
+                return;
+            const d = new Date(t.date);
+            const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            if (!dayMap.has(dayKey)) {
+                dayMap.set(dayKey, {
+                    date: dayKey,
+                    collections: 0,
+                    payouts: 0,
+                    net: 0,
+                    collectionCount: 0,
+                    payoutCount: 0,
+                    totalCount: 0,
+                    byMethod: {},
+                });
+            }
+            const dayObj = dayMap.get(dayKey);
+            dayObj.totalCount++;
+            if (t.flow === 'INFLOW') {
+                dayObj.collections += Number(t.amount) || 0;
+                dayObj.collectionCount++;
+                const m = t.paymentMethod || 'Other';
+                dayObj.byMethod[m] = (dayObj.byMethod[m] || 0) + (Number(t.amount) || 0);
+            }
+            else {
+                dayObj.payouts += Number(t.amount) || 0;
+                dayObj.payoutCount++;
+            }
+            dayObj.net = dayObj.collections - dayObj.payouts;
+        });
+        const byDay = Array.from(dayMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        // 6. Today's live collection summary
+        const now = new Date();
+        const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        let todaySummary = dayMap.get(todayKey);
+        if (!todaySummary) {
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+            const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+            const [todayPayments, todayRefunds, todayPayouts] = await Promise.all([
+                payment_model_1.Payment.find({ createdAt: { $gte: todayStart, $lte: todayEnd } }),
+                refund_model_1.Refund.find({ createdAt: { $gte: todayStart, $lte: todayEnd } }),
+                expense_model_1.Payout.find({ status: 'Paid', expenseDate: { $gte: todayStart, $lte: todayEnd } }),
+            ]);
+            const todayByMethod = {};
+            let todayCollections = 0;
+            todayPayments.forEach((p) => {
+                todayCollections += p.amount || 0;
+                const m = p.paymentMethod || 'Other';
+                todayByMethod[m] = (todayByMethod[m] || 0) + (p.amount || 0);
+            });
+            const todayRefundTotal = todayRefunds.reduce((sum, r) => sum + (r.refundAmount || 0), 0);
+            const todayPayoutTotal = todayPayouts.reduce((sum, p) => sum + (p.amount || 0), 0);
+            const totalTodayPayouts = todayRefundTotal + todayPayoutTotal;
+            todaySummary = {
+                date: todayKey,
+                collections: todayCollections,
+                payouts: totalTodayPayouts,
+                net: todayCollections - totalTodayPayouts,
+                collectionCount: todayPayments.length,
+                payoutCount: todayRefunds.length + todayPayouts.length,
+                totalCount: todayPayments.length + todayRefunds.length + todayPayouts.length,
+                byMethod: todayByMethod,
+            };
+        }
         // Pagination
         const totalCount = allTransactions.length;
         const skip = (Number(page) - 1) * Number(limit);
@@ -819,6 +913,8 @@ class AccountsService {
                 collectionCount: allTransactions.filter((t) => t.flow === 'INFLOW').length,
                 payoutCount: allTransactions.filter((t) => t.flow === 'OUTFLOW').length,
             },
+            todaySummary,
+            byDay,
             patient: patientData,
             patientSummary: patientId ? patientSummary : undefined,
             invoices: patientInvoices,
