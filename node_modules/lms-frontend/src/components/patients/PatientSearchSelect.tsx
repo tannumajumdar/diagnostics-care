@@ -202,11 +202,11 @@ export const PatientSearchSelect: React.FC<PatientSearchSelectProps> = ({
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-semibold">{patient.patientName}</span>
-                      <span className="block truncate text-[11px] text-muted-foreground">
+                      <span className="block truncate text-[12px] text-muted-foreground">
                         {ageLabel(patient)} · {patient.gender} · {patient.mobile}
                       </span>
                     </span>
-                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{patient.uhid}</span>
+                    <span className="shrink-0 font-mono text-[12px] text-muted-foreground">{patient.uhid}</span>
                   </button>
                 </li>
               ))}

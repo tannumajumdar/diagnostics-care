@@ -185,19 +185,19 @@ export const LabWorkflowPage: React.FC = () => {
                     <Icon className="h-3.5 w-3.5 text-slate-600" />
                     <h2 className="text-xs font-semibold text-slate-900">{meta.short}</h2>
                   </div>
-                  <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                  <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700">
                     {total}
                   </span>
                 </div>
-                <p className="mt-1 text-[10px] leading-snug text-slate-600">{meta.detail}</p>
-                <p className="mt-0.5 text-[10px] font-medium text-slate-500">{meta.owner}</p>
+                <p className="mt-1 text-[11px] leading-snug text-slate-600">{meta.detail}</p>
+                <p className="mt-0.5 text-[11px] font-medium text-slate-500">{meta.owner}</p>
               </header>
 
               <div className="flex-1 space-y-2 overflow-y-auto p-2" style={{ maxHeight: 'calc(100vh - 340px)' }}>
                 {query.isLoading ? (
-                  <p className="py-6 text-center text-[11px] text-slate-400">Loading…</p>
+                  <p className="py-6 text-center text-[12px] text-slate-400">Loading…</p>
                 ) : samples.length === 0 ? (
-                  <p className="py-6 text-center text-[11px] text-slate-400">Nothing here.</p>
+                  <p className="py-6 text-center text-[12px] text-slate-400">Nothing here.</p>
                 ) : (
                   samples.map((s: any) => {
                     const tat = tatLabel(s.expectedAt, meta.stage === 'Completed');
@@ -209,7 +209,7 @@ export const LabWorkflowPage: React.FC = () => {
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="truncate text-xs font-semibold text-slate-900">{s.testName}</p>
-                            <p className="truncate text-[10px] text-slate-500">
+                            <p className="truncate text-[11px] text-slate-500">
                               {typeof s.patient === 'object' ? s.patient?.patientName ?? '—' : '—'}
                             </p>
                           </div>
@@ -222,17 +222,17 @@ export const LabWorkflowPage: React.FC = () => {
                           </button>
                         </div>
 
-                        <p className="mt-1 font-mono text-[10px] text-slate-400">{s.sampleId}</p>
+                        <p className="mt-1 font-mono text-[11px] text-slate-400">{s.sampleId}</p>
 
                         {(s.recollectionCount ?? 0) > 0 && (
-                          <span className="mt-1 inline-block rounded bg-orange-50 px-1.5 py-0.5 text-[9px] font-semibold text-orange-700">
+                          <span className="mt-1 inline-block rounded bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700">
                             Repeat draw ×{s.recollectionCount}
                           </span>
                         )}
 
                         {tat && (
                           <p
-                            className={`mt-1 text-[10px] font-medium ${
+                            className={`mt-1 text-[11px] font-medium ${
                               tat.overdue ? 'text-rose-600' : 'text-slate-400'
                             }`}
                           >
@@ -244,7 +244,7 @@ export const LabWorkflowPage: React.FC = () => {
                           <div className="mt-2 flex gap-1">
                             <Button
                               size="sm"
-                              className="h-7 flex-1 gap-1 bg-slate-900 px-2 text-[10px] hover:bg-slate-800"
+                              className="h-7 flex-1 gap-1 bg-slate-900 px-2 text-[11px] hover:bg-slate-800"
                               disabled={!allowed || busyId === s.id}
                               onClick={() => advance(s, meta)}
                               title={allowed ? meta.action : `${meta.owner} performs this step`}
@@ -279,7 +279,7 @@ export const LabWorkflowPage: React.FC = () => {
           <header className="flex items-center gap-2 border-b border-rose-100 bg-rose-50 px-4 py-2.5">
             <AlertTriangle className="h-4 w-4 text-rose-600" />
             <h2 className="text-sm font-semibold text-slate-900">Rejected — awaiting repeat draw</h2>
-            <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+            <span className="rounded-full bg-white px-1.5 py-0.5 text-[11px] font-semibold text-rose-700">
               {rejected.length}
             </span>
           </header>
@@ -289,9 +289,9 @@ export const LabWorkflowPage: React.FC = () => {
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-slate-900">
                     {s.testName}
-                    <span className="ml-2 font-mono text-[10px] text-slate-400">{s.sampleId}</span>
+                    <span className="ml-2 font-mono text-[11px] text-slate-400">{s.sampleId}</span>
                   </p>
-                  <p className="truncate text-[11px] text-rose-600">{s.rejectionReason || 'Rejected'}</p>
+                  <p className="truncate text-[12px] text-rose-600">{s.rejectionReason || 'Rejected'}</p>
                 </div>
                 <Button
                   size="sm"
@@ -324,7 +324,7 @@ export const LabWorkflowPage: React.FC = () => {
                 {rejectFor.testName} · <span className="font-mono">{rejectFor.sampleId}</span>
               </p>
               <div>
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Reason
                 </label>
                 <select className={inputClass} value={reason} onChange={(e) => setReason(e.target.value)}>
@@ -334,7 +334,7 @@ export const LabWorkflowPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   Notes (optional)
                 </label>
                 <input
@@ -377,7 +377,7 @@ export const LabWorkflowPage: React.FC = () => {
               <div className="space-y-5 px-4 py-4">
                 <div>
                   <p className="text-sm font-semibold text-slate-900">{timeline.sample?.testName}</p>
-                  <p className="font-mono text-[11px] text-slate-500">
+                  <p className="font-mono text-[12px] text-slate-500">
                     {timeline.sample?.sampleId} · {timeline.sample?.barcode}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
@@ -389,7 +389,7 @@ export const LabWorkflowPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Stages</p>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Stages</p>
                   <ol className="space-y-0">
                     {timeline.stages?.map((s: any, i: number) => (
                       <li key={s.stage} className="flex gap-3">
@@ -415,7 +415,7 @@ export const LabWorkflowPage: React.FC = () => {
                           >
                             {s.stage}
                           </p>
-                          <p className="text-[10px] text-slate-400">{fmtTime(s.reachedAt)}</p>
+                          <p className="text-[11px] text-slate-400">{fmtTime(s.reachedAt)}</p>
                         </div>
                       </li>
                     ))}
@@ -429,17 +429,17 @@ export const LabWorkflowPage: React.FC = () => {
                 )}
 
                 <div>
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Audit trail</p>
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Audit trail</p>
                   <ul className="space-y-1.5">
                     {(timeline.history ?? []).map((h: any, i: number) => (
-                      <li key={i} className="rounded-lg bg-slate-50 px-2.5 py-2 text-[11px]">
+                      <li key={i} className="rounded-lg bg-slate-50 px-2.5 py-2 text-[12px]">
                         <p className="text-slate-900">
                           <span className="text-slate-400">{h.fromStatus ?? '—'}</span> → {h.toStatus}
                         </p>
-                        <p className="text-[10px] text-slate-500">
+                        <p className="text-[11px] text-slate-500">
                           {h.updatedBy?.name} ({h.updatedBy?.role}) · {fmtTime(h.timestamp)}
                         </p>
-                        {h.notes && <p className="mt-0.5 text-[10px] text-slate-500">{h.notes}</p>}
+                        {h.notes && <p className="mt-0.5 text-[11px] text-slate-500">{h.notes}</p>}
                       </li>
                     ))}
                   </ul>

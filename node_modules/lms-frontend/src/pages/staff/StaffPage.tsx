@@ -209,7 +209,7 @@ export const StaffPage: React.FC = () => {
                       <td className="p-3 font-bold">
                         {member.name}
                         {member.id === currentUser?.id && (
-                          <span className="ml-1 text-[10px] font-normal text-muted-foreground">(you)</span>
+                          <span className="ml-1 text-[11px] font-normal text-muted-foreground">(you)</span>
                         )}
                       </td>
                       <td className="p-3 text-muted-foreground">{member.email}</td>
@@ -277,13 +277,13 @@ export const StaffPage: React.FC = () => {
             <div key={role} className="space-y-2 rounded-xl border p-3">
               <div>
                 <Badge variant={ROLE_TONE[role]}>{role}</Badge>
-                <p className="mt-1.5 text-[11px] text-muted-foreground">{ROLE_INTRO[role].subtitle}</p>
+                <p className="mt-1.5 text-[12px] text-muted-foreground">{ROLE_INTRO[role].subtitle}</p>
               </div>
               <div className="flex flex-wrap gap-1">
                 {ROLE_PERMISSIONS[role].map((permission) => (
                   <span
                     key={permission}
-                    className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[9px] text-slate-600"
+                    className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600"
                   >
                     {permission}
                   </span>
@@ -342,7 +342,7 @@ export const StaffPage: React.FC = () => {
                 />
               </div>
 
-              <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800">
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[12px] text-amber-800">
                 {resetting.id === currentUser?.id
                   ? 'This is your own account. Your current session stays signed in.'
                   : `${resetting.name} will be signed out everywhere and must use the new password. Hand it over in person.`}
@@ -445,7 +445,7 @@ export const StaffPage: React.FC = () => {
                 />
               </div>
 
-              <p className="rounded-lg bg-slate-50 p-2 text-[11px] text-muted-foreground">
+              <p className="rounded-lg bg-slate-50 p-2 text-[12px] text-muted-foreground">
                 {ROLE_INTRO[form.role as Role]?.subtitle}
               </p>
 

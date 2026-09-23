@@ -153,7 +153,7 @@ export const VerificationDashboardPage: React.FC = () => {
         <div className="relative">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-violet-300" />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-200">Verification</span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-violet-200">Verification</span>
           </div>
           <h1 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">Verification Desk</h1>
           <p className="mt-1 max-w-xl text-xs text-slate-400">
@@ -161,13 +161,13 @@ export const VerificationDashboardPage: React.FC = () => {
           </p>
 
           <div className="mt-5">
-            <span className="text-[44px] font-semibold leading-none tracking-tight sm:text-5xl">
+            <span className="text-[48px] font-semibold leading-none tracking-tight sm:text-5xl">
               {isLoading ? '—' : totals.reports}
             </span>
             <p className="mt-2 text-xs font-medium text-slate-300">
               Report{totals.reports === 1 ? '' : 's'} awaiting your sign-off
             </p>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[12px] text-slate-500">
               {totals.tests} test{totals.tests === 1 ? '' : 's'} in the queue
               {totals.critical > 0 && ` · ${totals.critical} critical value${totals.critical === 1 ? '' : 's'}`}
             </p>
@@ -215,8 +215,8 @@ export const VerificationDashboardPage: React.FC = () => {
               <tile.icon className="h-[18px] w-[18px]" />
             </span>
             <div className="min-w-0">
-              <p className="truncate text-[11px] font-medium text-slate-500">{tile.label}</p>
-              <p className="mt-0.5 text-[22px] font-semibold leading-tight tracking-tight text-slate-900">
+              <p className="truncate text-[12px] font-medium text-slate-500">{tile.label}</p>
+              <p className="mt-0.5 text-[24px] font-semibold leading-tight tracking-tight text-slate-900">
                 {isLoading ? '—' : tile.value}
               </p>
             </div>
@@ -231,7 +231,7 @@ export const VerificationDashboardPage: React.FC = () => {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-xs">
-              <thead className="border-b border-slate-100 bg-slate-50/80 text-[10px] uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-slate-100 bg-slate-50/80 text-[11px] uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="p-3 font-semibold">Report</th>
                   <th className="p-3 font-semibold">Patient &amp; UHID</th>
@@ -273,7 +273,7 @@ export const VerificationDashboardPage: React.FC = () => {
                       </td>
                       <td className="p-3 font-bold">
                         <div>{report.patientName}</div>
-                        <div className="text-[10px] font-mono text-muted-foreground">UHID: {report.uhid}</div>
+                        <div className="text-[11px] font-mono text-muted-foreground">UHID: {report.uhid}</div>
                       </td>
                       <td className="p-3">
                         <div className="font-semibold">{report.testNames.join(', ')}</div>
@@ -284,12 +284,12 @@ export const VerificationDashboardPage: React.FC = () => {
                           <div className="mt-1 flex flex-wrap gap-1">
                             {/* Icon and word both carry the state - a colour
                                 on its own is not readable by everyone. */}
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700">
                               <AlertTriangle className="h-2.5 w-2.5" />
                               {report.abnormal} outside range
                             </span>
                             {report.critical > 0 && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700">
                                 <Siren className="h-2.5 w-2.5" />
                                 {report.critical} critical
                               </span>
@@ -332,7 +332,7 @@ export const VerificationDashboardPage: React.FC = () => {
         </CardContent>
       </Card>
 
-      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
         <Clock className="h-3.5 w-3.5" />
         Approving releases the report to the front desk. Open Review to send a run back to the bench instead.
       </p>

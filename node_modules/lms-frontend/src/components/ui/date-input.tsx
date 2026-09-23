@@ -131,7 +131,7 @@ export const DateInput: React.FC<DateInputProps> = ({
           className="pointer-events-none absolute bottom-0 right-2 h-px w-px opacity-0"
         />
       </div>
-      {error && <span className="text-[10px] text-red-500 mt-1 block font-medium">{error}</span>}
+      {error && <span className="text-[11px] text-red-500 mt-1 block font-medium">{error}</span>}
     </div>
   );
 };

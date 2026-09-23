@@ -9,7 +9,7 @@ import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
 import { DATE_PRESETS, formatDay, relativeDayLabel, todayKey } from '../../utils/dates';
 import { exportToExcel } from '../../utils/excel-export';
-import { invoiceExportRows, paymentBreakdownOf } from '../../utils/invoice-export';
+import { invoiceExportRows, paymentBreakdownOf, processingModeOf } from '../../utils/invoice-export';
 import { methodIcon, methodLabel } from '../../config/payment-methods';
 import { useToast } from '../../context/ToastContext';
 import {
@@ -26,6 +26,35 @@ import {
 } from 'lucide-react';
 
 const money = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+
+/**
+ * Where the work on a bill was run. One outsourced line makes the whole bill
+ * an outsourced one, so the two buckets never overlap and their counts still
+ * add up to the window - picking one and then the other accounts for every
+ * bill exactly once.
+ */
+type ProcessingFilter = '' | 'In-house' | 'Outsource';
+
+const PROCESSING_FILTERS: Array<{ label: string; value: ProcessingFilter }> = [
+  { label: 'All work', value: '' },
+  { label: 'In-house', value: 'In-house' },
+  { label: 'Outsource', value: 'Outsource' },
+];
+
+/**
+ * Whether the money is in. "Unpaid" is every bill still owing something - the
+ * part-paid one and the one left on credit as much as the one nothing was
+ * taken on - because that is the list the desk works from when it chases the
+ * day's outstanding, and a partial bill left out of both buckets is a bill
+ * nobody follows up.
+ */
+type PaymentFilter = '' | 'Paid' | 'Unpaid';
+
+const PAYMENT_FILTERS: Array<{ label: string; value: PaymentFilter }> = [
+  { label: 'Paid & unpaid', value: '' },
+  { label: 'Paid', value: 'Paid' },
+  { label: 'Unpaid / due', value: 'Unpaid' },
+];
 
 /** The date and time a bill was raised, split over two lines in the row. */
 const billedOn = (value?: string) => {
@@ -49,6 +78,14 @@ export const BillingListPage: React.FC = () => {
   // raised, which is the right default for a search by invoice number.
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  // Bills run in house against bills that had anything sent out. Empty means
+  // both, which is the whole day's billing.
+  const [processingMode, setProcessingMode] = useState<ProcessingFilter>('');
+  // Paid against still owing. Sits beside the search box rather than in the
+  // chips below it, because "which of these is unpaid" is the same question
+  // as the search itself - the desk is looking for one bill or for the ones
+  // it still has to collect on.
+  const [paymentStatus, setPaymentStatus] = useState<PaymentFilter>('');
 
   const applyRange = (next: { from: string; to: string }) => {
     setFrom(next.from);
@@ -57,12 +94,14 @@ export const BillingListPage: React.FC = () => {
   };
 
   const { data, isLoading } = useQuery({
-    queryKey: ['invoices', searchTerm, from, to, page],
+    queryKey: ['invoices', searchTerm, from, to, processingMode, paymentStatus, page],
     queryFn: () =>
       billingApi.getAllInvoices({
         search: searchTerm || undefined,
         from: from || undefined,
         to: to || undefined,
+        processingMode: processingMode || undefined,
+        paymentStatus: paymentStatus || undefined,
         page,
         limit: 10,
       }),
@@ -103,6 +142,8 @@ export const BillingListPage: React.FC = () => {
         search: searchTerm || undefined,
         from: from || undefined,
         to: to || undefined,
+        processingMode: processingMode || undefined,
+        paymentStatus: paymentStatus || undefined,
       });
 
       if (!invoices.length) {
@@ -111,7 +152,14 @@ export const BillingListPage: React.FC = () => {
       }
 
       const windowSlug = !from && !to ? 'all-time' : `${from || 'start'}_to_${to || todayKey()}`;
-      await exportToExcel(`bills_${windowSlug}`, invoiceExportRows(invoices), { sheetName: 'Bills' });
+      // The file is named for the filter it was taken under, so an in-house
+      // sheet and an outsourced one for the same week do not overwrite each
+      // other in the accountant's downloads folder.
+      const modeSlug = processingMode ? `_${processingMode.toLowerCase()}` : '';
+      const paidSlug = paymentStatus ? `_${paymentStatus.toLowerCase()}` : '';
+      await exportToExcel(`bills_${windowSlug}${modeSlug}${paidSlug}`, invoiceExportRows(invoices), {
+        sheetName: 'Bills',
+      });
 
       showToast(
         truncated
@@ -159,17 +207,61 @@ export const BillingListPage: React.FC = () => {
 
       <Card className="space-y-3 p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative w-full lg:w-80">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search invoice #, UHID, barcode..."
-              className="pl-9 text-xs"
-              value={searchTerm}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                setSearchTerm(e.target.value);
-                setPage(1);
-              }}
-            />
+          {/* The search box and the two questions the desk asks of a search:
+              was this work run here or sent out, and has the money come in.
+              Both sit against the box rather than in the chip row, so one
+              glance shows what the list on screen has been narrowed to. */}
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center lg:w-auto">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search invoice #, UHID, barcode..."
+                className="pl-9 text-xs"
+                value={searchTerm}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  setSearchTerm(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <select
+                value={processingMode}
+                onChange={(e) => {
+                  setProcessingMode(e.target.value as ProcessingFilter);
+                  setPage(1);
+                }}
+                aria-label="In-house or outsourced work"
+                className={`h-9 rounded-lg border bg-background px-2 text-xs font-medium ${
+                  processingMode ? 'border-blue-300 text-blue-700' : 'text-slate-600'
+                }`}
+              >
+                {PROCESSING_FILTERS.map((option) => (
+                  <option key={option.label} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={paymentStatus}
+                onChange={(e) => {
+                  setPaymentStatus(e.target.value as PaymentFilter);
+                  setPage(1);
+                }}
+                aria-label="Paid or unpaid bills"
+                className={`h-9 rounded-lg border bg-background px-2 text-xs font-medium ${
+                  paymentStatus ? 'border-blue-300 text-blue-700' : 'text-slate-600'
+                }`}
+              >
+                {PAYMENT_FILTERS.map((option) => (
+                  <option key={option.label} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* A bill belongs to a day, and the day is how the desk closes its
@@ -214,7 +306,7 @@ export const BillingListPage: React.FC = () => {
                 key={preset.label}
                 type="button"
                 onClick={() => applyRange(preset.range())}
-                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                className={`rounded-full border px-2.5 py-1 text-[12px] font-medium transition ${
                   isActive
                     ? 'border-blue-300 bg-blue-50 text-blue-700'
                     : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700'
@@ -227,7 +319,7 @@ export const BillingListPage: React.FC = () => {
           <button
             type="button"
             onClick={() => applyRange({ from: '', to: '' })}
-            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+            className={`rounded-full border px-2.5 py-1 text-[12px] font-medium transition ${
               !from && !to
                 ? 'border-blue-300 bg-blue-50 text-blue-700'
                 : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700'
@@ -235,27 +327,35 @@ export const BillingListPage: React.FC = () => {
           >
             All time
           </button>
+
         </div>
 
         <div className="grid grid-cols-2 gap-3 rounded-xl border bg-muted/30 p-3 sm:grid-cols-5">
           <div>
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Bills · {rangeLabel}</p>
+            {/* The totals answer for the filters above, so the label carries
+                them - a count under a bare "All time" while the In-house chip
+                is on would be read as the whole window's billing. */}
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Bills · {rangeLabel}
+              {processingMode ? ` · ${processingMode}` : ''}
+              {paymentStatus ? ` · ${paymentStatus === 'Paid' ? 'Paid' : 'Unpaid'}` : ''}
+            </p>
             <p className="text-sm font-bold text-foreground">{summary.invoices}</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Billed</p>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Billed</p>
             <p className="text-sm font-bold text-foreground">{money(summary.billed)}</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Collected</p>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Collected</p>
             <p className="text-sm font-bold text-emerald-600">{money(summary.collected)}</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Outstanding due</p>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Outstanding due</p>
             <p className="text-sm font-bold text-amber-600">{money(summary.due)}</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Discount given</p>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Discount given</p>
             <p className="text-sm font-bold text-emerald-600">{money(summary.discount)}</p>
           </div>
         </div>
@@ -288,7 +388,7 @@ export const BillingListPage: React.FC = () => {
               ) : invoiceList.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="p-8 text-center text-muted-foreground">
-                    {from || to || searchTerm
+                    {from || to || searchTerm || processingMode
                       ? 'No invoices match this filter.'
                       : 'No invoices generated yet.'}
                   </td>
@@ -298,6 +398,7 @@ export const BillingListPage: React.FC = () => {
                   const patient = typeof inv.patient === 'object' ? inv.patient : {};
                   const raised = billedOn((inv as any).createdAt);
                   const breakdown = paymentBreakdownOf(inv);
+                  const mode = processingModeOf(inv);
                   // Derived rather than read off a field: a bill carries its
                   // gross and its net, and what was knocked off is the gap.
                   const gross = Number((inv as any).subtotal ?? inv.netAmount ?? 0);
@@ -306,17 +407,35 @@ export const BillingListPage: React.FC = () => {
                     <tr key={inv._id} className="hover:bg-muted/30 transition-colors">
                       <td className="p-3 whitespace-nowrap">
                         <div className="font-semibold text-foreground">{raised.day}</div>
-                        <div className="text-[10px] text-muted-foreground">{raised.time}</div>
+                        <div className="text-[11px] text-muted-foreground">{raised.time}</div>
                       </td>
                       <td className="p-3 font-mono">
-                        <div className="font-bold text-blue-600">{inv.invoiceNumber}</div>
-                        <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-blue-600">{inv.invoiceNumber}</span>
+                          {/* Whether the bench ran this bill or it went out.
+                              Sits on the row rather than only behind View
+                              Details, because chasing a referral lab starts
+                              from this list. */}
+                          {mode && (
+                            <span
+                              title={mode === 'Outsource' ? 'Has tests sent out' : 'Run in house'}
+                              className={`rounded px-1 py-px text-[10px] font-bold uppercase tracking-wide ${
+                                mode === 'Outsource'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-emerald-100 text-emerald-700'
+                              }`}
+                            >
+                              {mode === 'Outsource' ? 'Out' : 'In'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                           <Barcode className="h-3 w-3" /> {inv.barcode}
                         </div>
                       </td>
                       <td className="p-3">
                         <div className="font-bold text-foreground">{(patient as any).patientName || 'N/A'}</div>
-                        <div className="text-[10px] font-mono text-muted-foreground">UHID: {inv.uhid}</div>
+                        <div className="text-[11px] font-mono text-muted-foreground">UHID: {inv.uhid}</div>
                       </td>
                       {/* What the desk gave away on this bill - the per-line
                           discounts and the bill-wide one together, which is
@@ -325,7 +444,7 @@ export const BillingListPage: React.FC = () => {
                         {discount > 0 ? (
                           <>
                             <div className="font-mono font-semibold text-emerald-600">- {money(discount)}</div>
-                            <div className="text-[10px] text-muted-foreground">
+                            <div className="text-[11px] text-muted-foreground">
                               {inv.discountType === 'Percentage' && Number(inv.discountValue) > 0
                                 ? `${inv.discountValue}%`
                                 : ''}
@@ -354,7 +473,7 @@ export const BillingListPage: React.FC = () => {
                                 <span
                                   key={entry.method}
                                   title={`${methodLabel(entry.method)} · ${money(entry.amount)}`}
-                                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+                                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700"
                                 >
                                   {Icon && <Icon className="h-2.5 w-2.5" />}
                                   {methodLabel(entry.method)}

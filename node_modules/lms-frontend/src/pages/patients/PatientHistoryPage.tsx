@@ -47,9 +47,9 @@ const Tile: React.FC<{
       <Icon className="h-[18px] w-[18px]" />
     </span>
     <div className="min-w-0">
-      <p className="truncate text-[11px] font-medium text-slate-500">{label}</p>
-      <p className="mt-0.5 truncate text-[22px] font-semibold leading-tight tracking-tight text-slate-900">{value}</p>
-      {hint && <p className="mt-0.5 truncate text-[10px] text-slate-400">{hint}</p>}
+      <p className="truncate text-[12px] font-medium text-slate-500">{label}</p>
+      <p className="mt-0.5 truncate text-[24px] font-semibold leading-tight tracking-tight text-slate-900">{value}</p>
+      {hint && <p className="mt-0.5 truncate text-[11px] text-slate-400">{hint}</p>}
     </div>
   </div>
 );
@@ -95,12 +95,12 @@ export const PatientHistoryPage: React.FC = () => {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <History className="h-4 w-4 text-indigo-300" />
-                <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-indigo-200">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-200">
                   Patient history
                 </span>
               </div>
               <h1 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">{patient.patientName}</h1>
-              <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+              <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-slate-400">
                 <span className="font-mono">{patient.uhid}</span>
                 <span>
                   {ageLabel(patient)} · {patient.gender}
@@ -139,13 +139,13 @@ export const PatientHistoryPage: React.FC = () => {
           </div>
 
           <div className="mt-5">
-            <span className="text-[44px] font-semibold leading-none tracking-tight sm:text-5xl">
+            <span className="text-[48px] font-semibold leading-none tracking-tight sm:text-5xl">
               {summary.visits}
             </span>
             <p className="mt-2 text-xs font-medium text-slate-300">
               visit{summary.visits === 1 ? '' : 's'} at this centre
             </p>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[12px] text-slate-500">
               {summary.firstVisit
                 ? `First came ${formatDay(summary.firstVisit)} · last ${formatDay(summary.lastVisit)}`
                 : 'No bills raised yet'}
@@ -192,7 +192,7 @@ export const PatientHistoryPage: React.FC = () => {
       <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         <header className="border-b border-slate-100 px-5 py-4">
           <h2 className="text-sm font-semibold text-slate-900">Visits</h2>
-          <p className="text-[11px] text-slate-500">Each bill with the tests it covered and where they got to.</p>
+          <p className="text-[12px] text-slate-500">Each bill with the tests it covered and where they got to.</p>
         </header>
 
         {visits.length === 0 ? (
@@ -217,12 +217,12 @@ export const PatientHistoryPage: React.FC = () => {
                     <div className="min-w-0 flex-1">
                       <p className="flex flex-wrap items-center gap-2 text-xs">
                         <span className="font-semibold text-slate-900">{formatDay(visit.date)}</span>
-                        <span className="font-mono text-[10px] text-slate-400">{visit.invoiceNumber}</span>
+                        <span className="font-mono text-[11px] text-slate-400">{visit.invoiceNumber}</span>
                         {visit.doctorName && (
-                          <span className="text-[10px] text-slate-400">Ref: {visit.doctorName}</span>
+                          <span className="text-[11px] text-slate-400">Ref: {visit.doctorName}</span>
                         )}
                       </p>
-                      <p className="mt-0.5 text-[11px] text-slate-500">
+                      <p className="mt-0.5 text-[12px] text-slate-500">
                         {visit.testCount} test{visit.testCount === 1 ? '' : 's'}
                         {visit.reportsReady > 0 && (
                           <span className="font-medium text-emerald-700"> · {visit.reportsReady} report ready</span>
@@ -232,7 +232,7 @@ export const PatientHistoryPage: React.FC = () => {
                     <div className="shrink-0 text-right">
                       <p className="text-xs font-semibold tabular-nums text-slate-900">{money(visit.netAmount)}</p>
                       {visit.dueAmount > 0 ? (
-                        <p className="text-[10px] font-semibold text-rose-600">Due {money(visit.dueAmount)}</p>
+                        <p className="text-[11px] font-semibold text-rose-600">Due {money(visit.dueAmount)}</p>
                       ) : (
                         <Badge variant="success">Paid</Badge>
                       )}
@@ -242,11 +242,11 @@ export const PatientHistoryPage: React.FC = () => {
                   {open && (
                     <div className="space-y-3 border-t border-slate-100 bg-slate-50/40 px-5 py-3">
                       <div>
-                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                           Tests
                         </p>
                         {visit.tests.length === 0 ? (
-                          <p className="text-[11px] text-slate-400">No samples were registered against this bill.</p>
+                          <p className="text-[12px] text-slate-400">No samples were registered against this bill.</p>
                         ) : (
                           <ul className="space-y-1">
                             {visit.tests.map((test: any) => (
@@ -257,16 +257,16 @@ export const PatientHistoryPage: React.FC = () => {
                                 <span className="min-w-0 flex-1 truncate font-medium text-slate-800">
                                   {test.testName}
                                 </span>
-                                <span className="font-mono text-[10px] text-slate-400">{test.sampleId}</span>
+                                <span className="font-mono text-[11px] text-slate-400">{test.sampleId}</span>
                                 <span
-                                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                                  className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${
                                     SAMPLE_TONE[test.sampleStatus] || 'bg-slate-100 text-slate-600'
                                   }`}
                                 >
                                   {test.sampleStatus}
                                 </span>
                                 {test.reportReady && (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">
                                     <FileCheck className="h-2.5 w-2.5" />
                                     Report ready
                                   </span>
@@ -279,7 +279,7 @@ export const PatientHistoryPage: React.FC = () => {
 
                       {visit.payments.length > 0 && (
                         <div>
-                          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                             Paid on this bill
                           </p>
                           <ul className="space-y-1">
@@ -293,7 +293,7 @@ export const PatientHistoryPage: React.FC = () => {
                                   style={{ backgroundColor: methodColor(payment.paymentMethod) }}
                                 />
                                 <span className="text-slate-600">{methodLabel(payment.paymentMethod)}</span>
-                                <span className="font-mono text-[10px] text-slate-400">{payment.receiptNumber}</span>
+                                <span className="font-mono text-[11px] text-slate-400">{payment.receiptNumber}</span>
                                 <span className="ml-auto font-semibold tabular-nums text-slate-900">
                                   {money(payment.amount)}
                                 </span>
@@ -346,7 +346,7 @@ export const PatientHistoryPage: React.FC = () => {
                   />
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium text-slate-900">{methodLabel(payment.paymentMethod)}</p>
-                    <p className="truncate font-mono text-[10px] text-slate-400">
+                    <p className="truncate font-mono text-[11px] text-slate-400">
                       {payment.receiptNumber} · {formatDateTime(payment.date)}
                     </p>
                   </div>
@@ -374,7 +374,7 @@ export const PatientHistoryPage: React.FC = () => {
                     <p className="truncate font-medium text-slate-900">
                       {formatDay(appointment.date)} · {appointment.time}
                     </p>
-                    <p className="truncate text-[10px] text-slate-400">
+                    <p className="truncate text-[11px] text-slate-400">
                       {appointment.collectionType} · {appointment.appointmentId}
                     </p>
                   </div>

@@ -27,7 +27,7 @@ const Field: React.FC<{ label: string; required?: boolean; error?: string; child
       {label} {required && <span className="text-red-500">*</span>}
     </label>
     {children}
-    {error && <span className="text-[10px] text-red-500 mt-1 block font-medium">{error}</span>}
+    {error && <span className="text-[11px] text-red-500 mt-1 block font-medium">{error}</span>}
   </div>
 );
 
@@ -182,11 +182,11 @@ export const PatientFormPage: React.FC = () => {
                 <>
                   <div className="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-input bg-muted/40 px-3">
                     <span className="text-xs font-semibold">{ageYmdLabel(form)}</span>
-                    <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                       {ageDaysLabel(form)}
                     </span>
                   </div>
-                  <span className="mt-1 block text-[10px] text-muted-foreground">
+                  <span className="mt-1 block text-[11px] text-muted-foreground">
                     From the date of birth. Clear the date to type an age.
                   </span>
                 </>
@@ -217,7 +217,7 @@ export const PatientFormPage: React.FC = () => {
                 value={form.dateOfBirth}
                 onChange={setDateOfBirth}
               />
-              <span className="mt-1 block text-[10px] text-muted-foreground">
+              <span className="mt-1 block text-[11px] text-muted-foreground">
                 Fills the age in by itself, in years, months and days.
               </span>
             </Field>

@@ -265,32 +265,32 @@ export const PayoutsPage: React.FC = () => {
       {/* Headline totals */}
       <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
         <Card className="border-rose-200 bg-gradient-to-br from-rose-600 to-rose-700 p-3 text-white">
-          <span className="text-[10px] font-bold uppercase opacity-90">Total Paid Out</span>
+          <span className="text-[11px] font-bold uppercase opacity-90">Total Paid Out</span>
           <span className="mt-1 block font-mono text-lg font-bold">{money(summary?.totalPaid ?? 0)}</span>
-          <span className="text-[10px] opacity-80">{summary?.paidCount ?? 0} payments</span>
+          <span className="text-[11px] opacity-80">{summary?.paidCount ?? 0} payments</span>
         </Card>
         <Card className="border-amber-200 bg-amber-50/50 p-3">
-          <span className="text-[10px] font-bold uppercase text-muted-foreground">Awaiting Approval</span>
+          <span className="text-[11px] font-bold uppercase text-muted-foreground">Awaiting Approval</span>
           <span className="mt-1 block font-mono text-lg font-bold text-amber-700">
             {money(summary?.totalPending ?? 0)}
           </span>
-          <span className="text-[10px] text-muted-foreground">{summary?.pendingCount ?? 0} pending</span>
+          <span className="text-[11px] text-muted-foreground">{summary?.pendingCount ?? 0} pending</span>
         </Card>
         <Card className="border-sky-200 bg-sky-50/50 p-3">
-          <span className="flex items-center gap-1 text-[10px] font-bold uppercase text-muted-foreground">
+          <span className="flex items-center gap-1 text-[11px] font-bold uppercase text-muted-foreground">
             <Ambulance className="h-3 w-3" /> Ambulance
           </span>
           <span className="mt-1 block font-mono text-lg font-bold text-sky-700">{money(ambulanceTotal)}</span>
-          <span className="text-[10px] text-muted-foreground">this period</span>
+          <span className="text-[11px] text-muted-foreground">this period</span>
         </Card>
         <Card className="border-slate-200 bg-slate-50/50 p-3">
-          <span className="flex items-center gap-1 text-[10px] font-bold uppercase text-muted-foreground">
+          <span className="flex items-center gap-1 text-[11px] font-bold uppercase text-muted-foreground">
             <TrendingDown className="h-3 w-3" /> Daily Average
           </span>
           <span className="mt-1 block font-mono text-lg font-bold text-slate-700">
             {money(Math.round((summary?.totalPaid ?? 0) / Math.max(1, summary?.byDay?.length ?? 1)))}
           </span>
-          <span className="text-[10px] text-muted-foreground">over {summary?.byDay?.length ?? 0} active days</span>
+          <span className="text-[11px] text-muted-foreground">over {summary?.byDay?.length ?? 0} active days</span>
         </Card>
       </div>
 
@@ -313,7 +313,7 @@ export const PayoutsPage: React.FC = () => {
                   <p className="font-bold">
                     {p.payeeName} <span className="font-normal text-muted-foreground">· {p.payeeType}</span>
                   </p>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[12px] text-muted-foreground">
                     {p.description} · filed by {p.recordedBy?.name}
                   </p>
                 </div>
@@ -358,7 +358,7 @@ export const PayoutsPage: React.FC = () => {
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                       <div className="h-full rounded-full bg-rose-500" style={{ width: `${share}%` }} />
                     </div>
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-[11px] text-muted-foreground">
                       {row.count} payment{row.count === 1 ? '' : 's'} · {share}% of total
                     </p>
                   </div>
@@ -454,12 +454,12 @@ export const PayoutsPage: React.FC = () => {
                       </td>
                       <td className="p-3">
                         <p className="font-bold">{p.payeeName}</p>
-                        <p className="text-[10px] text-muted-foreground">{p.payeeType}</p>
+                        <p className="text-[11px] text-muted-foreground">{p.payeeType}</p>
                       </td>
                       <td className="p-3 text-muted-foreground">
                         {p.description}
                         {p.patient?.patientName && (
-                          <span className="block text-[10px] font-semibold text-blue-600">
+                          <span className="block text-[11px] font-semibold text-blue-600">
                             {p.patient.patientName} ({p.patient.uhid})
                           </span>
                         )}
@@ -471,7 +471,7 @@ export const PayoutsPage: React.FC = () => {
                       <td className="p-3">
                         <Badge variant={STATUS_BADGE[p.status] ?? 'secondary'}>{p.status}</Badge>
                         {p.status === 'Rejected' && p.rejectionReason && (
-                          <span className="block text-[10px] text-muted-foreground">{p.rejectionReason}</span>
+                          <span className="block text-[11px] text-muted-foreground">{p.rejectionReason}</span>
                         )}
                       </td>
                       <td className="p-3 text-muted-foreground">{p.recordedBy?.name}</td>
@@ -660,13 +660,13 @@ export const PayoutsPage: React.FC = () => {
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-[10px] text-muted-foreground">
+                <p className="mt-1 text-[11px] text-muted-foreground">
                   Useful when the ambulance ran for one patient - the payment then shows on their record.
                 </p>
               </div>
 
               {!canApprove && (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800">
+                <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[12px] text-amber-800">
                   Payouts above the petty-cash limit are filed for Admin approval instead of being settled straight away.
                 </p>
               )}

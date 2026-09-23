@@ -81,7 +81,7 @@ export const PendingProcessingQueuePage: React.FC = () => {
                       <td className="p-3 font-mono font-bold text-blue-600">{s.sampleId}</td>
                       <td className="p-3 font-bold">
                         <div>{patient.patientName || 'N/A'}</div>
-                        <div className="text-[10px] font-mono text-muted-foreground">UHID: {s.uhid}</div>
+                        <div className="text-[11px] font-mono text-muted-foreground">UHID: {s.uhid}</div>
                       </td>
                       <td className="p-3 font-semibold">
                         {s.testName}

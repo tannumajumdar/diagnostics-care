@@ -13,6 +13,7 @@ import { DoctorBillPrint } from '../../components/billing/DoctorBillPrint';
 import { PaymentGatewayModal } from '../../components/billing/PaymentGatewayModal';
 import {
   SplitPaymentEditor,
+  splitSeed,
   tenderPayload,
   tenderTotal,
   type Tender,
@@ -283,9 +284,9 @@ export const InvoiceDetailsPage: React.FC = () => {
                   <tr key={item._id || `${item.testCode}-${index}`}>
                     <td className="p-3">
                       <div className="font-bold">{item.testName}</div>
-                      <div className="font-mono text-[10px] text-muted-foreground">{item.testCode}</div>
+                      <div className="font-mono text-[11px] text-muted-foreground">{item.testCode}</div>
                       {item.packageName && (
-                        <div className="mt-0.5 flex items-center gap-1 text-[10px] font-semibold text-violet-700">
+                        <div className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-violet-700">
                           <Package className="h-2.5 w-2.5" />
                           {item.packageName}
                         </div>
@@ -297,7 +298,7 @@ export const InvoiceDetailsPage: React.FC = () => {
                         <>
                           <Badge variant="amber">Outsource</Badge>
                           {item.outsourceLab && (
-                            <div className="mt-0.5 text-[10px] text-muted-foreground">
+                            <div className="mt-0.5 text-[11px] text-muted-foreground">
                               {item.outsourceLab}
                             </div>
                           )}
@@ -427,7 +428,7 @@ export const InvoiceDetailsPage: React.FC = () => {
                   return (
                     <span
                       key={entry.method}
-                      className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800"
+                      className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[12px] font-semibold text-emerald-800"
                     >
                       {Icon && <Icon className="h-3 w-3" />}
                       {methodLabel(entry.method)}
@@ -601,7 +602,7 @@ export const InvoiceDetailsPage: React.FC = () => {
                   onClick={() => {
                     // Opens on the full due so the desk types only the first
                     // leg and the remainder is already sitting on the second.
-                    if (!tenders.length) setTenders([{ method: 'Cash', amount: due }]);
+                    if (!tenders.length) setTenders(splitSeed(payMethod, due));
                     setSplitting(true);
                   }}
                   className={`flex flex-1 items-center justify-center gap-1 px-3 py-1.5 font-semibold transition ${
@@ -646,7 +647,7 @@ export const InvoiceDetailsPage: React.FC = () => {
                       this screen - the gateway has to confirm it was captured, or
                       a declined card would land in the day's takings. */}
                   {GATEWAY_METHODS.includes(payMethod) && (
-                    <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-800">
+                    <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
                       {payMethod} is collected through the machine, so it is confirmed by the gateway rather than typed
                       in here.
                     </p>

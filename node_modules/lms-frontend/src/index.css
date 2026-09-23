@@ -29,6 +29,10 @@
 
 body {
   margin: 0;
+  /* The floor the interface is read at - a tenth up from the browser's 16px,
+     matching the type scale in tailwind.config.js. Text inside a printed bill
+     is sized in absolute px on its own sheet and does not move with this. */
+  font-size: 17.5px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   background-color: #f8fafc;
   color: #0f172a;

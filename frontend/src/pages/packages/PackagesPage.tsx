@@ -227,18 +227,18 @@ export const PackagesPage: React.FC = () => {
                     <tr key={pkg.id} className="transition-colors hover:bg-muted/30">
                       <td className="p-3">
                         <div className="font-bold text-foreground">{pkg.packageName}</div>
-                        <div className="font-mono text-[10px] font-semibold text-violet-600">
+                        <div className="font-mono text-[11px] font-semibold text-violet-600">
                           {pkg.packageCode}
                         </div>
                         {pkg.description && (
-                          <div className="mt-0.5 max-w-xs truncate text-[10px] text-muted-foreground">
+                          <div className="mt-0.5 max-w-xs truncate text-[11px] text-muted-foreground">
                             {pkg.description}
                           </div>
                         )}
                       </td>
                       <td className="p-3">
                         <div className="font-semibold">{(pkg.tests || []).length} tests</div>
-                        <div className="max-w-xs truncate text-[10px] text-muted-foreground">
+                        <div className="max-w-xs truncate text-[11px] text-muted-foreground">
                           {(pkg.tests || []).map((t) => t.testName).join(', ') || '-'}
                         </div>
                       </td>
@@ -258,7 +258,7 @@ export const PackagesPage: React.FC = () => {
                           money(Number(pkg.referralRate))
                         ) : (
                           <span
-                            className="text-[10px] font-normal text-muted-foreground"
+                            className="text-[11px] font-normal text-muted-foreground"
                             title="Falls back to each test's own referral rate"
                           >
                             per test

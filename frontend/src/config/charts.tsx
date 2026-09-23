@@ -119,7 +119,7 @@ export const ChartTooltip: React.FC<any> = ({
 
 /** A legend swatch row, used where recharts' own legend is too loud. */
 export const LegendKey: React.FC<{ color: string; label: string; value?: string }> = ({ color, label, value }) => (
-  <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+  <span className="inline-flex items-center gap-1.5 text-[12px] text-slate-500">
     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
     {label}
     {value && <span className="font-semibold tabular-nums text-slate-700">{value}</span>}

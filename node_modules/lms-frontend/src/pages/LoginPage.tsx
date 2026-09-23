@@ -102,7 +102,7 @@ export const LoginPage: React.FC = () => {
             <FlaskConical className="h-6 w-6" />
           </div>
           <p className="mt-3.5 text-lg font-semibold tracking-tight text-white">LMS</p>
-          <p className="text-[11px] text-slate-400">Laboratory Management System</p>
+          <p className="text-[12px] text-slate-400">Laboratory Management System</p>
         </div>
 
         <div className="rounded-3xl border border-white/10 bg-white p-7 shadow-[0_32px_80px_-24px_rgba(2,6,23,0.75)] sm:p-9">
@@ -181,7 +181,7 @@ export const LoginPage: React.FC = () => {
           <div className="mt-8">
             <div className="flex items-center gap-3">
               <span className="h-px flex-1 bg-slate-200" />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                 Demo accounts
               </span>
               <span className="h-px flex-1 bg-slate-200" />
@@ -203,27 +203,27 @@ export const LoginPage: React.FC = () => {
                     }`}
                   >
                     <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ring-1 ring-inset ${account.tint}`}
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ring-1 ring-inset ${account.tint}`}
                     >
                       {account.initials}
                     </span>
                     <span className="min-w-0">
                       <span className="block truncate text-xs font-semibold text-slate-800">{account.label}</span>
-                      <span className="block truncate text-[10px] text-slate-400">{account.desk}</span>
+                      <span className="block truncate text-[11px] text-slate-400">{account.desk}</span>
                     </span>
                   </button>
                 );
               })}
             </div>
 
-            <p className="mt-3.5 text-[11px] leading-relaxed text-slate-400">
+            <p className="mt-3.5 text-[12px] leading-relaxed text-slate-400">
               Selecting an account fills the form — press{' '}
               <span className="font-medium text-slate-500">Sign in</span> to continue.
             </p>
           </div>
         </div>
 
-        <p className="mt-6 flex items-center justify-center gap-1.5 text-[11px] text-slate-500">
+        <p className="mt-6 flex items-center justify-center gap-1.5 text-[12px] text-slate-500">
           <ShieldCheck className="h-3.5 w-3.5" />
           Encrypted session · Access is logged against your role
         </p>

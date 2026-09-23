@@ -87,7 +87,7 @@ export const ResultsListPage: React.FC = () => {
                       <td className="p-3 font-mono font-bold text-blue-600">{r.resultId}</td>
                       <td className="p-3 font-bold">
                         <div>{(patient as any).patientName || 'N/A'}</div>
-                        <div className="text-[10px] font-mono text-muted-foreground">UHID: {r.uhid}</div>
+                        <div className="text-[11px] font-mono text-muted-foreground">UHID: {r.uhid}</div>
                       </td>
                       <td className="p-3">
                         <Badge

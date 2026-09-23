@@ -41,7 +41,7 @@ export const RateHistoryModal: React.FC<RateHistoryModalProps> = ({
                   <span>
                     Old Rate: ₹{h.previousRates?.rate} &rrarr; New Rate: ₹{h.newRates?.rate}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-[11px] text-muted-foreground">
                     {new Date(h.createdAt).toLocaleString()}
                   </span>
                 </div>

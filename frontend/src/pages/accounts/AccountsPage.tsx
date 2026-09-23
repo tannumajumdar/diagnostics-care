@@ -143,7 +143,7 @@ export const AccountsPage: React.FC = () => {
                 <Card key={method.value} className="p-3">
                   <span className="flex items-center gap-1.5">
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: methodColor(method.value) }} />
-                    <span className="truncate text-[10px] font-bold uppercase text-muted-foreground">
+                    <span className="truncate text-[11px] font-bold uppercase text-muted-foreground">
                       {method.label}
                     </span>
                     <Icon className="ml-auto h-3 w-3 shrink-0 text-slate-300" />
@@ -160,7 +160,7 @@ export const AccountsPage: React.FC = () => {
             })}
 
             <Card className="bg-gradient-to-br from-emerald-600 to-teal-700 p-3 text-white">
-              <span className="text-[10px] font-bold uppercase opacity-90">Collected</span>
+              <span className="text-[11px] font-bold uppercase opacity-90">Collected</span>
               <span className="mt-1 block font-mono text-base font-bold">
                 {money(collectionsData.breakdown.total)}
               </span>
@@ -168,11 +168,11 @@ export const AccountsPage: React.FC = () => {
 
             {/* Collections minus the day's payouts - what should be in hand. */}
             <Card className="border-slate-300 bg-slate-50 p-3">
-              <span className="text-[10px] font-bold uppercase text-muted-foreground">Net In Hand</span>
+              <span className="text-[11px] font-bold uppercase text-muted-foreground">Net In Hand</span>
               <span className="mt-1 block font-mono text-base font-bold text-slate-800">
                 {money(collectionsData.netInHand)}
               </span>
-              <span className="text-[10px] text-rose-600">
+              <span className="text-[11px] text-rose-600">
                 less {money(collectionsData.totalPaidOut)} paid out
               </span>
             </Card>
@@ -264,7 +264,7 @@ export const AccountsPage: React.FC = () => {
         <Card>
           <CardHeader>
             <CardTitle className="text-base font-bold">Doctor Referral Commission Ledger</CardTitle>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[12px] text-muted-foreground">
               Paid is what has actually gone out on the payout ledger against each doctor.
             </p>
           </CardHeader>

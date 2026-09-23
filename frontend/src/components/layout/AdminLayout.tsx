@@ -57,7 +57,7 @@ export const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children 
             </div>
             <div>
               <h1 className="text-base font-bold leading-tight tracking-tight text-white">LMS Diagnostic</h1>
-              <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-400">Diagnostic Centre</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-indigo-400">Diagnostic Centre</p>
             </div>
           </div>
           <button className="text-slate-400 hover:text-white md:hidden" onClick={() => setSidebarOpen(false)}>
@@ -69,7 +69,7 @@ export const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children 
           {sections.map((section) => (
             <div key={section.group}>
               {section.group !== 'Overview' && (
-                <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                   {section.group}
                 </p>
               )}
@@ -106,7 +106,7 @@ export const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children 
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-semibold text-white">{user?.name || 'Staff User'}</p>
-                <p className="truncate text-[10px] text-slate-400">{user?.role || 'Operator'}</p>
+                <p className="truncate text-[11px] text-slate-400">{user?.role || 'Operator'}</p>
               </div>
             </div>
             <button

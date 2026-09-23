@@ -274,18 +274,18 @@ export const AppointmentsPage: React.FC = () => {
                     <td className="p-3 font-mono font-bold text-blue-600">{apt.appointmentId}</td>
                     <td className="p-3">
                       <div className="font-bold text-foreground">{apt.patientName}</div>
-                      <div className="text-[10px] text-muted-foreground">{apt.mobile}</div>
+                      <div className="text-[11px] text-muted-foreground">{apt.mobile}</div>
                       {apt.patient?.uhid ? (
-                        <div className="font-mono text-[10px] font-bold text-blue-600">{apt.patient.uhid}</div>
+                        <div className="font-mono text-[11px] font-bold text-blue-600">{apt.patient.uhid}</div>
                       ) : (
                         // Worth calling out: this booking is not tied to a
                         // record, so nothing here reaches the patient's history.
-                        <div className="text-[10px] text-amber-600">Not linked to a patient record</div>
+                        <div className="text-[11px] text-amber-600">Not linked to a patient record</div>
                       )}
                     </td>
                     <td className="p-3 font-mono">
                       <div>{new Date(apt.date).toLocaleDateString()}</div>
-                      <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                      <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                         <Clock className="h-3 w-3" /> {apt.time}
                       </div>
                     </td>
@@ -412,7 +412,7 @@ export const AppointmentsPage: React.FC = () => {
                       ))}
                     </select>
                     {patientSearch && foundPatients.length === 0 && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">
+                      <p className="mt-1 text-[12px] text-muted-foreground">
                         Nobody on the register matches "{patientSearch}".{' '}
                         <button
                           type="button"
@@ -430,10 +430,10 @@ export const AppointmentsPage: React.FC = () => {
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <p className="text-sm font-bold">{selectedPatient.patientName}</p>
-                          <p className="text-[11px] text-muted-foreground">
+                          <p className="text-[12px] text-muted-foreground">
                             {ageLabel(selectedPatient)} · {selectedPatient.gender} · {selectedPatient.mobile}
                           </p>
-                          <p className="font-mono text-[11px] font-bold text-blue-600">{selectedPatient.uhid}</p>
+                          <p className="font-mono text-[12px] font-bold text-blue-600">{selectedPatient.uhid}</p>
                         </div>
                         <Link
                           to={`/patients/${selectedPatient.id}/history`}
@@ -444,7 +444,7 @@ export const AppointmentsPage: React.FC = () => {
                       </div>
 
                       {selectedPatient.address && (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-[12px] text-muted-foreground">
                           {[selectedPatient.address, selectedPatient.city, selectedPatient.state, selectedPatient.pinCode]
                             .filter(Boolean)
                             .join(', ')}
@@ -452,7 +452,7 @@ export const AppointmentsPage: React.FC = () => {
                       )}
 
                       {pastInvoices.length > 0 && (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-[12px] text-muted-foreground">
                           {pastInvoices.length} previous visit{pastInvoices.length === 1 ? '' : 's'}
                           {outstandingDue > 0 && (
                             <span className="ml-1 font-bold text-red-600">· ₹{outstandingDue} still due</span>
@@ -460,7 +460,7 @@ export const AppointmentsPage: React.FC = () => {
                         </p>
                       )}
 
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-[12px] text-muted-foreground">
                         Details filled in from the register. Anything changed below applies to this booking only —
                         to correct the record itself,{' '}
                         <Link to={`/patients/${selectedPatient.id}`} className="font-semibold text-blue-600 hover:underline">
@@ -472,7 +472,7 @@ export const AppointmentsPage: React.FC = () => {
                   )}
                 </div>
               ) : (
-                <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <p className="flex items-center gap-1 text-[12px] text-muted-foreground">
                   <UserPlus className="h-3 w-3" /> A UHID is issued when this patient is registered at billing.
                 </p>
               )}

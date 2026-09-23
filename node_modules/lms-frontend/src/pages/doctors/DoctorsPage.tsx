@@ -46,7 +46,7 @@ const EMPTY_FORM = {
 
 const inputClass =
   'h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10';
-const labelClass = 'mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500';
+const labelClass = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500';
 
 const fmtDate = (value?: string) => (value ? new Date(value).toLocaleDateString('en-GB') : '—');
 
@@ -317,7 +317,7 @@ export const DoctorsPage: React.FC = () => {
                   </option>
                 ))}
               </select>
-              {errors.department && <p className="mt-1 text-[10px] text-red-500">{errors.department}</p>}
+              {errors.department && <p className="mt-1 text-[11px] text-red-500">{errors.department}</p>}
             </div>
 
             <div>
@@ -328,7 +328,7 @@ export const DoctorsPage: React.FC = () => {
                 onChange={(e) => set('doctorName', e.target.value)}
                 placeholder="Dr. Full Name"
               />
-              {errors.doctorName && <p className="mt-1 text-[10px] text-red-500">{errors.doctorName}</p>}
+              {errors.doctorName && <p className="mt-1 text-[11px] text-red-500">{errors.doctorName}</p>}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -348,7 +348,7 @@ export const DoctorsPage: React.FC = () => {
                   onChange={(e) => set('mobile', e.target.value)}
                   placeholder="10-digit"
                 />
-                {errors.mobile && <p className="mt-1 text-[10px] text-red-500">{errors.mobile}</p>}
+                {errors.mobile && <p className="mt-1 text-[11px] text-red-500">{errors.mobile}</p>}
               </div>
             </div>
 
@@ -392,7 +392,7 @@ export const DoctorsPage: React.FC = () => {
                   onChange={(e) => set('email', e.target.value)}
                   placeholder="name@example.com"
                 />
-                {errors.email && <p className="mt-1 text-[10px] text-red-500">{errors.email}</p>}
+                {errors.email && <p className="mt-1 text-[11px] text-red-500">{errors.email}</p>}
               </div>
             </div>
 
@@ -422,7 +422,7 @@ export const DoctorsPage: React.FC = () => {
             </div>
 
             <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
-              <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 Referral Terms
               </p>
               <div className="space-y-3">
@@ -547,7 +547,7 @@ export const DoctorsPage: React.FC = () => {
             <div className="max-h-[calc(100vh-330px)] overflow-auto">
               <table className="w-full min-w-[1020px] border-collapse text-xs">
                 <thead className="sticky top-0 z-10 bg-slate-50">
-                  <tr className="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
                     <th className="w-9 px-3 py-2.5">
                       <input
                         type="checkbox"
@@ -606,7 +606,7 @@ export const DoctorsPage: React.FC = () => {
                               <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" aria-label="Active" />
                             )}
                           </div>
-                          <span className="text-[10px] text-slate-400">
+                          <span className="text-[11px] text-slate-400">
                             {typeof d.department === 'object' ? d.department?.departmentName : '—'}
                           </span>
                         </td>
@@ -620,10 +620,10 @@ export const DoctorsPage: React.FC = () => {
                           <span className="block max-w-[150px] truncate">{d.hospital || '—'}</span>
                         </td>
                         <td className="px-3 py-2.5">
-                          <span className="inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                          <span className="inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
                             {d.paymentTerm ?? 'Monthly'}
                           </span>
-                          <span className="mt-0.5 block text-[10px] text-slate-400">
+                          <span className="mt-0.5 block text-[11px] text-slate-400">
                             Disc {d.discountPercentage ?? 0}% · Cut {d.commission ?? 0}%
                           </span>
                         </td>
@@ -687,7 +687,7 @@ export const DoctorsPage: React.FC = () => {
                 <span>Set Cut Value</span>
               </Button>
 
-              <div className="ml-auto flex items-center gap-4 text-[11px] text-slate-500">
+              <div className="ml-auto flex items-center gap-4 text-[12px] text-slate-500">
                 <span>
                   Selected <strong className="text-slate-900">{selected.size}</strong>
                 </span>

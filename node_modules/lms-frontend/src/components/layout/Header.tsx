@@ -19,7 +19,7 @@ export const Header: React.FC = () => {
           </div>
           <div>
             <p className="font-bold text-foreground leading-tight">{user?.name || 'User'}</p>
-            <p className="text-[10px] text-blue-600 font-mono leading-tight">{user?.role || 'Staff'}</p>
+            <p className="text-[11px] text-blue-600 font-mono leading-tight">{user?.role || 'Staff'}</p>
           </div>
         </div>
 

@@ -126,7 +126,7 @@ export const HomeCollectionPage: React.FC = () => {
                     <td className="p-3 font-mono font-bold text-blue-600">{apt.appointmentId}</td>
                     <td className="p-3">
                       <div className="font-bold">{apt.patientName}</div>
-                      <div className="text-[10px] text-muted-foreground">{apt.mobile}</div>
+                      <div className="text-[11px] text-muted-foreground">{apt.mobile}</div>
                     </td>
                     <td className="p-3 text-muted-foreground max-w-xs truncate">{apt.address || 'N/A'}</td>
                     <td className="p-3 font-mono">
@@ -140,7 +140,7 @@ export const HomeCollectionPage: React.FC = () => {
                           size="sm"
                           variant="outline"
                           onClick={() => setSelectedAppointment(apt)}
-                          className="h-7 text-[11px]"
+                          className="h-7 text-[12px]"
                         >
                           <UserCheck className="h-3 w-3 mr-1" /> Assign Staff
                         </Button>

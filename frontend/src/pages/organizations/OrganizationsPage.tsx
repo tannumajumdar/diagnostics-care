@@ -77,7 +77,7 @@ export const OrganizationsPage: React.FC = () => {
                     <td className="p-3 font-bold text-foreground">{org.organizationName}</td>
                     <td className="p-3">
                       <div>{org.contactPerson}</div>
-                      <div className="text-[10px] text-muted-foreground">{org.mobile}</div>
+                      <div className="text-[11px] text-muted-foreground">{org.mobile}</div>
                     </td>
                     <td className="p-3 font-semibold text-blue-600">{org.contractRate}</td>
                     <td className="p-3 font-mono font-bold text-emerald-600">₹{org.creditLimit}</td>

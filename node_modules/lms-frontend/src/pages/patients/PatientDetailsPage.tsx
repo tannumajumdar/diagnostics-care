@@ -119,7 +119,7 @@ export const PatientDetailsPage: React.FC<{ isNew?: boolean }> = () => {
                   <div key={inv._id} className="p-3 flex justify-between items-center hover:bg-muted/20">
                     <div>
                       <p className="font-mono font-bold text-blue-600">{inv.invoiceNumber}</p>
-                      <p className="text-[10px] text-muted-foreground">{new Date(inv.createdAt).toLocaleDateString()}</p>
+                      <p className="text-[11px] text-muted-foreground">{new Date(inv.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="text-right">
                       <p className="font-bold font-mono">₹{inv.netAmount}</p>
@@ -148,7 +148,7 @@ export const PatientDetailsPage: React.FC<{ isNew?: boolean }> = () => {
                   <div key={s._id} className="p-3 flex justify-between items-center hover:bg-muted/20">
                     <div>
                       <p className="font-bold text-foreground">{s.testName}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground">Sample ID: {s.sampleId}</p>
+                      <p className="text-[11px] font-mono text-muted-foreground">Sample ID: {s.sampleId}</p>
                     </div>
                     <Badge variant="secondary">{s.status}</Badge>
                   </div>

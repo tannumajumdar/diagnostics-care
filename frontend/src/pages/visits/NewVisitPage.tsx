@@ -46,6 +46,7 @@ import {
 import { COLLECTION_METHODS } from '../../config/payment-methods';
 import {
   SplitPaymentEditor,
+  splitSeed,
   tenderPayload,
   tenderTotal,
   type Tender,
@@ -82,8 +83,8 @@ const Field: React.FC<{
       {label} {required && <span className="text-red-500">*</span>}
     </label>
     {children}
-    {hint && !error && <span className="mt-1 block text-[10px] text-muted-foreground">{hint}</span>}
-    {error && <span className="mt-1 block text-[10px] font-medium text-red-500">{error}</span>}
+    {hint && !error && <span className="mt-1 block text-[11px] text-muted-foreground">{hint}</span>}
+    {error && <span className="mt-1 block text-[11px] font-medium text-red-500">{error}</span>}
   </div>
 );
 
@@ -191,7 +192,7 @@ export const NewVisitPage: React.FC = () => {
    * so the counter takes the legs rather than a single method.
    */
   const [splitting, setSplitting] = useState(false);
-  const [tenders, setTenders] = useState<Tender[]>([{ method: 'Cash', amount: '' }]);
+  const [tenders, setTenders] = useState<Tender[]>(splitSeed());
   /** Set once a visit needing a machine collection has been registered. */
   const [gatewayInvoice, setGatewayInvoice] = useState<{
     id: string;
@@ -863,7 +864,7 @@ export const NewVisitPage: React.FC = () => {
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="text-sm font-bold">{selectedPatient.patientName}</p>
-                          <p className="text-[11px] text-muted-foreground">
+                          <p className="text-[12px] text-muted-foreground">
                             {ageLabel(selectedPatient)} · {selectedPatient.gender} · {selectedPatient.mobile} ·{' '}
                             {selectedPatient.uhid}
                           </p>
@@ -884,7 +885,7 @@ export const NewVisitPage: React.FC = () => {
                       </div>
 
                       {pastInvoices.length > 0 ? (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-[12px] text-muted-foreground">
                           {pastInvoices.length} previous visit{pastInvoices.length === 1 ? '' : 's'}
                           {outstandingDue > 0 && (
                             <span className="ml-1 font-bold text-red-600">
@@ -893,7 +894,7 @@ export const NewVisitPage: React.FC = () => {
                           )}
                         </p>
                       ) : (
-                        <p className="text-[11px] text-muted-foreground">No previous bills on record.</p>
+                        <p className="text-[12px] text-muted-foreground">No previous bills on record.</p>
                       )}
                     </div>
                   )}
@@ -950,7 +951,7 @@ export const NewVisitPage: React.FC = () => {
                     {newPatient.dateOfBirth ? (
                       <div className="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-input bg-muted/40 px-3">
                         <span className="text-xs font-semibold">{ageYmdLabel(newPatient)}</span>
-                        <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                           {ageDaysLabel(newPatient)}
                         </span>
                       </div>
@@ -1044,9 +1045,9 @@ export const NewVisitPage: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] font-semibold text-muted-foreground">Panel doctors:</span>
+                <span className="text-[12px] font-semibold text-muted-foreground">Panel doctors:</span>
                 {panelDoctors.length === 0 ? (
-                  <span className="text-[11px] text-muted-foreground">none on the panel yet</span>
+                  <span className="text-[12px] text-muted-foreground">none on the panel yet</span>
                 ) : (
                   panelDoctors.map((d) => (
                     <button
@@ -1056,7 +1057,7 @@ export const NewVisitPage: React.FC = () => {
                         setDoctorId(d.id);
                         setDoctorName(d.doctorName);
                       }}
-                      className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                      className={`rounded-full border px-2.5 py-1 text-[12px] font-medium transition ${
                         doctorId === d.id
                           ? 'border-blue-300 bg-blue-100 text-blue-700'
                           : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -1074,7 +1075,7 @@ export const NewVisitPage: React.FC = () => {
                       setDoctorId('');
                       setDoctorName('');
                     }}
-                    className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-500 hover:bg-slate-50"
+                    className="rounded-full border border-slate-200 px-2.5 py-1 text-[12px] font-medium text-slate-500 hover:bg-slate-50"
                   >
                     Clear · walk-in
                   </button>
@@ -1082,7 +1083,7 @@ export const NewVisitPage: React.FC = () => {
               </div>
 
               {doctorName && !doctorId && (
-                <p className="text-[11px] text-amber-700">
+                <p className="text-[12px] text-amber-700">
                   "{doctorName}" is not on the panel - the name goes on the bill and the report, but no referral
                   commission is tracked for them.
                 </p>
@@ -1160,9 +1161,9 @@ export const NewVisitPage: React.FC = () => {
                 {testResultsOpen && searchRows && (
                   <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border bg-background shadow-lg">
                     {testSearchPending ? (
-                      <p className="p-3 text-[11px] text-muted-foreground">Searching the test master...</p>
+                      <p className="p-3 text-[12px] text-muted-foreground">Searching the test master...</p>
                     ) : searchRows.length === 0 ? (
-                      <p className="p-3 text-[11px] text-muted-foreground">
+                      <p className="p-3 text-[12px] text-muted-foreground">
                         Nothing matches "{testSearch}". Check the spelling, or add it under Masters &rsaquo; Tests
                         / Packages.
                       </p>
@@ -1196,11 +1197,11 @@ export const NewVisitPage: React.FC = () => {
                                     <span className="flex items-center gap-1.5">
                                       <Package className="h-3 w-3 shrink-0 text-violet-600" />
                                       <span className="truncate text-xs font-semibold">{pkg.packageName}</span>
-                                      <Badge variant="purple" className="shrink-0 px-1.5 py-0 text-[9px]">
+                                      <Badge variant="purple" className="shrink-0 px-1.5 py-0 text-[10px]">
                                         Package
                                       </Badge>
                                     </span>
-                                    <span className="block truncate text-[10px] text-muted-foreground">
+                                    <span className="block truncate text-[11px] text-muted-foreground">
                                       {pkg.packageCode} · {(pkg.tests || []).length} tests
                                       {saving > 0 ? ` · saves ${money(saving)}` : ''}
                                     </span>
@@ -1210,7 +1211,7 @@ export const NewVisitPage: React.FC = () => {
                                       {money(pkg.rate)}
                                     </span>
                                     {saving > 0 && (
-                                      <span className="block text-[10px] text-muted-foreground line-through">
+                                      <span className="block text-[11px] text-muted-foreground line-through">
                                         {money(listTotal)}
                                       </span>
                                     )}
@@ -1235,12 +1236,12 @@ export const NewVisitPage: React.FC = () => {
                                   <span className="flex items-center gap-1.5">
                                     <span className="truncate text-xs font-semibold">{t.testName}</span>
                                     {modeOf(t) === 'Outsource' && (
-                                      <Badge variant="amber" className="shrink-0 px-1.5 py-0 text-[9px]">
+                                      <Badge variant="amber" className="shrink-0 px-1.5 py-0 text-[10px]">
                                         Out
                                       </Badge>
                                     )}
                                   </span>
-                                  <span className="block truncate text-[10px] text-muted-foreground">
+                                  <span className="block truncate text-[11px] text-muted-foreground">
                                     {t.testCode}
                                     {(t as any).department?.departmentName
                                       ? ` · ${(t as any).department.departmentName}`
@@ -1266,7 +1267,7 @@ export const NewVisitPage: React.FC = () => {
               {/* No row of test names under the box. A menu of thousands cannot
                   be laid out flat, and a dozen of them laid out flat only read
                   as the whole menu. The search box is the menu. */}
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[12px] text-muted-foreground">
                 {totalTests ? `${totalTests} tests` : 'Tests'}
                 {allPackages.length
                   ? ` and ${allPackages.length} package${allPackages.length === 1 ? '' : 's'}`
@@ -1274,7 +1275,7 @@ export const NewVisitPage: React.FC = () => {
                 on the menu. Type a name, a code or the short form - CBC, APTT, Hb - or a panel like "full body".
               </p>
 
-              {errors.tests && <p className="text-[10px] font-medium text-red-500">{errors.tests}</p>}
+              {errors.tests && <p className="text-[11px] font-medium text-red-500">{errors.tests}</p>}
 
               {/* The panels on this bill, read back as panels. The lines they
                   put on the table below are still ordinary lines the desk can
@@ -1294,7 +1295,7 @@ export const NewVisitPage: React.FC = () => {
                             <span className="block truncate text-xs font-bold text-violet-900">
                               {group.name}
                             </span>
-                            <span className="block text-[10px] text-violet-700">
+                            <span className="block text-[11px] text-violet-700">
                               {group.lines.length} test{group.lines.length === 1 ? '' : 's'} on this bill
                             </span>
                           </span>
@@ -1306,7 +1307,7 @@ export const NewVisitPage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => removePackage(group.id)}
-                            className="text-[11px] font-semibold text-violet-700 hover:underline"
+                            className="text-[12px] font-semibold text-violet-700 hover:underline"
                           >
                             Remove package
                           </button>
@@ -1351,9 +1352,9 @@ export const NewVisitPage: React.FC = () => {
                           <tr key={key}>
                             <td className="p-3">
                               <p className="font-bold">{t.testName}</p>
-                              <p className="text-[10px] text-muted-foreground">{t.testCode}</p>
+                              <p className="text-[11px] text-muted-foreground">{t.testCode}</p>
                               {line.packageName && (
-                                <p className="mt-0.5 flex items-center gap-1 text-[10px] font-semibold text-violet-700">
+                                <p className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-violet-700">
                                   <Package className="h-2.5 w-2.5" />
                                   {line.packageName}
                                 </p>
@@ -1377,7 +1378,7 @@ export const NewVisitPage: React.FC = () => {
                                       e.target.value === 'Outsource' ? line.outsourceLab || t.outsourceLab || '' : '',
                                   })
                                 }
-                                className={`h-8 w-full rounded-lg border px-2 text-[11px] font-semibold ${
+                                className={`h-8 w-full rounded-lg border px-2 text-[12px] font-semibold ${
                                   line.processingMode === 'Outsource'
                                     ? 'border-amber-300 bg-amber-50 text-amber-800'
                                     : 'border-emerald-200 bg-emerald-50 text-emerald-800'
@@ -1394,7 +1395,7 @@ export const NewVisitPage: React.FC = () => {
                                     updateLine(key, { outsourceLab: e.target.value })
                                   }
                                   placeholder="Sent to..."
-                                  className="mt-1 h-7 text-[10px]"
+                                  className="mt-1 h-7 text-[11px]"
                                 />
                               )}
                             </td>
@@ -1418,7 +1419,7 @@ export const NewVisitPage: React.FC = () => {
                                 <button
                                   type="button"
                                   onClick={() => updateLine(key, { rate: tierRate(t), rateEdited: false })}
-                                  className="mt-1 block text-[10px] text-blue-600 hover:underline"
+                                  className="mt-1 block text-[11px] text-blue-600 hover:underline"
                                   title="Put the catalogue rate back"
                                 >
                                   list {money(cardRate)}
@@ -1439,7 +1440,7 @@ export const NewVisitPage: React.FC = () => {
                                 className="h-8 w-20 font-mono disabled:cursor-not-allowed disabled:opacity-50"
                               />
                               {noDiscount && (
-                                <span className="mt-1 block text-[10px] text-muted-foreground">
+                                <span className="mt-1 block text-[11px] text-muted-foreground">
                                   No discount allowed
                                 </span>
                               )}
@@ -1483,7 +1484,7 @@ export const NewVisitPage: React.FC = () => {
                         <td className="p-3" />
                       </tr>
                       {billDiscount > 0 && (
-                        <tr className="text-[11px] font-semibold">
+                        <tr className="text-[12px] font-semibold">
                           <td className="p-3 pt-0" colSpan={5}>
                             Less bill discount
                             {discountType === 'Percentage' ? ` (${discountValue}%)` : ''}
@@ -1514,7 +1515,7 @@ export const NewVisitPage: React.FC = () => {
                   counter - an outsourced test usually reports a day later than
                   the centre's own turnaround promises. */}
               {outsourcedLines.length > 0 && (
-                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-800">
+                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-800">
                   <Truck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
                     {outsourcedLines.length} test{outsourcedLines.length === 1 ? '' : 's'} on this bill{' '}
@@ -1528,7 +1529,7 @@ export const NewVisitPage: React.FC = () => {
               )}
 
               {fastingTests.length > 0 && (
-                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-800">
+                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-800">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
                     Tell the patient to come fasting for: {fastingTests.map((t) => t.testName).join(', ')}.
@@ -1606,7 +1607,7 @@ export const NewVisitPage: React.FC = () => {
                 )}
 
                 {discountType === 'Percentage' && discountValue > 0 && (
-                  <p className="text-[10px] text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground">
                     {discountValue}% of {money(discountBase)} left after the test-level discounts.
                   </p>
                 )}
@@ -1614,7 +1615,7 @@ export const NewVisitPage: React.FC = () => {
                 {/* The server refuses this above the staff limit, so say it here
                     rather than after the desk has taken the patient's money. */}
                 {concessionPercent > 20 && (
-                  <p className="text-[10px] font-semibold text-amber-700">
+                  <p className="text-[11px] font-semibold text-amber-700">
                     This bill is {concessionPercent.toFixed(1)}% off the rate card - above the 20% staff limit,
                     an Admin has to raise it.
                   </p>
@@ -1640,9 +1641,7 @@ export const NewVisitPage: React.FC = () => {
                     // directions, so changing the method never silently
                     // drops an amount the receptionist entered.
                     if (e.target.value === SPLIT_OPTION) {
-                      setTenders([
-                        { method: paymentMethod, amount: paidAmount === '' ? netAmount : Number(paidAmount) },
-                      ]);
+                      setTenders(splitSeed(paymentMethod, paidAmount === '' ? netAmount : Number(paidAmount)));
                       setSplitting(true);
                       return;
                     }
@@ -1659,10 +1658,10 @@ export const NewVisitPage: React.FC = () => {
                       {m.label}
                     </option>
                   ))}
-                  <option value={SPLIT_OPTION}>Split across methods (cash + UPI, etc.)</option>
+                  <option value={SPLIT_OPTION}>Split payment (Cash + UPI)</option>
                 </select>
                 {!splitting && GATEWAY_METHODS.includes(paymentMethod) && paid > 0 && (
-                  <p className="mt-1 text-[10px] text-blue-700">
+                  <p className="mt-1 text-[11px] text-blue-700">
                     The visit is registered first, then {paymentMethod} is collected on the machine.
                   </p>
                 )}
@@ -1688,7 +1687,7 @@ export const NewVisitPage: React.FC = () => {
                       placeholder={String(netAmount)}
                       className="h-9 font-bold text-emerald-600"
                     />
-                    <p className="text-[10px] text-muted-foreground">Leave blank to take the full amount.</p>
+                    <p className="text-[11px] text-muted-foreground">Leave blank to take the full amount.</p>
                   </>
                 )}
               </div>
@@ -1716,7 +1715,7 @@ export const NewVisitPage: React.FC = () => {
                 Register Visit &amp; Generate Bill
               </Button>
 
-              <p className="text-center text-[10px] text-muted-foreground">
+              <p className="text-center text-[11px] text-muted-foreground">
                 Creates the patient record, the invoice and one barcoded sample per test.
               </p>
             </CardContent>
@@ -1735,7 +1734,7 @@ export const NewVisitPage: React.FC = () => {
                 {outsourcedLines.map((line) => (
                   <div key={testKey(line.test)} className="flex justify-between gap-2">
                     <span className="min-w-0 truncate text-amber-900">{line.test.testName}</span>
-                    <span className="shrink-0 text-[11px] text-amber-700">
+                    <span className="shrink-0 text-[12px] text-amber-700">
                       {line.outsourceLab || 'lab not named'}
                     </span>
                   </div>

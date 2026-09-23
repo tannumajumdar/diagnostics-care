@@ -285,7 +285,7 @@ export const LabReportPage: React.FC = () => {
                       </span>
                     )}
                   </h3>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[12px] text-muted-foreground">
                     <span className="font-mono">{sample.sampleId}</span>
                     {sample.barcode && <span className="ml-2 font-mono">{sample.barcode}</span>}
                     {department.departmentName && <span className="ml-2">{department.departmentName}</span>}
@@ -297,10 +297,10 @@ export const LabReportPage: React.FC = () => {
                     )}
                   </p>
                   {sample.priority === 'Urgent' && (
-                    <span className="text-[11px] font-semibold text-rose-600">Marked URGENT</span>
+                    <span className="text-[12px] font-semibold text-rose-600">Marked URGENT</span>
                   )}
                 </div>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[12px] text-muted-foreground">
                   {parameters.length} parameter{parameters.length === 1 ? '' : 's'}
                   {abnormal.length > 0 && (
                     <span className="ml-1 font-semibold text-rose-600">· {abnormal.length} outside range</span>
@@ -364,7 +364,7 @@ export const LabReportPage: React.FC = () => {
                                 <span className="ml-1 text-muted-foreground">({p.shortName})</span>
                               )}
                               {p.method && (
-                                <span className="mt-0.5 block text-[10px] text-muted-foreground">{p.method}</span>
+                                <span className="mt-0.5 block text-[11px] text-muted-foreground">{p.method}</span>
                               )}
                             </td>
                             <td className={`p-3 font-mono font-bold ${isAbnormal ? 'text-rose-600' : ''}`}>
@@ -372,7 +372,7 @@ export const LabReportPage: React.FC = () => {
                               {marker && (
                                 <span
                                   title={marker.title}
-                                  className={`ml-1.5 align-top text-[10px] font-bold ${
+                                  className={`ml-1.5 align-top text-[11px] font-bold ${
                                     marker.critical ? 'text-rose-700' : 'text-rose-600'
                                   }`}
                                 >
@@ -393,7 +393,7 @@ export const LabReportPage: React.FC = () => {
               {/* With the word out of the table the letter has to be explained,
                   and only on a report that actually carries one. */}
               {parameters.some((p: any) => p.flag && p.flag !== 'Normal') && (
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   H = above the biological reference range · L = below it · * = critical value
                 </p>
               )}
@@ -408,7 +408,7 @@ export const LabReportPage: React.FC = () => {
               )}
 
               {verifiers.length > 1 && sheet.verifiedBy?.name && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[12px] text-muted-foreground">
                   Verified by {sheet.verifiedBy.name} · {dateTime(sheet.verifiedBy.date)}
                 </p>
               )}
@@ -431,12 +431,12 @@ export const LabReportPage: React.FC = () => {
         <div className="flex items-end justify-between gap-4 border-t pt-6 text-xs">
           <div className="space-y-0.5">
             <p className="font-semibold text-foreground">{primary.enteredBy?.name || 'Technician'}</p>
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               {primary.enteredBy?.role || 'Lab Technician'} · Entered{' '}
               {dateOnly(primary.enteredBy?.date || primary.createdAt)}
             </p>
-            <p className="pt-3 text-[10px] text-muted-foreground">End of Diagnostic Report</p>
-            <p className="text-[10px] text-muted-foreground">
+            <p className="pt-3 text-[11px] text-muted-foreground">End of Diagnostic Report</p>
+            <p className="text-[11px] text-muted-foreground">
               Results relate only to the samples tested. Not valid for medico-legal purposes.
             </p>
           </div>
@@ -446,8 +446,8 @@ export const LabReportPage: React.FC = () => {
               <>
                 <CheckCircle2 className="mb-1 ml-auto h-6 w-6 text-emerald-600" />
                 <p className="font-bold text-foreground">{verifiers[0]}</p>
-                <p className="text-[10px] text-muted-foreground">Consultant Pathologist</p>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">Consultant Pathologist</p>
+                <p className="text-[11px] text-muted-foreground">
                   Verified {dateTime(reportable.find((s) => s.verifiedBy?.name)?.verifiedBy?.date)}
                 </p>
               </>
@@ -455,7 +455,7 @@ export const LabReportPage: React.FC = () => {
               <>
                 <CheckCircle2 className="mb-1 ml-auto h-6 w-6 text-emerald-600" />
                 <p className="font-bold text-foreground">{verifiers.join(', ')}</p>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   Consultant Pathologists · signed per test above
                 </p>
               </>

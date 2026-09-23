@@ -5,7 +5,7 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 export const Badge: React.FC<BadgeProps> = ({ className = '', variant = 'default', children, ...props }) => {
-  const base = 'inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold transition-colors';
+  const base = 'inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold transition-colors';
 
   const variants = {
     default: 'border-transparent bg-primary text-primary-foreground',

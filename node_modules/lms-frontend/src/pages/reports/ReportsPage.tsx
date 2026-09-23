@@ -65,7 +65,7 @@ const ChartCard: React.FC<{
         </span>
         <div className="min-w-0">
           <h2 className="truncate text-sm font-semibold text-slate-900">{title}</h2>
-          {subtitle && <p className="truncate text-[11px] text-slate-500">{subtitle}</p>}
+          {subtitle && <p className="truncate text-[12px] text-slate-500">{subtitle}</p>}
         </div>
       </div>
       {legend && <div className="flex flex-wrap items-center gap-3">{legend}</div>}
@@ -75,7 +75,7 @@ const ChartCard: React.FC<{
 );
 
 const Key: React.FC<{ color: string; label: string }> = ({ color, label }) => (
-  <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+  <span className="inline-flex items-center gap-1.5 text-[12px] text-slate-500">
     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
     {label}
   </span>
@@ -95,9 +95,9 @@ const Kpi: React.FC<{ label: string; value: string; hint?: string; icon: LucideI
       <Icon className="h-[18px] w-[18px]" />
     </span>
     <div className="min-w-0">
-      <p className="truncate text-[11px] font-medium text-slate-500">{label}</p>
-      <p className="mt-0.5 truncate text-[22px] font-semibold leading-tight tracking-tight text-slate-900">{value}</p>
-      {hint && <p className="mt-0.5 truncate text-[10px] text-slate-400">{hint}</p>}
+      <p className="truncate text-[12px] font-medium text-slate-500">{label}</p>
+      <p className="mt-0.5 truncate text-[24px] font-semibold leading-tight tracking-tight text-slate-900">{value}</p>
+      {hint && <p className="mt-0.5 truncate text-[11px] text-slate-400">{hint}</p>}
     </div>
   </div>
 );
@@ -208,7 +208,7 @@ export const ReportsPage: React.FC = () => {
         <div className="relative">
           <div className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-emerald-300" />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-200">Analytics</span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-200">Analytics</span>
           </div>
           <h1 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">Business Performance</h1>
           <p className="mt-1 max-w-xl text-xs text-slate-400">
@@ -217,11 +217,11 @@ export const ReportsPage: React.FC = () => {
 
           {/* The one figure this page leads with. */}
           <div className="mt-5">
-            <span className="text-[44px] font-semibold leading-none tracking-tight sm:text-5xl">
+            <span className="text-[48px] font-semibold leading-none tracking-tight sm:text-5xl">
               {inr(totalRevenue)}
             </span>
             <p className="mt-2 text-xs font-medium text-slate-300">Total billed, all time</p>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[12px] text-slate-500">
               {inr(totalCollected)} collected · {collectionRate}% of what was billed
             </p>
           </div>
@@ -543,7 +543,7 @@ export const ReportsPage: React.FC = () => {
                   <span className="text-base font-semibold tracking-tight text-slate-900">
                     {compactInr(paymentsTotal)}
                   </span>
-                  <span className="text-[10px] text-slate-400">received</span>
+                  <span className="text-[11px] text-slate-400">received</span>
                 </div>
               </div>
 

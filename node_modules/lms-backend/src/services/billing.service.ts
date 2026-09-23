@@ -698,12 +698,13 @@ export class BillingService {
     search?: string;
     paymentStatus?: string;
     patient?: string;
+    processingMode?: string;
     from?: string;
     to?: string;
     page?: number;
     limit?: number;
   }) {
-    const { search, paymentStatus, patient, from, to, page = 1, limit = 10 } = query;
+    const { search, paymentStatus, patient, processingMode, from, to, page = 1, limit = 10 } = query;
     const filter: any = {};
 
     // The directory reads ten rows at a time; an export asks for the whole
@@ -738,8 +739,29 @@ export class BillingService {
       }
     }
 
-    if (paymentStatus) {
+    // Paid against still owing. "Unpaid" at the counter means money is yet to
+    // come in, which covers a part-paid bill and one left on credit as much as
+    // one nothing was taken on - a desk chasing today's outstanding wants all
+    // three in the list. So the two buckets are disjoint and their counts add
+    // up to the window, rather than filtering on the stored label and leaving
+    // every partial bill out of both answers.
+    if (paymentStatus === 'Paid') {
+      filter.dueAmount = { $lte: 0 };
+    } else if (paymentStatus === 'Unpaid') {
+      filter.dueAmount = { $gt: 0 };
+    } else if (paymentStatus) {
       filter.paymentStatus = paymentStatus;
+    }
+
+    // Bills that were run on our own benches against bills that had anything
+    // sent out. The two buckets are kept disjoint - one sent-out line makes
+    // the whole bill an outsourced one, because that is the bill the desk
+    // chases a referral lab for - so the two counts still add up to the
+    // window's total instead of double-counting every mixed bill.
+    if (processingMode === 'Outsource') {
+      filter['items.processingMode'] = 'Outsource';
+    } else if (processingMode === 'In-house') {
+      filter['items.processingMode'] = { $ne: 'Outsource' };
     }
 
     // A day filter is inclusive of both ends and works on whole local days -

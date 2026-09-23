@@ -84,11 +84,11 @@ const StatTile: React.FC<{ tile: Tile; onClick?: () => void }> = ({ tile, onClic
       </span>
 
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11px] font-medium text-slate-500">{tile.label}</span>
-        <span className="mt-0.5 block truncate text-[22px] font-semibold leading-tight tracking-tight text-slate-900">
+        <span className="block truncate text-[12px] font-medium text-slate-500">{tile.label}</span>
+        <span className="mt-0.5 block truncate text-[24px] font-semibold leading-tight tracking-tight text-slate-900">
           {tile.value}
         </span>
-        {tile.hint && <span className="mt-0.5 block truncate text-[10px] text-slate-400">{tile.hint}</span>}
+        {tile.hint && <span className="mt-0.5 block truncate text-[11px] text-slate-400">{tile.hint}</span>}
       </span>
 
       {onClick && (
@@ -122,7 +122,7 @@ const CollectionsTooltip: React.FC<any> = ({ active, payload }) => {
   return (
     <div className="min-w-[180px] rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs shadow-lg backdrop-blur-sm">
       <p className="font-semibold text-slate-900">{day.label}</p>
-      <p className="mb-1.5 text-[10px] text-slate-400">
+      <p className="mb-1.5 text-[11px] text-slate-400">
         {day.count === 0 ? 'No payments' : `${day.count} receipt${day.count === 1 ? '' : 's'}`}
       </p>
       <div className="flex items-center gap-2">
@@ -140,7 +140,7 @@ const CollectionsTooltip: React.FC<any> = ({ active, payload }) => {
       {methods.length > 0 && (
         <div className="mt-1.5 space-y-0.5 border-t border-slate-100 pt-1.5">
           {methods.map(([name, amount]) => (
-            <div key={name} className="flex items-center gap-2 text-[10px]">
+            <div key={name} className="flex items-center gap-2 text-[11px]">
               <span className="text-slate-400">{name}</span>
               <span className="ml-auto tabular-nums text-slate-600">{money(amount)}</span>
             </div>
@@ -431,7 +431,7 @@ export const DashboardPage: React.FC = () => {
     const Icon = flat ? Minus : up ? ArrowUpRight : ArrowDownRight;
     return (
       <span
-        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-semibold ${
           flat ? 'bg-white/10 text-slate-300' : up ? 'bg-emerald-400/15 text-emerald-300' : 'bg-rose-400/15 text-rose-300'
         }`}
       >
@@ -459,10 +459,10 @@ export const DashboardPage: React.FC = () => {
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-indigo-200 ring-1 ring-inset ring-white/15">
+              <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-200 ring-1 ring-inset ring-white/15">
                 {role}
               </span>
-              <span className="text-[11px] text-slate-400">
+              <span className="text-[12px] text-slate-400">
                 {greeting()}
                 {user?.name ? `, ${user.name.split(' ')[0]}` : ''}
               </span>
@@ -475,11 +475,11 @@ export const DashboardPage: React.FC = () => {
               <div className="flex flex-wrap items-end gap-3">
                 {/* Proportional figures, same sans as the rest - tabular-nums
                     makes a number this size read loose and gappy. */}
-                <span className="text-[44px] font-semibold leading-none tracking-tight sm:text-5xl">{hero.value}</span>
+                <span className="text-[48px] font-semibold leading-none tracking-tight sm:text-5xl">{hero.value}</span>
                 {hero.delta !== undefined && <DeltaChip delta={hero.delta} />}
               </div>
               <p className="mt-2 text-xs font-medium text-slate-300">{hero.label}</p>
-              <p className="text-[11px] text-slate-500">{hero.hint}</p>
+              <p className="text-[12px] text-slate-500">{hero.hint}</p>
             </div>
           </div>
 
@@ -520,7 +520,7 @@ export const DashboardPage: React.FC = () => {
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">Overall collections from patients</h2>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[12px] text-slate-500">
                 All time{overallSince ? ` · since ${overallSince}` : ''} ·{' '}
                 {overall.receipts ?? 0} receipt{overall.receipts === 1 ? '' : 's'} across{' '}
                 {overall.bills ?? 0} bill{overall.bills === 1 ? '' : 's'}
@@ -529,7 +529,7 @@ export const DashboardPage: React.FC = () => {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 gap-1 px-2 text-[11px] text-slate-500 hover:text-slate-900"
+              className="h-7 gap-1 px-2 text-[12px] text-slate-500 hover:text-slate-900"
               onClick={() => navigate(collectionsLink)}
             >
               {collectionsLink === '/accounts' ? 'Accounts' : 'Billing'} <ArrowRight className="h-3 w-3" />
@@ -549,7 +549,7 @@ export const DashboardPage: React.FC = () => {
               { label: 'Net from patients', value: overall.netFromPatients, tone: 'text-blue-700' },
             ].map((figure) => (
               <div key={figure.label} className="bg-white px-5 py-4">
-                <p className="text-[10px] uppercase tracking-wide text-slate-500">{figure.label}</p>
+                <p className="text-[11px] uppercase tracking-wide text-slate-500">{figure.label}</p>
                 <p className={`mt-0.5 text-lg font-semibold tabular-nums ${figure.tone}`}>
                   {money(figure.value ?? 0)}
                 </p>
@@ -560,7 +560,7 @@ export const DashboardPage: React.FC = () => {
           {/* How much of everything ever billed has actually been recovered -
               the question the outstanding figure raises but does not answer. */}
           <div className="border-t border-slate-100 px-5 py-4">
-            <div className="mb-1.5 flex items-center justify-between text-[11px]">
+            <div className="mb-1.5 flex items-center justify-between text-[12px]">
               <span className="text-slate-500">
                 Recovered <span className="font-semibold text-slate-900">{overall.collectionRate ?? 0}%</span> of
                 everything billed
@@ -588,7 +588,7 @@ export const DashboardPage: React.FC = () => {
               Cheque is an answer, not a gap. */}
           {overall.collected > 0 && (
             <div className="border-t border-slate-100 px-5 py-4">
-              <p className="mb-2 text-[10px] uppercase tracking-wide text-slate-500">
+              <p className="mb-2 text-[11px] uppercase tracking-wide text-slate-500">
                 How patients paid
               </p>
 
@@ -609,7 +609,7 @@ export const DashboardPage: React.FC = () => {
 
               <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4">
                 {overallMethods.map((m) => (
-                  <div key={m.value} className="flex items-center justify-between gap-2 text-[11px]">
+                  <div key={m.value} className="flex items-center justify-between gap-2 text-[12px]">
                     <span className="flex min-w-0 items-center gap-1.5 text-slate-600">
                       <span
                         className="h-2 w-2 shrink-0 rounded-full"
@@ -633,7 +633,7 @@ export const DashboardPage: React.FC = () => {
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">Collections by day</h2>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[12px] text-slate-500">
                 Last 7 days · {money(collectedThisWeek)} collected
                 {anyPaidOut && ` · ${money(collectionTrend?.totals?.paidOut ?? 0)} paid out`}
               </p>
@@ -642,18 +642,18 @@ export const DashboardPage: React.FC = () => {
               {/* A legend is present whenever two series are on the plot, so
                   identity never rests on colour-matching alone. */}
               <div className="hidden items-center gap-3 sm:flex">
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+                <span className="inline-flex items-center gap-1.5 text-[12px] text-slate-500">
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: SERIES[0] }} /> Collected
                 </span>
                 {anyPaidOut && (
-                  <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+                  <span className="inline-flex items-center gap-1.5 text-[12px] text-slate-500">
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: SERIES[1] }} /> Paid out
                   </span>
                 )}
               </div>
               <button
                 onClick={() => navigate(collectionsLink)}
-                className="flex items-center gap-1 text-[11px] font-medium text-blue-600 transition-colors hover:text-blue-700"
+                className="flex items-center gap-1 text-[12px] font-medium text-blue-600 transition-colors hover:text-blue-700"
               >
                 {collectionsLink === '/accounts' ? 'Accounts' : 'Billing'} <ArrowRight className="h-3 w-3" />
               </button>
@@ -708,12 +708,12 @@ export const DashboardPage: React.FC = () => {
           {/* The table twin. Every value on the plot is also readable as text,
               so nothing is gated behind a hover. */}
           <details className="border-t border-slate-100">
-            <summary className="cursor-pointer select-none px-5 py-2.5 text-[11px] font-medium text-slate-500 transition-colors hover:text-slate-700">
+            <summary className="cursor-pointer select-none px-5 py-2.5 text-[12px] font-medium text-slate-500 transition-colors hover:text-slate-700">
               Show the figures
             </summary>
             <div className="overflow-x-auto border-t border-slate-100">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50/80 text-[10px] uppercase tracking-wide text-slate-500">
+                <thead className="bg-slate-50/80 text-[11px] uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-5 py-2 font-semibold">Day</th>
                     <th className="px-3 py-2 text-right font-semibold">Receipts</th>
@@ -726,7 +726,7 @@ export const DashboardPage: React.FC = () => {
                     <tr key={day.date} className="hover:bg-slate-50/60">
                       <td className="px-5 py-2 font-medium text-slate-700">
                         {relativeDayLabel(day.date)}
-                        <span className="ml-1.5 text-[10px] font-normal text-slate-400">{weekdayLabel(day.date)}</span>
+                        <span className="ml-1.5 text-[11px] font-normal text-slate-400">{weekdayLabel(day.date)}</span>
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-500">{day.count}</td>
                       <td className="px-3 py-2 text-right font-semibold tabular-nums text-slate-900">
@@ -753,13 +753,13 @@ export const DashboardPage: React.FC = () => {
                   <ClipboardCheck className="h-4 w-4 text-violet-600" />
                 </span>
                 <h2 className="text-sm font-semibold text-slate-900">Awaiting verification</h2>
-                <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
                   {pending.length}
                 </span>
               </div>
               <button
                 onClick={() => navigate('/results/pending')}
-                className="flex items-center gap-1 text-[11px] font-medium text-blue-600 transition-colors hover:text-blue-700"
+                className="flex items-center gap-1 text-[12px] font-medium text-blue-600 transition-colors hover:text-blue-700"
               >
                 View all <ArrowRight className="h-3 w-3" />
               </button>
@@ -773,12 +773,12 @@ export const DashboardPage: React.FC = () => {
                     className="flex items-center justify-between gap-3 px-5 py-2.5 text-xs transition-colors hover:bg-slate-50/60"
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600">
                         {name.charAt(0).toUpperCase()}
                       </span>
                       <div className="min-w-0">
                         <p className="truncate font-medium text-slate-900">{name}</p>
-                        <p className="truncate font-mono text-[10px] text-slate-400">{r.uhid ?? r.resultId}</p>
+                        <p className="truncate font-mono text-[11px] text-slate-400">{r.uhid ?? r.resultId}</p>
                       </div>
                     </div>
                     <Button size="sm" variant="outline" onClick={() => navigate('/results/pending')} className="h-7">
@@ -802,7 +802,7 @@ export const DashboardPage: React.FC = () => {
               </div>
               <button
                 onClick={() => navigate('/billing')}
-                className="flex items-center gap-1 text-[11px] font-medium text-blue-600 transition-colors hover:text-blue-700"
+                className="flex items-center gap-1 text-[12px] font-medium text-blue-600 transition-colors hover:text-blue-700"
               >
                 View all <ArrowRight className="h-3 w-3" />
               </button>
@@ -822,12 +822,12 @@ export const DashboardPage: React.FC = () => {
                       className="flex items-center justify-between gap-3 px-5 py-2.5 text-xs transition-colors hover:bg-slate-50/60"
                     >
                       <div className="flex min-w-0 items-center gap-2.5">
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600">
                           {name.charAt(0).toUpperCase()}
                         </span>
                         <div className="min-w-0">
                           <p className="truncate font-medium text-slate-900">{name}</p>
-                          <p className="truncate font-mono text-[10px] text-slate-400">{inv.invoiceNumber}</p>
+                          <p className="truncate font-mono text-[11px] text-slate-400">{inv.invoiceNumber}</p>
                         </div>
                       </div>
                       <div className="shrink-0 text-right">
@@ -835,7 +835,7 @@ export const DashboardPage: React.FC = () => {
                           {money(inv.netAmount ?? inv.totalAmount ?? 0)}
                         </p>
                         {(inv.dueAmount ?? 0) > 0 && (
-                          <p className="text-[10px] font-medium text-rose-600">Due {money(inv.dueAmount)}</p>
+                          <p className="text-[11px] font-medium text-rose-600">Due {money(inv.dueAmount)}</p>
                         )}
                       </div>
                     </li>

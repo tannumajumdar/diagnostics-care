@@ -315,21 +315,21 @@ export const TestsPage: React.FC = () => {
                   <tr key={test.id} className="hover:bg-muted/30 transition-colors">
                     <td className="p-3">
                       <div className="font-bold text-foreground">{test.testName}</div>
-                      <div className="font-mono text-[10px] text-blue-600 font-semibold">{test.testCode}</div>
+                      <div className="font-mono text-[11px] text-blue-600 font-semibold">{test.testCode}</div>
                     </td>
                     <td className="p-3 text-muted-foreground">
                       {typeof test.department === 'object' ? test.department.departmentName : 'N/A'}
                     </td>
                     <td className="p-3">
                       <div className="font-semibold text-foreground">{test.sampleContainer}</div>
-                      <div className="text-[10px] text-muted-foreground">{test.sampleType}</div>
+                      <div className="text-[11px] text-muted-foreground">{test.sampleType}</div>
                     </td>
                     <td className="p-3">
                       {test.processingMode === 'Outsource' ? (
                         <>
                           <Badge variant="amber">Outsource</Badge>
                           {test.outsourceLab && (
-                            <div className="mt-0.5 text-[10px] text-muted-foreground">{test.outsourceLab}</div>
+                            <div className="mt-0.5 text-[11px] text-muted-foreground">{test.outsourceLab}</div>
                           )}
                         </>
                       ) : (

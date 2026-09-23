@@ -80,7 +80,7 @@ export const UpdateRatesModal: React.FC<UpdateRatesModalProps> = ({
               value={referralRate}
               onChange={(e) => setReferralRate(Number(e.target.value))}
             />
-            <span className="mt-1 block text-[10px] text-muted-foreground">
+            <span className="mt-1 block text-[11px] text-muted-foreground">
               {Number(referralRate) > Number(rate)
                 ? `₹${Number(referralRate) - Number(rate)} above the standard rate - printed on the doctor's bill only.`
                 : Number(referralRate) < Number(rate)

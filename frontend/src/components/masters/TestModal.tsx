@@ -151,7 +151,7 @@ export const TestModal: React.FC<TestModalProps> = ({
               <label className="font-semibold block mb-1">Standard Rate (₹) *</label>
               <Input type="number" min={0} value={rate} onChange={(e) => setRate(Number(e.target.value))} required />
               {!test && (
-                <span className="mt-1 block text-[10px] text-muted-foreground">
+                <span className="mt-1 block text-[11px] text-muted-foreground">
                   Corporate, doctor and emergency rates start here - tune them under Rates.
                 </span>
               )}
@@ -170,7 +170,7 @@ export const TestModal: React.FC<TestModalProps> = ({
                 value={referralRate}
                 onChange={(e) => setReferralRate(Number(e.target.value))}
               />
-              <span className="mt-1 block text-[10px] text-muted-foreground">
+              <span className="mt-1 block text-[11px] text-muted-foreground">
                 {Number(referralRate) > Number(rate) ? (
                   <span className="font-semibold text-emerald-600">
                     ₹{Number(referralRate) - Number(rate)} above the standard rate - printed on the
@@ -206,7 +206,7 @@ export const TestModal: React.FC<TestModalProps> = ({
                   </button>
                 ))}
               </div>
-              <span className="mt-1 block text-[10px] text-muted-foreground">
+              <span className="mt-1 block text-[11px] text-muted-foreground">
                 {processingMode === 'Outsource'
                   ? 'Sample is couriered out. The desk can still flip a single bill back.'
                   : 'Run at the centre’s own bench.'}
@@ -232,7 +232,7 @@ export const TestModal: React.FC<TestModalProps> = ({
                   value={outsourceCost}
                   onChange={(e) => setOutsourceCost(Number(e.target.value))}
                 />
-                <span className="mt-1 block text-[10px] text-muted-foreground">
+                <span className="mt-1 block text-[11px] text-muted-foreground">
                   {Number(outsourceCost) > 0
                     ? `Margin on this test: ₹${Number(rate) - Number(outsourceCost)}`
                     : 'What the outside lab bills the centre for this test.'}
@@ -245,7 +245,7 @@ export const TestModal: React.FC<TestModalProps> = ({
             <div className="flex items-center justify-between pt-2">
               <div>
                 <span className="font-semibold block">Test Parameters ({parameters.length})</span>
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-[11px] text-muted-foreground">
                   {parameters.length === 0 && !test
                     ? 'Leave this empty and a standard sheet is built from the test name - editable any time.'
                     : 'What result entry asks for, and what the report prints.'}
@@ -272,7 +272,7 @@ export const TestModal: React.FC<TestModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Parameter Name *</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Parameter Name *</label>
                     <Input
                       value={param.parameterName}
                       onChange={(e) => changeParameter(idx, 'parameterName', e.target.value)}
@@ -283,7 +283,7 @@ export const TestModal: React.FC<TestModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Result Type</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Result Type</label>
                     <select
                       value={param.resultType}
                       onChange={(e) => changeParameter(idx, 'resultType', e.target.value)}
@@ -299,7 +299,7 @@ export const TestModal: React.FC<TestModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Unit</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Unit</label>
                     <Input
                       value={param.unit || ''}
                       onChange={(e) => changeParameter(idx, 'unit', e.target.value)}
@@ -309,7 +309,7 @@ export const TestModal: React.FC<TestModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Method</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Method</label>
                     <Input
                       value={param.method || ''}
                       onChange={(e) => changeParameter(idx, 'method', e.target.value)}
@@ -321,7 +321,7 @@ export const TestModal: React.FC<TestModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Male Reference Range</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Male Reference Range</label>
                     <Input
                       value={param.maleReferenceRange || ''}
                       onChange={(e) => changeParameter(idx, 'maleReferenceRange', e.target.value)}
@@ -331,7 +331,7 @@ export const TestModal: React.FC<TestModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Female Reference Range</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Female Reference Range</label>
                     <Input
                       value={param.femaleReferenceRange || ''}
                       onChange={(e) => changeParameter(idx, 'femaleReferenceRange', e.target.value)}
@@ -341,7 +341,7 @@ export const TestModal: React.FC<TestModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Child Reference Range</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Child Reference Range</label>
                     <Input
                       value={param.childReferenceRange || ''}
                       onChange={(e) => changeParameter(idx, 'childReferenceRange', e.target.value)}

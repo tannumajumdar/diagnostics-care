@@ -146,7 +146,7 @@ export const RatesPage: React.FC = () => {
                   <tr key={t.id} className="hover:bg-muted/30">
                     <td className="p-3">
                       <div className="font-bold">{t.testName}</div>
-                      <div className="font-mono text-[10px] text-blue-600 font-semibold">{t.testCode}</div>
+                      <div className="font-mono text-[11px] text-blue-600 font-semibold">{t.testCode}</div>
                     </td>
                     <td className="p-3 font-mono font-bold text-emerald-600">₹{t.rate}</td>
                     <td className="p-3 font-mono text-muted-foreground">₹{t.patientRate || t.rate}</td>

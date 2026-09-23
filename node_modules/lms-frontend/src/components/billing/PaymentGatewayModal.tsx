@@ -30,7 +30,7 @@ const Reference: React.FC<{ label: string; value: string; mono?: boolean }> = ({
   if (!value) return null;
   return (
     <div className="flex items-center justify-between gap-2 py-1">
-      <span className="text-[11px] text-slate-500">{label}</span>
+      <span className="text-[12px] text-slate-500">{label}</span>
       <button
         type="button"
         onClick={() => {
@@ -186,7 +186,7 @@ export const PaymentGatewayModal: React.FC<PaymentGatewayModalProps> = ({
         <header className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-slate-900">Collect payment</h2>
-            <p className="truncate text-[11px] text-slate-500">
+            <p className="truncate text-[12px] text-slate-500">
               {patientName ? `${patientName} · ` : ''}
               {invoiceNumber} · {money(dueAmount)} due
             </p>
@@ -224,7 +224,7 @@ export const PaymentGatewayModal: React.FC<PaymentGatewayModalProps> = ({
                       <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${active ? 'text-blue-600' : 'text-slate-400'}`} />
                       <span className="min-w-0">
                         <span className="block text-xs font-semibold text-slate-900">{option.label}</span>
-                        <span className="block text-[10px] text-slate-500">{option.hint}</span>
+                        <span className="block text-[11px] text-slate-500">{option.hint}</span>
                       </span>
                     </button>
                   );
@@ -243,7 +243,7 @@ export const PaymentGatewayModal: React.FC<PaymentGatewayModalProps> = ({
                 className="font-mono"
               />
               {!amountValid && amount !== '' && (
-                <p className="mt-1 text-[10px] font-medium text-rose-600">
+                <p className="mt-1 text-[11px] font-medium text-rose-600">
                   Enter an amount between ₹1 and {money(dueAmount)}.
                 </p>
               )}
@@ -259,14 +259,14 @@ export const PaymentGatewayModal: React.FC<PaymentGatewayModalProps> = ({
                   onChange={(e) => setVpa(e.target.value)}
                   placeholder="name@bank — leave blank to show a QR instead"
                 />
-                <p className="mt-1 text-[10px] text-slate-400">
+                <p className="mt-1 text-[11px] text-slate-400">
                   With an id, a collect request goes to their app. Without one, they scan the QR.
                 </p>
               </div>
             )}
 
             {error && (
-              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-medium text-rose-700">
+              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-medium text-rose-700">
                 {error}
               </p>
             )}
@@ -310,8 +310,8 @@ export const PaymentGatewayModal: React.FC<PaymentGatewayModalProps> = ({
               <div className="flex flex-col items-center gap-2 rounded-xl border border-slate-200 p-4">
                 <QrCode value={attempt.upiIntent} size={196} label={`UPI payment QR for ${money(attempt.amount)}`} />
                 <p className="text-lg font-semibold tracking-tight text-slate-900">{money(attempt.amount)}</p>
-                <p className="font-mono text-[11px] text-slate-500">{attempt.payeeVpa}</p>
-                <p className="text-[10px] text-slate-400">Any UPI app — GPay, PhonePe, Paytm, BHIM</p>
+                <p className="font-mono text-[12px] text-slate-500">{attempt.payeeVpa}</p>
+                <p className="text-[11px] text-slate-400">Any UPI app — GPay, PhonePe, Paytm, BHIM</p>
               </div>
             )}
 
@@ -339,22 +339,22 @@ export const PaymentGatewayModal: React.FC<PaymentGatewayModalProps> = ({
 
             {/* The stand-in for hardware this build does not have. */}
             <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-3">
-              <p className="mb-2 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+              <p className="mb-2 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700">
                 <FlaskConical className="h-3 w-3" />
                 Simulator — the patient's side
               </p>
-              <p className="mb-2.5 text-[10px] leading-relaxed text-amber-800">
+              <p className="mb-2.5 text-[11px] leading-relaxed text-amber-800">
                 Standing in for the patient's phone and the card terminal. With a live gateway the outcome arrives from
                 the bank and this panel is gone.
               </p>
 
               {attempt.method === 'Card' && (
                 <div className="mb-2 flex items-center gap-2">
-                  <span className="text-[10px] font-semibold text-amber-800">Card</span>
+                  <span className="text-[11px] font-semibold text-amber-800">Card</span>
                   <select
                     value={cardNetwork}
                     onChange={(e) => setCardNetwork(e.target.value as typeof cardNetwork)}
-                    className="h-7 rounded-lg border border-amber-300 bg-white px-2 text-[11px]"
+                    className="h-7 rounded-lg border border-amber-300 bg-white px-2 text-[12px]"
                   >
                     <option value="RuPay">RuPay</option>
                     <option value="Visa">Visa</option>
@@ -442,7 +442,7 @@ export const PaymentGatewayModal: React.FC<PaymentGatewayModalProps> = ({
             </div>
 
             {won && (
-              <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800">
+              <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800">
                 Booked against {invoiceNumber} and counted in today's collections.
               </p>
             )}

@@ -40,6 +40,7 @@ import { PaymentGatewayModal } from '../../components/billing/PaymentGatewayModa
 import { PatientSearchSelect } from '../../components/patients/PatientSearchSelect';
 import {
   SplitPaymentEditor,
+  splitSeed,
   tenderPayload,
   tenderTotal,
   type Tender,
@@ -122,7 +123,7 @@ export const NewBillingPage: React.FC = () => {
    * bill, so the counter takes the legs rather than a single method.
    */
   const [splitting, setSplitting] = useState(false);
-  const [tenders, setTenders] = useState<Tender[]>([{ method: 'Cash', amount: '' }]);
+  const [tenders, setTenders] = useState<Tender[]>(splitSeed());
   /** Set once a bill needing a machine collection has been raised. */
   const [gatewayInvoice, setGatewayInvoice] = useState<{
     id: string;
@@ -441,7 +442,7 @@ export const NewBillingPage: React.FC = () => {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <p className="text-sm font-bold">{selectedPatient.patientName}</p>
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-[12px] text-muted-foreground">
                           {ageLabel(selectedPatient)} · {selectedPatient.gender} · {selectedPatient.mobile} · UHID{' '}
                           {selectedPatient.uhid}
                         </p>
@@ -456,7 +457,7 @@ export const NewBillingPage: React.FC = () => {
 
                     {pastInvoices.length > 0 ? (
                       <div className="space-y-1">
-                        <p className="text-[11px] font-semibold text-muted-foreground">
+                        <p className="text-[12px] font-semibold text-muted-foreground">
                           {pastInvoices.length} previous bill{pastInvoices.length === 1 ? '' : 's'}
                           {outstandingDue > 0 && (
                             <span className="ml-1 font-bold text-red-600">
@@ -468,7 +469,7 @@ export const NewBillingPage: React.FC = () => {
                           <Link
                             key={inv._id}
                             to={`/billing/${inv._id}`}
-                            className="flex items-center justify-between rounded-lg bg-background px-2 py-1 text-[11px] hover:bg-muted"
+                            className="flex items-center justify-between rounded-lg bg-background px-2 py-1 text-[12px] hover:bg-muted"
                           >
                             <span className="font-mono font-bold text-blue-600">{inv.invoiceNumber}</span>
                             <span className="text-muted-foreground">
@@ -484,7 +485,7 @@ export const NewBillingPage: React.FC = () => {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-[11px] text-muted-foreground">First visit - no previous bills on record.</p>
+                      <p className="text-[12px] text-muted-foreground">First visit - no previous bills on record.</p>
                     )}
                   </div>
                 )}
@@ -615,9 +616,9 @@ export const NewBillingPage: React.FC = () => {
                             <td className="p-3 font-mono text-muted-foreground">{idx + 1}</td>
                             <td className="p-3">
                               <div className="font-bold">{t.testName}</div>
-                              <div className="font-mono text-[10px] text-muted-foreground">{t.testCode}</div>
+                              <div className="font-mono text-[11px] text-muted-foreground">{t.testCode}</div>
                               {line.packageName && (
-                                <div className="mt-0.5 flex items-center gap-1 text-[10px] font-semibold text-violet-700">
+                                <div className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-violet-700">
                                   <Package className="h-2.5 w-2.5" />
                                   {line.packageName}
                                 </div>
@@ -639,7 +640,7 @@ export const NewBillingPage: React.FC = () => {
                                         : '',
                                   })
                                 }
-                                className={`h-8 w-full rounded-lg border px-2 text-[11px] font-semibold ${
+                                className={`h-8 w-full rounded-lg border px-2 text-[12px] font-semibold ${
                                   line.processingMode === 'Outsource'
                                     ? 'border-amber-300 bg-amber-50 text-amber-800'
                                     : 'border-emerald-200 bg-emerald-50 text-emerald-800'
@@ -653,7 +654,7 @@ export const NewBillingPage: React.FC = () => {
                                   value={line.outsourceLab}
                                   onChange={(e) => updateLine(t.id, { outsourceLab: e.target.value })}
                                   placeholder="Sent to..."
-                                  className="mt-1 h-7 text-[10px]"
+                                  className="mt-1 h-7 text-[11px]"
                                 />
                               )}
                             </td>
@@ -693,7 +694,7 @@ export const NewBillingPage: React.FC = () => {
                                 className="h-8 w-20 font-mono disabled:cursor-not-allowed disabled:opacity-50"
                               />
                               {noDiscount && (
-                                <span className="mt-1 block text-[10px] text-muted-foreground">
+                                <span className="mt-1 block text-[11px] text-muted-foreground">
                                   No discount allowed
                                 </span>
                               )}
@@ -756,7 +757,7 @@ export const NewBillingPage: React.FC = () => {
                         <td className="p-3" />
                       </tr>
                       {calculatedDiscount > 0 && (
-                        <tr className="text-[11px]">
+                        <tr className="text-[12px]">
                           <td className="p-3 pt-0" colSpan={6}>
                             Less bill discount
                             {discountType === 'Percentage' ? ` (${discountValue}%)` : ''}
@@ -788,7 +789,7 @@ export const NewBillingPage: React.FC = () => {
               {/* Work leaving the building - the desk says this at the counter,
                   because an outsourced test usually reports a day later. */}
               {outsourcedLines.length > 0 && (
-                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-800">
+                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-800">
                   <Truck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
                     {outsourcedLines.length} test{outsourcedLines.length === 1 ? '' : 's'}{' '}
@@ -874,7 +875,7 @@ export const NewBillingPage: React.FC = () => {
                     // directions, so changing the method never silently
                     // drops an amount the receptionist entered.
                     if (e.target.value === SPLIT_OPTION) {
-                      setTenders([{ method: paymentMethod, amount: Number(paidAmount) || '' }]);
+                      setTenders(splitSeed(paymentMethod, Number(paidAmount) || ''));
                       setSplitting(true);
                       return;
                     }
@@ -891,10 +892,10 @@ export const NewBillingPage: React.FC = () => {
                       {m.label}
                     </option>
                   ))}
-                  <option value={SPLIT_OPTION}>Split across methods (cash + UPI, etc.)</option>
+                  <option value={SPLIT_OPTION}>Split payment (Cash + UPI)</option>
                 </select>
                 {!splitting && GATEWAY_METHODS.includes(paymentMethod) && Number(paidAmount) > 0 && (
-                  <p className="mt-1 text-[10px] text-blue-700">
+                  <p className="mt-1 text-[11px] text-blue-700">
                     The bill is raised first, then {paymentMethod} is collected on the machine.
                   </p>
                 )}
@@ -965,7 +966,7 @@ export const NewBillingPage: React.FC = () => {
                   <span className="font-mono">{money(referralTotal)}</span>
                 </div>
 
-                <div className="flex justify-between text-[11px] text-muted-foreground">
+                <div className="flex justify-between text-[12px] text-muted-foreground">
                   <span>Patient pays the centre</span>
                   <span className="font-mono">{money(netAmount)}</span>
                 </div>
@@ -979,7 +980,7 @@ export const NewBillingPage: React.FC = () => {
                   <span className="font-mono">{money(Math.abs(referralMargin))}</span>
                 </div>
 
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   Prints as its own sheet from the bill once this invoice is saved.
                 </p>
               </CardContent>

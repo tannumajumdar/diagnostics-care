@@ -194,7 +194,7 @@ export const PackageModal: React.FC<PackageModalProps> = ({
 
               <div className="max-h-60 overflow-y-auto rounded-xl border">
                 {matches.length === 0 ? (
-                  <p className="p-3 text-[11px] text-muted-foreground">No test matches "{search}".</p>
+                  <p className="p-3 text-[12px] text-muted-foreground">No test matches "{search}".</p>
                 ) : (
                   <ul className="divide-y">
                     {matches.map((t) => {
@@ -211,13 +211,13 @@ export const PackageModal: React.FC<PackageModalProps> = ({
                           >
                             <span className="min-w-0">
                               <span className="block truncate font-semibold">{t.testName}</span>
-                              <span className="block truncate text-[10px] text-muted-foreground">
+                              <span className="block truncate text-[11px] text-muted-foreground">
                                 {t.testCode}
                                 {t.processingMode === 'Outsource' ? ' · outsourced' : ''}
                               </span>
                             </span>
                             <span className="flex shrink-0 items-center gap-2">
-                              <span className="font-mono text-[11px]">{money(t.rate)}</span>
+                              <span className="font-mono text-[12px]">{money(t.rate)}</span>
                               {picked && <Check className="h-3.5 w-3.5 text-violet-600" />}
                             </span>
                           </button>
@@ -234,7 +234,7 @@ export const PackageModal: React.FC<PackageModalProps> = ({
 
               <div className="max-h-60 overflow-y-auto rounded-xl border bg-muted/20">
                 {selectedTests.length === 0 ? (
-                  <p className="p-3 text-[11px] text-muted-foreground">
+                  <p className="p-3 text-[12px] text-muted-foreground">
                     Nothing picked yet. Tap a test on the left to put it in the panel.
                   </p>
                 ) : (
@@ -243,10 +243,10 @@ export const PackageModal: React.FC<PackageModalProps> = ({
                       <li key={testKey(t)} className="flex items-center justify-between gap-2 px-3 py-2">
                         <span className="min-w-0">
                           <span className="block truncate font-semibold">{t.testName}</span>
-                          <span className="block truncate text-[10px] text-muted-foreground">{t.testCode}</span>
+                          <span className="block truncate text-[11px] text-muted-foreground">{t.testCode}</span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
-                          <span className="font-mono text-[11px]">{money(t.rate)}</span>
+                          <span className="font-mono text-[12px]">{money(t.rate)}</span>
                           <button
                             type="button"
                             onClick={() => toggle(t)}
@@ -263,7 +263,7 @@ export const PackageModal: React.FC<PackageModalProps> = ({
               </div>
 
               {selectedTests.length > 0 && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[12px] text-muted-foreground">
                   Billed one by one these come to <strong>{money(listTotal)}</strong>.
                   <button
                     type="button"
@@ -277,7 +277,7 @@ export const PackageModal: React.FC<PackageModalProps> = ({
             </div>
           </div>
 
-          {error && <p className="text-[11px] font-medium text-red-500">{error}</p>}
+          {error && <p className="text-[12px] font-medium text-red-500">{error}</p>}
 
           {/* What it sells for */}
           <div className="grid grid-cols-1 gap-3 border-t pt-3 sm:grid-cols-3">
@@ -290,7 +290,7 @@ export const PackageModal: React.FC<PackageModalProps> = ({
                 onChange={(e) => setRate(Number(e.target.value))}
                 required
               />
-              <span className="mt-1 block text-[10px]">
+              <span className="mt-1 block text-[11px]">
                 {selectedTests.length === 0 ? (
                   <span className="text-muted-foreground">What the patient pays for the whole panel.</span>
                 ) : saving > 0 ? (
@@ -315,7 +315,7 @@ export const PackageModal: React.FC<PackageModalProps> = ({
                 value={referralRate}
                 onChange={(e) => setReferralRate(Number(e.target.value))}
               />
-              <span className="mt-1 block text-[10px] text-muted-foreground">
+              <span className="mt-1 block text-[11px] text-muted-foreground">
                 {Number(referralRate) > 0
                   ? `Doctor's copy prints ${money(referralRate)} for the panel.`
                   : `Leave at 0 and the doctor's copy falls back to each test's own rate (${money(
@@ -338,7 +338,7 @@ export const PackageModal: React.FC<PackageModalProps> = ({
                   Further discount allowed
                 </label>
               </div>
-              <span className="mt-1 block text-[10px] text-muted-foreground">
+              <span className="mt-1 block text-[11px] text-muted-foreground">
                 A panel price is usually already the discount.
               </span>
             </div>
@@ -347,7 +347,7 @@ export const PackageModal: React.FC<PackageModalProps> = ({
           {selectedTests.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 p-3">
               <Badge variant="purple">{selectedTests.length} tests</Badge>
-              <span className="text-[11px] text-violet-900">
+              <span className="text-[12px] text-violet-900">
                 Patient pays <strong className="font-mono">{money(rate)}</strong> · Doctor&rsquo;s copy{' '}
                 <strong className="font-mono">
                   {money(Number(referralRate) > 0 ? referralRate : referralListTotal)}

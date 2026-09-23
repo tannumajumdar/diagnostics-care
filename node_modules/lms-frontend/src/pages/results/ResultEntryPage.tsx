@@ -231,7 +231,7 @@ export const ResultEntryPage: React.FC = () => {
           <p className="text-xs font-semibold text-muted-foreground">
             {sheets.length} test{sheets.length === 1 ? '' : 's'} on this visit
           </p>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[12px] text-muted-foreground">
             {totalFilled} of {totalParameters} values filled
           </p>
         </div>
@@ -409,7 +409,7 @@ export const ResultEntryPage: React.FC = () => {
               <CheckCircle2 className="mr-1 h-4 w-4" /> Approve &amp; Release
             </Button>
           </div>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[12px] text-muted-foreground">
             {totalFilled === 0 && totalParameters > 0
               ? 'Fill in at least one parameter before this can be approved.'
               : `Acts on every test on this visit that has values typed in (${sheetsWithValues().length} of ${

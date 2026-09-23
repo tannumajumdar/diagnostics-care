@@ -92,13 +92,13 @@ export const SamplesListPage: React.FC = () => {
                     <tr key={s._id} className="hover:bg-muted/30 transition-colors">
                       <td className="p-3 font-mono font-bold text-blue-600">
                         <div>{s.sampleId}</div>
-                        <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                           <Barcode className="h-3 w-3" /> {s.barcode}
                         </div>
                       </td>
                       <td className="p-3 font-bold text-foreground">
                         <div>{(patient as any).patientName || 'N/A'}</div>
-                        <div className="text-[10px] font-mono text-muted-foreground">UHID: {s.uhid}</div>
+                        <div className="text-[11px] font-mono text-muted-foreground">UHID: {s.uhid}</div>
                       </td>
                       <td className="p-3">
                         <div className="font-semibold">
@@ -109,7 +109,7 @@ export const SamplesListPage: React.FC = () => {
                           </Badge>
                         )}
                         </div>
-                        <div className="text-[10px] text-muted-foreground">{s.sampleContainer}</div>
+                        <div className="text-[11px] text-muted-foreground">{s.sampleContainer}</div>
                       </td>
                       <td className="p-3 text-muted-foreground">
                         {s.collectionDate ? new Date(s.collectionDate).toLocaleDateString() : 'Pending'}

@@ -102,7 +102,7 @@ export const TestParametersModal: React.FC<TestParametersModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Parameter Name *</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Parameter Name *</label>
                     <Input
                       value={param.parameterName}
                       onChange={(e) => handleChange(idx, 'parameterName', e.target.value)}
@@ -113,7 +113,7 @@ export const TestParametersModal: React.FC<TestParametersModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Result Type</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Result Type</label>
                     <select
                       value={param.resultType}
                       onChange={(e) => handleChange(idx, 'resultType', e.target.value)}
@@ -129,7 +129,7 @@ export const TestParametersModal: React.FC<TestParametersModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Unit</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Unit</label>
                     <Input
                       value={param.unit || ''}
                       onChange={(e) => handleChange(idx, 'unit', e.target.value)}
@@ -139,7 +139,7 @@ export const TestParametersModal: React.FC<TestParametersModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Method</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Method</label>
                     <Input
                       value={param.method || ''}
                       onChange={(e) => handleChange(idx, 'method', e.target.value)}
@@ -151,7 +151,7 @@ export const TestParametersModal: React.FC<TestParametersModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Male Reference Range</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Male Reference Range</label>
                     <Input
                       value={param.maleReferenceRange || ''}
                       onChange={(e) => handleChange(idx, 'maleReferenceRange', e.target.value)}
@@ -161,7 +161,7 @@ export const TestParametersModal: React.FC<TestParametersModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Female Reference Range</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Female Reference Range</label>
                     <Input
                       value={param.femaleReferenceRange || ''}
                       onChange={(e) => handleChange(idx, 'femaleReferenceRange', e.target.value)}
@@ -171,7 +171,7 @@ export const TestParametersModal: React.FC<TestParametersModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-semibold text-muted-foreground">Child Reference Range</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground">Child Reference Range</label>
                     <Input
                       value={param.childReferenceRange || ''}
                       onChange={(e) => handleChange(idx, 'childReferenceRange', e.target.value)}

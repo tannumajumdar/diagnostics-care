@@ -70,6 +70,20 @@ const methodColumns = (invoice: any): Record<string, number> => {
   );
 };
 
+/**
+ * Whether a bill was run on our own benches or had anything sent out.
+ *
+ * One outsourced line makes the whole bill an outsourced one - that is the
+ * bill the desk chases a referral lab over - so the two answers never overlap.
+ * The directory's In/Out filter splits a window the same way, which is what
+ * lets a filtered export hold exactly the rows that were on screen.
+ */
+export const processingModeOf = (invoice: any): 'In-house' | 'Outsource' | '' => {
+  const items: any[] = Array.isArray(invoice?.items) ? invoice.items : [];
+  if (!items.length) return '';
+  return items.some((item) => item?.processingMode === 'Outsource') ? 'Outsource' : 'In-house';
+};
+
 /** The tests on a bill, joined for a single spreadsheet cell. */
 export const testsOn = (invoice: any) => {
   const items: any[] = Array.isArray(invoice?.items) ? invoice.items : [];
@@ -96,6 +110,7 @@ export const invoiceExportRows = (invoices: any[]): Record<string, any>[] =>
       Mobile: patient?.mobile || '',
       'Referred By': referredBy(invoice),
       Tests: testsOn(invoice),
+      Processing: processingModeOf(invoice),
       'Gross Amount': subtotal || net,
       // Taken from the two totals rather than from discountValue, which stores
       // a percentage discount as the percentage and not as rupees.
