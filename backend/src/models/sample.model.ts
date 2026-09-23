@@ -92,6 +92,7 @@ const sampleSchema = new Schema<ISampleDocument>(
         'Completed',
         'Rejected',
         'Recollected',
+        'Cancelled',
       ],
       default: 'Pending Collection',
       index: true,
@@ -113,6 +114,10 @@ const sampleSchema = new Schema<ISampleDocument>(
       name: { type: String },
     },
     rejectedAt: { type: Date },
+    // Called off by the patient. Separate from a rejection, which is the
+    // lab's own finding about the specimen.
+    cancelledAt: { type: Date },
+    cancellationReason: { type: String, default: '' },
     // Stage clocks - each is stamped once, when the sample enters that stage.
     receivedAt: { type: Date },
     processingAt: { type: Date },

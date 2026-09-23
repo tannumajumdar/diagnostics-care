@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Payment = void 0;
 const mongoose_1 = require("mongoose");
+const payment_methods_1 = require("../constants/payment-methods");
 const paymentSchema = new mongoose_1.Schema({
     receiptNumber: {
         type: String,
@@ -27,7 +28,7 @@ const paymentSchema = new mongoose_1.Schema({
     },
     paymentMethod: {
         type: String,
-        enum: ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Online', 'Credit'],
+        enum: payment_methods_1.COLLECTION_METHODS,
         required: true,
     },
     transactionRef: { type: String, default: '' },

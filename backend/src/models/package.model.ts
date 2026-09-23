@@ -28,6 +28,14 @@ const packageSchema = new Schema<ITestPackageDocument>(
       index: true,
     },
     description: { type: String, trim: true, default: '' },
+    // What the centre files the panel under. Optional, because a full body
+    // checkup belongs to no single bench - the tests inside carry their own
+    // departments and the lab keeps working off those either way.
+    department: {
+      type: Schema.Types.ObjectId,
+      ref: 'Department',
+      index: true,
+    },
     tests: [
       {
         type: Schema.Types.ObjectId,

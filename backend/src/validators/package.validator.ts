@@ -9,6 +9,9 @@ export const createPackageSchema = z.object({
   packageName: z.string().min(2, 'Package name is required'),
   packageCode: z.string().min(2, 'Package code is required'),
   description: z.string().optional(),
+  // Blank is a real answer: a panel spanning the whole lab is filed under no
+  // one department.
+  department: z.string().optional().nullable(),
   tests: z.array(z.string().min(1)).min(1, 'Add at least one test to the package'),
   rate: z.number().min(0, 'Package rate must be positive'),
   referralRate: z.number().min(0).optional(),

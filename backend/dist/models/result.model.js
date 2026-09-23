@@ -57,6 +57,13 @@ const resultSchema = new mongoose_1.Schema({
         required: true,
         index: true,
     },
+    // Copied off the invoice so the bench and the report can show the visit's
+    // enquiry number without loading the bill. Absent on anything raised
+    // before enquiry numbers existed.
+    enquiryNo: {
+        type: String,
+        index: true,
+    },
     invoice: {
         type: mongoose_1.Schema.Types.ObjectId,
         ref: 'Invoice',

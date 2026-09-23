@@ -59,8 +59,24 @@ export const paidByLabel = (invoice: any): string => {
   const entries = paymentBreakdownOf(invoice);
   if (!entries.length) return '';
   if (entries.length === 1) return entries[0].method;
-  return entries.map((entry) => `${entry.method} ${entry.amount}`).join(' + ');
+  return entries.map((entry) => `${entry.method} ₹${entry.amount}`).join(' + ');
 };
+
+/**
+ * `Cash + UPI` - the methods a bill was settled by, without the figures.
+ *
+ * The amounts are spelled out beside it in `Paid By` and totalled in a column
+ * per method; this is the plain method column the accountant filters the
+ * sheet on, and a split bill names both of its tenders here rather than only
+ * the larger one the bill is filed under.
+ */
+export const paymentMethodsLabel = (invoice: any): string =>
+  paymentBreakdownOf(invoice)
+    .map((entry) => entry.method)
+    .join(' + ');
+
+/** Whether the patient settled the bill across more than one method. */
+export const isSplitPayment = (invoice: any): boolean => paymentBreakdownOf(invoice).length > 1;
 
 /** One column per method the centre takes, zero where none came in by it. */
 const methodColumns = (invoice: any): Record<string, number> => {
@@ -126,6 +142,11 @@ export const invoiceExportRows = (invoices: any[]): Record<string, any>[] =>
       // brought in nothing. A column that appeared only on the bills that
       // used it would be missing from the sheet whenever the first bill in
       // the window happened not to, and the rest of its figures with it.
+      'Payment Method': paymentMethodsLabel(invoice),
+      // Spelled out as its own column so the sheet can be filtered down to
+      // the bills that were settled two ways - those are the ones the drawer
+      // and the bank statement are reconciled against together.
+      Split: isSplitPayment(invoice) ? 'Yes' : '',
       'Paid By': paidByLabel(invoice),
       ...methodColumns(invoice),
       'Payment Status': invoice?.paymentStatus || '',

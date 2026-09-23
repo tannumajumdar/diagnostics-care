@@ -11,6 +11,9 @@ exports.createPackageSchema = zod_1.z.object({
     packageName: zod_1.z.string().min(2, 'Package name is required'),
     packageCode: zod_1.z.string().min(2, 'Package code is required'),
     description: zod_1.z.string().optional(),
+    // Blank is a real answer: a panel spanning the whole lab is filed under no
+    // one department.
+    department: zod_1.z.string().optional().nullable(),
     tests: zod_1.z.array(zod_1.z.string().min(1)).min(1, 'Add at least one test to the package'),
     rate: zod_1.z.number().min(0, 'Package rate must be positive'),
     referralRate: zod_1.z.number().min(0).optional(),

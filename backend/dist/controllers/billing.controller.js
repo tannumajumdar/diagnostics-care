@@ -80,6 +80,28 @@ class BillingController {
             next(error);
         }
     };
+    /**
+     * A bill changed after it was raised - tests added at the counter, or a
+     * concession agreed when the patient came back to pay their due.
+     */
+    static reviseInvoice = async (req, res, next) => {
+        try {
+            const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const currentUser = req.user;
+            const result = await billing_service_1.BillingService.reviseInvoice(id, req.body, currentUser);
+            (0, api_response_util_1.sendResponse)({
+                res,
+                statusCode: messages_1.HTTP_STATUS.OK,
+                message: result.testsAdded.length
+                    ? `${result.testsAdded.length} test(s) added - ${result.invoice.invoiceNumber} is now Rs.${result.netAfter}`
+                    : `${result.invoice.invoiceNumber} revised - now Rs.${result.netAfter}`,
+                data: result,
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    };
     static addPayment = async (req, res, next) => {
         try {
             const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;

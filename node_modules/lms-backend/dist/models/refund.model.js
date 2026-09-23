@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Refund = void 0;
 const mongoose_1 = require("mongoose");
+const payment_methods_1 = require("../constants/payment-methods");
 const refundSchema = new mongoose_1.Schema({
     refundId: {
         type: String,
@@ -35,7 +36,7 @@ const refundSchema = new mongoose_1.Schema({
     },
     paymentMethod: {
         type: String,
-        enum: ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Online'],
+        enum: payment_methods_1.DISBURSEMENT_METHODS,
         required: true,
     },
     approvedBy: {

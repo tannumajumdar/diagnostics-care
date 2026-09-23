@@ -10,6 +10,7 @@ export const updateSampleStatusSchema = z.object({
     'Completed',
     'Rejected',
     'Recollected',
+    'Cancelled',
   ]),
   rejectionReason: z.string().optional(),
   remarks: z.string().optional(),

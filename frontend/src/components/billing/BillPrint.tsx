@@ -74,6 +74,15 @@ export const BillPrint: React.FC<BillPrintProps> = ({ invoice, payments = [], ce
   // Taken from the two totals rather than from discountValue: a percentage
   // discount is stored as the percentage, and the bill has to show rupees.
   const discountAmount = Math.max(0, subtotal - netAmount);
+  // Who the concession came through, when there was one. Printed so the
+  // patient's own copy says whose reference the rate was given on.
+  const discountThrough =
+    discountAmount > 0
+      ? (typeof invoice?.discountDoctor === 'object' ? invoice?.discountDoctor?.doctorName : '') ||
+        invoice?.discountDoctorName ||
+        ''
+      : '';
+
   const paidAmount = Number(invoice?.paidAmount ?? 0);
   const dueAmount = Number(invoice?.dueAmount ?? 0);
 
@@ -268,6 +277,9 @@ export const BillPrint: React.FC<BillPrintProps> = ({ invoice, payments = [], ce
                     labelWidth="w-[92px]"
                   />
                   <Field label="Balance Amount" value={money(dueAmount)} labelWidth="w-[92px]" />
+                  {discountThrough && (
+                    <Field label="Discount Through" value={discountThrough} labelWidth="w-[92px]" />
+                  )}
                 </div>
                 {centre.upiPayeeLine && (
                   <p className="mt-[2px] border-t border-black pt-[2px] text-right text-[8px] font-bold">

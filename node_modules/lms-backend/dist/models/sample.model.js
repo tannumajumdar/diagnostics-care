@@ -36,6 +36,13 @@ const sampleSchema = new mongoose_1.Schema({
         required: true,
         index: true,
     },
+    // Copied off the invoice so the bench and the report can show the visit's
+    // enquiry number without loading the bill. Absent on anything raised
+    // before enquiry numbers existed.
+    enquiryNo: {
+        type: String,
+        index: true,
+    },
     invoice: {
         type: mongoose_1.Schema.Types.ObjectId,
         ref: 'Invoice',
@@ -81,6 +88,7 @@ const sampleSchema = new mongoose_1.Schema({
             'Completed',
             'Rejected',
             'Recollected',
+            'Cancelled',
         ],
         default: 'Pending Collection',
         index: true,
@@ -102,6 +110,10 @@ const sampleSchema = new mongoose_1.Schema({
         name: { type: String },
     },
     rejectedAt: { type: Date },
+    // Called off by the patient. Separate from a rejection, which is the
+    // lab's own finding about the specimen.
+    cancelledAt: { type: Date },
+    cancellationReason: { type: String, default: '' },
     // Stage clocks - each is stamped once, when the sample enters that stage.
     receivedAt: { type: Date },
     processingAt: { type: Date },

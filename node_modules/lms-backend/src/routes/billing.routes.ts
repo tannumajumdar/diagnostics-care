@@ -3,7 +3,12 @@ import { BillingController } from '../controllers/billing.controller';
 import { authenticate, requirePermission } from '../middleware/auth.middleware';
 import { validateRequest } from '../middleware/validate.middleware';
 import { PERMISSIONS } from '../constants/permissions';
-import { createInvoiceSchema, createVisitSchema, addPaymentSchema } from '../validators/billing.validator';
+import {
+  createInvoiceSchema,
+  createVisitSchema,
+  addPaymentSchema,
+  reviseInvoiceSchema,
+} from '../validators/billing.validator';
 
 const router = Router();
 
@@ -29,6 +34,16 @@ router.post(
   validateRequest(createInvoiceSchema),
   BillingController.createInvoice
 );
+// Changing a bill already raised: another test on the same visit, or the
+// concession the patient was promised before they came in to settle. The desk
+// that may raise a bill may revise one - the discount ceiling still applies.
+router.put(
+  '/:id',
+  requirePermission(PERMISSIONS.BILL_CREATE),
+  validateRequest(reviseInvoiceSchema),
+  BillingController.reviseInvoice
+);
+
 router.post(
   '/:id/payments',
   requirePermission(PERMISSIONS.BILL_COLLECT_PAYMENT),

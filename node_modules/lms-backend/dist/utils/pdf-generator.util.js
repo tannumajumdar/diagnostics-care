@@ -6,8 +6,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateResultPDF = exports.generateDiagnosticReportPDF = void 0;
 const pdfkit_1 = __importDefault(require("pdfkit"));
 const result_marker_util_1 = require("./result-marker.util");
+const centre_1 = require("../config/centre");
 const LEFT = 40;
 const RIGHT = 570;
+/** The letterhead band: the logo's cell, and the height held for the whole. */
+const LOGO_CELL = 110;
+const HEADER_BAND = 78;
 const COLUMNS = [
     { key: 'parameterName', label: 'Test Parameter', x: 40, width: 215 },
     { key: 'value', label: 'Result', x: 255, width: 90 },
@@ -53,10 +57,45 @@ const generateDiagnosticReportPDF = async (records) => {
         const referredBy = (typeof invoice.referringDoctor === 'object' ? invoice.referringDoctor?.doctorName : '') ||
             invoice.referringDoctorName ||
             'Self / Walk-in';
-        doc.fillColor('#2563eb').fontSize(18).text('ADVANCED DIAGNOSTIC LABORATORY', { align: 'center' });
-        doc.fillColor('#4b5563').fontSize(9).text('ISO 15189 Accredited | 123 Healthcare Ave, Medical District', { align: 'center' });
-        doc.text('Phone: +1 (800) 555-LABS | Email: reports@lms-diagnostics.com', { align: 'center' });
-        doc.moveDown(1);
+        // The centre's own letterhead, the same one the bill and the on-screen
+        // report print. A line with nothing configured behind it is skipped.
+        //
+        // The band is a fixed height with a cell held for the logo whether or not
+        // artwork is configured: a centre printing on its own stationery needs the
+        // room at the top, and every report then starts its patient block on the
+        // same line whatever the letterhead happens to fill.
+        const headerTop = doc.y;
+        if (centre_1.CENTRE.logoPath) {
+            try {
+                doc.image(centre_1.CENTRE.logoPath, LEFT, headerTop, { fit: [LOGO_CELL - 10, HEADER_BAND - 8] });
+            }
+            catch {
+                // Missing or unreadable artwork must never cost a patient their
+                // report - the cell is simply left blank.
+            }
+        }
+        // Kept clear of the logo on the left and balanced by the same width on the
+        // right, so the centre's name sits centred on the sheet either way.
+        const headerLeft = LEFT + LOGO_CELL;
+        const headerWidth = RIGHT - LEFT - LOGO_CELL * 2;
+        const subtitle = [centre_1.CENTRE.accreditation, centre_1.CENTRE.address].filter(Boolean).join(' | ');
+        const contact = (0, centre_1.contactLine)([
+            ['Phone', centre_1.CENTRE.reportingEnquiryNumbers || centre_1.CENTRE.phones || centre_1.CENTRE.mobiles],
+            ['Email', centre_1.CENTRE.email],
+        ]);
+        doc.fillColor('#2563eb').fontSize(18).text(centre_1.CENTRE.name, headerLeft, headerTop + 8, {
+            width: headerWidth,
+            align: 'center',
+        });
+        doc.fillColor('#4b5563').fontSize(9);
+        if (subtitle)
+            doc.text(subtitle, headerLeft, doc.y, { width: headerWidth, align: 'center' });
+        if (contact)
+            doc.text(contact, headerLeft, doc.y, { width: headerWidth, align: 'center' });
+        // The body starts below the whole band, not below whatever the text
+        // happened to reach.
+        doc.y = Math.max(doc.y, headerTop + HEADER_BAND);
+        doc.x = LEFT;
         rule(doc);
         doc.moveDown(0.8);
         // Left column identifies the patient, right column identifies the draw and
@@ -78,6 +117,8 @@ const generateDiagnosticReportPDF = async (records) => {
         // belonging to one draw is printed with its own test section below.
         doc.fontSize(9).fillColor('#4b5563');
         doc.text(`Report No: ${resultRecord.resultId || '-'}`, 320, infoTop, { width: 250, align: 'right' });
+        // This visit's number, which is what the patient quotes when they ring.
+        doc.text(`Enquiry No: ${resultRecord.enquiryNo || invoice.enquiryNo || '-'}`, 320, doc.y, { width: 250, align: 'right' });
         doc.text(`Reported: ${stamp(resultRecord.updatedAt || resultRecord.createdAt)}`, 320, doc.y, { width: 250, align: 'right' });
         doc.text(`Tests on this report: ${sheets.length}`, 320, doc.y, { width: 250, align: 'right' });
         if (invoice.createdAt) {

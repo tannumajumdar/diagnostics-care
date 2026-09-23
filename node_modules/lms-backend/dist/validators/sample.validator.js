@@ -12,6 +12,7 @@ exports.updateSampleStatusSchema = zod_1.z.object({
         'Completed',
         'Rejected',
         'Recollected',
+        'Cancelled',
     ]),
     rejectionReason: zod_1.z.string().optional(),
     remarks: zod_1.z.string().optional(),

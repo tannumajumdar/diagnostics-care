@@ -2,6 +2,20 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Invoice = void 0;
 const mongoose_1 = require("mongoose");
+const payment_methods_1 = require("../constants/payment-methods");
+/**
+ * How much of a bill came in by each method.
+ *
+ * A patient paying half in cash and half by UPI is two tenders against one
+ * bill, and each still has to reach the books as its own receipt - so the
+ * Payment records remain the ledger. This is the running total per method
+ * kept on the bill itself, so the directory can say what a bill was paid by
+ * without reading every receipt behind it.
+ */
+const paymentSplitSchema = new mongoose_1.Schema({
+    method: { type: String, enum: payment_methods_1.COLLECTION_METHODS, required: true },
+    amount: { type: Number, required: true, min: 0 },
+}, { _id: false });
 const invoiceItemSchema = new mongoose_1.Schema({
     test: {
         type: mongoose_1.Schema.Types.ObjectId,
@@ -17,6 +31,14 @@ const invoiceItemSchema = new mongoose_1.Schema({
     },
     departmentName: { type: String, required: true },
     rate: { type: Number, required: true, min: 0 },
+    /**
+     * What the desk knocked off this line at the counter, before any
+     * bill-wide discount reached it. `discountAmount` below is the two added
+     * together - the figure the bill prints - so this is kept beside it to
+     * make a bill revisable: without it, re-spreading a changed bill discount
+     * would count the counter's own concession twice.
+     */
+    lineDiscountAmount: { type: Number, default: 0, min: 0 },
     discountAmount: { type: Number, default: 0, min: 0 },
     netAmount: { type: Number, required: true, min: 0 },
     // Where this line is actually run. Copied off the test master when the
@@ -37,12 +59,37 @@ const invoiceItemSchema = new mongoose_1.Schema({
     // the package back together and the package price can be traced.
     packageId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'TestPackage' },
     packageName: { type: String, trim: true, default: '' },
+    // The patient decided against this one. The line is struck through rather
+    // than removed: the bill was handed over with it on, and a reprint that
+    // quietly loses a line is a bill nobody can reconcile against the receipt.
+    cancelled: { type: Boolean, default: false },
+    cancelledAt: { type: Date },
+    cancellationReason: { type: String, trim: true, default: '' },
+    /** What went back to the patient for this line. */
+    refundedAmount: { type: Number, default: 0, min: 0 },
+    /** What the centre kept - the work already done, per the refund policy. */
+    retainedAmount: { type: Number, default: 0, min: 0 },
+    cancelledBy: {
+        userId: { type: String },
+        name: { type: String },
+        role: { type: String },
+    },
 }, { _id: false });
 const invoiceSchema = new mongoose_1.Schema({
     invoiceNumber: {
         type: String,
         unique: true,
         required: true,
+        index: true,
+    },
+    // The visit's own number, printed on the bill and the report as the
+    // enquiry number. Sparse because bills raised before this existed have
+    // none, and a plain unique index would read every one of those as a
+    // duplicate null and refuse the second.
+    enquiryNo: {
+        type: String,
+        unique: true,
+        sparse: true,
         index: true,
     },
     patient: {
@@ -91,6 +138,22 @@ const invoiceSchema = new mongoose_1.Schema({
     },
     discountValue: { type: Number, default: 0, min: 0 },
     discountReason: { type: String, default: '' },
+    /**
+     * The doctor the concession came through.
+     *
+     * Not the same question as who referred the patient: a bill is often
+     * discounted on one doctor's word while the prescription is another's,
+     * and the centre has to be able to answer "whose discounts are these"
+     * when the month is read. Only set when something was actually knocked
+     * off, so an undiscounted bill never carries a name it did not earn.
+     */
+    discountDoctor: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'Doctor',
+        index: true,
+    },
+    /** Typed in when the doctor is not on the panel. */
+    discountDoctorName: { type: String, trim: true, default: '' },
     netAmount: { type: Number, required: true, min: 0 },
     // What the referring doctor's separate copy adds up to. Kept beside the
     // patient's total rather than derived on demand, so the doctor's bill
@@ -104,12 +167,20 @@ const invoiceSchema = new mongoose_1.Schema({
         default: 'Unpaid',
         index: true,
     },
+    /**
+     * The tender the bill is filed under - the largest one when it was split.
+     * Written out by hand here once, which left Cheque off the list while the
+     * counter offered it, so a cheque bill failed validation on save. Read
+     * from the one list every screen uses instead.
+     */
     paymentMethod: {
         type: String,
-        enum: ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Online', 'Credit'],
+        enum: payment_methods_1.COLLECTION_METHODS,
         default: 'Cash',
         index: true,
     },
+    /** What came in by each method. One entry for a bill paid one way. */
+    paymentBreakdown: { type: [paymentSplitSchema], default: [] },
     barcode: { type: String, required: true, index: true },
     createdBy: {
         userId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -118,6 +189,26 @@ const invoiceSchema = new mongoose_1.Schema({
 }, {
     timestamps: true,
 });
+/**
+ * Every revision the bill has been through - a test added at the counter, a
+ * discount changed when the patient came back to settle. The bill is a
+ * document the patient may be holding a printout of, so what changed and who
+ * changed it is kept on it rather than only in the totals.
+ */
+const revisionSchema = new mongoose_1.Schema({
+    at: { type: Date, default: Date.now },
+    by: {
+        userId: { type: String },
+        name: { type: String },
+        role: { type: String },
+    },
+    /** What the revision did, in the words the counter would use. */
+    summary: { type: String, trim: true, default: '' },
+    testsAdded: [{ type: String }],
+    netBefore: { type: Number, default: 0 },
+    netAfter: { type: Number, default: 0 },
+}, { _id: false });
+invoiceSchema.add({ revisions: { type: [revisionSchema], default: [] } });
 invoiceSchema.index({ paymentStatus: 1, createdAt: -1 });
 invoiceSchema.index({ referringDoctor: 1, createdAt: -1 });
 exports.Invoice = (0, mongoose_1.model)('Invoice', invoiceSchema);

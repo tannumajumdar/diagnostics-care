@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { LabTest, TestPackage } from '../../types';
+import { Department, LabTest, TestPackage } from '../../types';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
@@ -12,6 +12,8 @@ interface PackageModalProps {
   pkg?: TestPackage | null;
   /** The whole active catalogue, for picking what goes in the panel. */
   tests: LabTest[];
+  /** The department master, for filing the panel under one of them. */
+  departments: Department[];
 }
 
 const money = (value: number) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
@@ -21,6 +23,10 @@ const testKey = (test: LabTest | undefined | null): string =>
 
 const referralRateOf = (test: LabTest): number =>
   Number(test?.referralRate) || Number(test?.rate) || 0;
+
+/** A department ref, which arrives either populated or as a bare id. */
+const departmentId = (department: TestPackage['department']): string =>
+  !department ? '' : typeof department === 'string' ? department : department.id || '';
 
 /**
  * The panel master.
@@ -38,9 +44,11 @@ export const PackageModal: React.FC<PackageModalProps> = ({
   onSubmit,
   pkg,
   tests,
+  departments,
 }) => {
   const [packageName, setPackageName] = useState('');
   const [packageCode, setPackageCode] = useState('');
+  const [department, setDepartment] = useState('');
   const [description, setDescription] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [rate, setRate] = useState(0);
@@ -54,6 +62,7 @@ export const PackageModal: React.FC<PackageModalProps> = ({
     if (pkg) {
       setPackageName(pkg.packageName);
       setPackageCode(pkg.packageCode);
+      setDepartment(departmentId(pkg.department));
       setDescription(pkg.description || '');
       setSelectedIds((pkg.tests || []).map(testKey).filter(Boolean));
       setRate(Number(pkg.rate) || 0);
@@ -62,6 +71,7 @@ export const PackageModal: React.FC<PackageModalProps> = ({
     } else {
       setPackageName('');
       setPackageCode('');
+      setDepartment('');
       setDescription('');
       setSelectedIds([]);
       setRate(0);
@@ -123,6 +133,7 @@ export const PackageModal: React.FC<PackageModalProps> = ({
       await onSubmit({
         packageName: packageName.trim(),
         packageCode: packageCode.trim().toUpperCase(),
+        department: department || null,
         description: description.trim(),
         tests: selectedIds,
         rate: Number(rate) || 0,
@@ -169,13 +180,35 @@ export const PackageModal: React.FC<PackageModalProps> = ({
             </div>
           </div>
 
-          <div>
-            <label className="mb-1 block font-semibold">Description</label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block font-semibold">Department</label>
+              <select
+                className="h-10 w-full rounded-xl border border-input bg-background px-3 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+              >
+                <option value="">All / Multiple departments</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.departmentName}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-[11px] text-muted-foreground">
+                {department
+                  ? 'The desk can filter the panel list by this.'
+                  : 'Leave this for a panel spanning the lab - the tests inside keep their own departments.'}
+              </span>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block font-semibold">Description</label>
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What this panel is for - shown to the desk"
-            />
+                placeholder="What this panel is for - shown to the desk"
+              />
+            </div>
           </div>
 
           {/* Picking what goes in */}

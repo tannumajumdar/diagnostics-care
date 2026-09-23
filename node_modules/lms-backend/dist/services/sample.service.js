@@ -15,6 +15,7 @@ class SampleService {
                 { sampleId: { $regex: params.search, $options: 'i' } },
                 { barcode: { $regex: params.search, $options: 'i' } },
                 { uhid: { $regex: params.search, $options: 'i' } },
+                { enquiryNo: { $regex: params.search, $options: 'i' } },
             ];
         }
         if (params.status)

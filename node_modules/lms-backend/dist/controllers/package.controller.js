@@ -14,6 +14,25 @@ const api_error_util_1 = require("../utils/api-error.util");
  */
 const listTotalOf = (tests) => tests.reduce((sum, test) => sum + (Number(test?.rate) || 0), 0);
 const referralTotalOf = (tests) => tests.reduce((sum, test) => sum + (Number(test?.referralRate) || Number(test?.rate) || 0), 0);
+/** A populated ref, flattened to what the screen reads. */
+const departmentOf = (department) => department && typeof department === 'object' && department.departmentName
+    ? {
+        id: department._id.toString(),
+        departmentName: department.departmentName,
+        departmentCode: department.departmentCode,
+    }
+    : department
+        ? String(department)
+        : null;
+/**
+ * The department the panel is filed under, falling back to the departments of
+ * the tests inside it. A panel nobody filed is still a panel the desk has to
+ * find, and "Biochemistry + Haematology" read off its own contents is a truer
+ * answer than a blank cell.
+ */
+const derivedDepartments = (tests) => Array.from(new Set(tests
+    .map((t) => t?.department && typeof t.department === 'object' ? t.department.departmentName : null)
+    .filter(Boolean)));
 /** The shape every package endpoint answers with. */
 const shape = (pkg) => {
     const tests = Array.isArray(pkg.tests) ? pkg.tests : [];
@@ -24,6 +43,7 @@ const shape = (pkg) => {
         packageName: pkg.packageName,
         packageCode: pkg.packageCode,
         description: pkg.description,
+        department: departmentOf(pkg.department),
         rate: pkg.rate,
         referralRate: pkg.referralRate,
         discountAllowed: pkg.discountAllowed,
@@ -48,6 +68,9 @@ const shape = (pkg) => {
                 ? { id: t.department._id.toString(), departmentName: t.department.departmentName }
                 : t.department,
         })),
+        // What the tests inside are actually run by - shown when the panel itself
+        // was filed under no one department.
+        testDepartments: derivedDepartments(filled),
         testCount: tests.length,
         listTotal: listTotalOf(filled),
         referralListTotal: referralTotalOf(filled),
@@ -58,8 +81,10 @@ const shape = (pkg) => {
 class PackageController {
     static getAll = async (req, res, next) => {
         try {
-            const { search, status, page = 1, limit = 25 } = req.query;
+            const { search, status, department, page = 1, limit = 25 } = req.query;
             const filter = {};
+            if (department)
+                filter.department = department;
             if (search) {
                 filter.$or = [
                     { packageName: { $regex: search, $options: 'i' } },
@@ -71,6 +96,7 @@ class PackageController {
             const skip = (Number(page) - 1) * Number(limit);
             const [packages, total] = await Promise.all([
                 package_model_1.TestPackage.find(filter)
+                    .populate('department', 'departmentName departmentCode')
                     .populate({ path: 'tests', populate: { path: 'department' } })
                     .sort({ packageName: 1 })
                     .skip(skip)
@@ -97,10 +123,9 @@ class PackageController {
     static getById = async (req, res, next) => {
         try {
             const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-            const pkg = await package_model_1.TestPackage.findById(id).populate({
-                path: 'tests',
-                populate: { path: 'department' },
-            });
+            const pkg = await package_model_1.TestPackage.findById(id)
+                .populate('department', 'departmentName departmentCode')
+                .populate({ path: 'tests', populate: { path: 'department' } });
             if (!pkg)
                 throw new api_error_util_1.ApiError(messages_1.HTTP_STATUS.NOT_FOUND, 'Package not found');
             (0, api_response_util_1.sendResponse)({ res, statusCode: messages_1.HTTP_STATUS.OK, message: 'Package retrieved', data: shape(pkg) });
@@ -124,11 +149,14 @@ class PackageController {
             }
             body.tests = testIds;
             body.referralRate = Number(body.referralRate ?? 0);
+            // The form sends '' for "no one department"; an empty string is not an
+            // ObjectId and would be refused on save.
+            if (!body.department)
+                body.department = undefined;
             const pkg = await package_model_1.TestPackage.create(body);
-            const withTests = await package_model_1.TestPackage.findById(pkg._id).populate({
-                path: 'tests',
-                populate: { path: 'department' },
-            });
+            const withTests = await package_model_1.TestPackage.findById(pkg._id)
+                .populate('department', 'departmentName departmentCode')
+                .populate({ path: 'tests', populate: { path: 'department' } });
             (0, api_response_util_1.sendResponse)({
                 res,
                 statusCode: messages_1.HTTP_STATUS.CREATED,
@@ -144,6 +172,10 @@ class PackageController {
         try {
             const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
             const body = { ...req.body };
+            // Clearing the department is a real edit, so '' is written back as an
+            // unset rather than dropped.
+            if ('department' in body && !body.department)
+                body.department = null;
             if (Array.isArray(body.tests)) {
                 const testIds = Array.from(new Set(body.tests));
                 const found = await test_model_1.LabTest.countDocuments({ _id: { $in: testIds } });
@@ -152,10 +184,9 @@ class PackageController {
                 }
                 body.tests = testIds;
             }
-            const pkg = await package_model_1.TestPackage.findByIdAndUpdate(id, body, { new: true }).populate({
-                path: 'tests',
-                populate: { path: 'department' },
-            });
+            const pkg = await package_model_1.TestPackage.findByIdAndUpdate(id, body, { new: true })
+                .populate('department', 'departmentName departmentCode')
+                .populate({ path: 'tests', populate: { path: 'department' } });
             if (!pkg)
                 throw new api_error_util_1.ApiError(messages_1.HTTP_STATUS.NOT_FOUND, 'Package not found');
             (0, api_response_util_1.sendResponse)({ res, statusCode: messages_1.HTTP_STATUS.OK, message: 'Test package updated', data: shape(pkg) });

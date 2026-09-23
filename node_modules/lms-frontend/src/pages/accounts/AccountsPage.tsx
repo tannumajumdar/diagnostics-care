@@ -14,8 +14,11 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
+import { hasPermission, PERMISSIONS } from '../../config/roles';
+import { CancelTestRefundModal } from '../../components/accounts/CancelTestRefundModal';
 import { asList } from '../../utils/api-list';
-import { IndianRupee, RefreshCw, Wallet } from 'lucide-react';
+import { IndianRupee, RefreshCw, Wallet, Undo2 } from 'lucide-react';
 import {
   COLLECTION_METHODS,
   DISBURSEMENT_METHODS,
@@ -31,7 +34,11 @@ export const AccountsPage: React.FC = () => {
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<'collections' | 'refunds' | 'commissions'>('collections');
 
+  const { user } = useAuth();
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+  // Cancelling a test is its own thing: the policy prices it, the counter only
+  // picks the tests. The free-hand refund above stays for everything else.
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
   const [refundAmount, setRefundAmount] = useState(0);
   const [refundReason, setRefundReason] = useState('');
@@ -103,7 +110,14 @@ export const AccountsPage: React.FC = () => {
               <Wallet className="mr-1 h-4 w-4" /> Payouts
             </Button>
           </Link>
-          <Button onClick={() => setIsRefundModalOpen(true)} className="bg-amber-600 hover:bg-amber-700">
+          <Button
+            onClick={() => setIsCancelModalOpen(true)}
+            className="bg-amber-600 hover:bg-amber-700"
+            title="Refund a test the patient no longer wants, priced by the centre's refund policy"
+          >
+            <Undo2 className="mr-1 h-4 w-4" /> Cancel Test &amp; Refund
+          </Button>
+          <Button onClick={() => setIsRefundModalOpen(true)} variant="outline">
             <RefreshCw className="mr-1 h-4 w-4" /> Issue Refund
           </Button>
         </div>
@@ -298,6 +312,18 @@ export const AccountsPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      <CancelTestRefundModal
+        isOpen={isCancelModalOpen}
+        onClose={() => setIsCancelModalOpen(false)}
+        invoices={asList<Invoice>(invoicesData, 'invoices')}
+        canOverride={hasPermission(user, PERMISSIONS.REFUND_POLICY_MANAGE)}
+        onDone={() => {
+          queryClient.invalidateQueries({ queryKey: ['refunds-list'] });
+          queryClient.invalidateQueries({ queryKey: ['daily-collections'] });
+          queryClient.invalidateQueries({ queryKey: ['invoices-refund-lookup'] });
+        }}
+      />
 
       {isRefundModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">

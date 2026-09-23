@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { packageApi } from '../../api/package.api';
 import { testApi } from '../../api/test.api';
-import { LabTest, TestPackage } from '../../types';
+import { departmentApi } from '../../api/department.api';
+import { Department, LabTest, TestPackage } from '../../types';
 import { PackageModal } from '../../components/masters/PackageModal';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { Button } from '../../components/ui/button';
@@ -15,6 +16,16 @@ import { CATALOGUE_QUERY_KEYS } from '../../utils/query-options';
 import { Package, Plus, Search, Edit2, Power, Trash2 } from 'lucide-react';
 
 const money = (value: number) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+
+/** What a panel is filed under, falling back to what its tests are run by. */
+const departmentLabel = (pkg: TestPackage): string => {
+  const own = pkg.department;
+  if (own && typeof own === 'object' && own.departmentName) return own.departmentName;
+  const fromTests = pkg.testDepartments || [];
+  if (fromTests.length === 1) return fromTests[0];
+  if (fromTests.length > 1) return `${fromTests.length} departments`;
+  return '';
+};
 
 /**
  * The panel master - what the centre sells as one thing at one price.
@@ -30,9 +41,11 @@ export const PackagesPage: React.FC = () => {
 
   const [packages, setPackages] = useState<TestPackage[]>([]);
   const [tests, setTests] = useState<LabTest[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [selected, setSelected] = useState<TestPackage | null>(null);
@@ -53,6 +66,7 @@ export const PackagesPage: React.FC = () => {
       const data = await packageApi.getAll({
         search: searchTerm || undefined,
         status: statusFilter || undefined,
+        department: departmentFilter || undefined,
         limit: 100,
       });
       setPackages(asList<TestPackage>(data, 'packages'));
@@ -74,14 +88,24 @@ export const PackagesPage: React.FC = () => {
         showToast('Could not load the test catalogue', 'error');
       }
     };
+    // The department master, for filing a panel under one of them.
+    const fetchDepartments = async () => {
+      try {
+        const res = await departmentApi.getAll({ limit: 200, status: 'Active' });
+        setDepartments(asList<Department>(res, 'departments'));
+      } catch {
+        showToast('Could not load the department list', 'error');
+      }
+    };
     fetchTests();
+    fetchDepartments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     fetchPackages();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, statusFilter]);
+  }, [searchTerm, statusFilter, departmentFilter]);
 
   const closeConfirm = () => setConfirmDialog({ isOpen: false, pkg: null, action: 'status' });
 
@@ -173,15 +197,30 @@ export const PackagesPage: React.FC = () => {
             />
           </div>
 
-          <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="">All Statuses</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
+          <div className="flex w-full gap-3 sm:w-auto">
+            <select
+              className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-xs focus:outline-none focus:ring-2 focus:ring-ring sm:flex-none"
+              value={departmentFilter}
+              onChange={(e) => setDepartmentFilter(e.target.value)}
+            >
+              <option value="">All Departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.departmentName}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-xs focus:outline-none focus:ring-2 focus:ring-ring sm:flex-none"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="">All Statuses</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+          </div>
         </div>
       </Card>
 
@@ -191,6 +230,7 @@ export const PackagesPage: React.FC = () => {
             <thead className="border-b bg-muted/50 font-semibold text-muted-foreground">
               <tr>
                 <th className="p-3">Package</th>
+                <th className="p-3">Department</th>
                 <th className="p-3">Tests Included</th>
                 <th className="p-3">Billed Separately</th>
                 <th className="p-3">Package Price</th>
@@ -203,7 +243,7 @@ export const PackagesPage: React.FC = () => {
             <tbody className="divide-y divide-border">
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={9} className="p-8 text-center text-muted-foreground">
                     <div className="flex items-center justify-center gap-2">
                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-violet-600 border-t-transparent" />
                       <span>Loading packages...</span>
@@ -212,7 +252,7 @@ export const PackagesPage: React.FC = () => {
                 </tr>
               ) : packages.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={9} className="p-8 text-center text-muted-foreground">
                     No packages yet. Add one and the front desk can bill a whole panel in a single tap.
                   </td>
                 </tr>
@@ -234,6 +274,15 @@ export const PackagesPage: React.FC = () => {
                           <div className="mt-0.5 max-w-xs truncate text-[11px] text-muted-foreground">
                             {pkg.description}
                           </div>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        {departmentLabel(pkg) ? (
+                          <Badge variant={pkg.department ? 'purple' : 'secondary'}>
+                            {departmentLabel(pkg)}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
                         )}
                       </td>
                       <td className="p-3">
@@ -321,6 +370,7 @@ export const PackagesPage: React.FC = () => {
         onSubmit={handleSubmit}
         pkg={selected}
         tests={tests}
+        departments={departments}
       />
 
       <ConfirmDialog

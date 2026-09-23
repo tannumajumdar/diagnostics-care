@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { billingApi } from '../../api/billing.api';
 import { MONEY_QUERY_KEYS } from '../../utils/query-options';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
+import { hasPermission, PERMISSIONS } from '../../config/roles';
 import { Input } from '../../components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -11,6 +13,7 @@ import { Badge } from '../../components/ui/badge';
 import { BillPrint } from '../../components/billing/BillPrint';
 import { DoctorBillPrint } from '../../components/billing/DoctorBillPrint';
 import { PaymentGatewayModal } from '../../components/billing/PaymentGatewayModal';
+import { ReviseInvoiceModal } from '../../components/billing/ReviseInvoiceModal';
 import {
   SplitPaymentEditor,
   splitSeed,
@@ -30,6 +33,8 @@ import {
   Split,
   Wallet,
   ReceiptText,
+  Pencil,
+  History,
 } from 'lucide-react';
 import { COLLECTION_METHODS, methodIcon, methodLabel } from '../../config/payment-methods';
 
@@ -43,23 +48,22 @@ export const InvoiceDetailsPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const { user } = useAuth();
+  // Revising a bill is the same right as raising one - an accountant who may
+  // read a bill is not thereby someone who may re-price it.
+  const canRevise = hasPermission(user, PERMISSIONS.BILL_CREATE);
   const [payOpen, setPayOpen] = useState(false);
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('Cash');
   const [gatewayOpen, setGatewayOpen] = useState(false);
+  // The bill itself being changed - a test added to the same visit, or the
+  // discount reworked while the patient is at the counter to settle.
+  const [reviseOpen, setReviseOpen] = useState(false);
   const [paying, setPaying] = useState(false);
-  /**
-   * Whether the desk is entering one method or several. A patient paying the
-   * balance half in cash and half by UPI is two receipts against this bill,
-   * so the dialog switches from one amount to a list of tenders.
-   */
+  
   const [splitting, setSplitting] = useState(false);
   const [tenders, setTenders] = useState<Tender[]>([]);
-  /**
-   * Which sheet is on the preview - and therefore which one Print sends to
-   * the printer. Only one is ever in the DOM, so the doctor's copy can never
-   * come out stapled to the patient's by accident.
-   */
+  
   const [sheet, setSheet] = useState<'patient' | 'doctor'>('patient');
 
   const { data, isLoading } = useQuery({
@@ -75,12 +79,7 @@ export const InvoiceDetailsPage: React.FC = () => {
   const patient = typeof invoice.patient === 'object' ? invoice.patient : {};
   const due = Number(invoice.dueAmount ?? 0);
 
-  /**
-   * What came in by each method. Added up from the receipts rather than read
-   * off the bill's own summary, so bills raised before the summary existed
-   * still show their split, and the figure on screen can never disagree with
-   * the receipts printed underneath it.
-   */
+  
   const breakdown = (() => {
     const totals = new Map<string, number>();
     for (const payment of payments as any[]) {
@@ -99,12 +98,20 @@ export const InvoiceDetailsPage: React.FC = () => {
     '';
   const hasReferral = Boolean(doctorName);
 
-  // Older bills were raised before the doctor's copy existed, so their total
-  // is added up from the lines rather than printed as a zero.
+  
   const referralTotal =
     Number(invoice.referralTotal) ||
     items.reduce((sum, item) => sum + (Number(item.referralRate) || Number(item.rate) || 0), 0);
   const referralMargin = referralTotal - Number(invoice.netAmount ?? 0);
+
+  // Tests the patient decided against. The lines stay on the bill struck
+  // through, and what came off the total is shown on its own line - read as a
+  // discount it would look like the desk had given money away.
+  const cancelledItems = items.filter((item: any) => item.cancelled);
+  const refundedTotal = cancelledItems.reduce(
+    (sum: number, item: any) => sum + (Number(item.refundedAmount) || 0),
+    0
+  );
 
   const outsourced = items.filter((item) => item.processingMode === 'Outsource');
   const packagesOnBill = [
@@ -168,13 +175,21 @@ export const InvoiceDetailsPage: React.FC = () => {
         </div>
 
         <div className="flex gap-2">
+          {/* Editing the bill sits beside collecting on it: the patient at the
+              counter to pay a due is exactly who asks for one more test or
+              mentions the discount they were promised. */}
+          {canRevise && (
+            <Button size="sm" variant="outline" onClick={() => setReviseOpen(true)}>
+              <Pencil className="mr-1 h-4 w-4" /> Edit Bill / Add Tests
+            </Button>
+          )}
           {due > 0 && (
             <>
               <Button size="sm" onClick={() => setGatewayOpen(true)} className="bg-emerald-600 hover:bg-emerald-700">
-                <Smartphone className="mr-1 h-4 w-4" /> Collect by UPI / Card
+                <Smartphone className="mr-1 h-4 w-4" /> Collect Payment
               </Button>
-              {/* Cash, cheque and bank transfers settle outside any machine,
-                  so they are still written straight down. */}
+              {/* Cheque, bank transfer and a bill split across methods settle
+                  outside that dialog, so they are still written straight down. */}
               <Button size="sm" variant="outline" onClick={openPayDialog}>
                 <IndianRupee className="mr-1 h-4 w-4" /> Record Payment
               </Button>
@@ -250,6 +265,21 @@ export const InvoiceDetailsPage: React.FC = () => {
             </div>
           )}
 
+          {(invoice.discountDoctorName ||
+            (invoice.discountDoctor && typeof invoice.discountDoctor === 'object')) && (
+            <div>
+              <p className="font-semibold uppercase text-muted-foreground">Discount Through</p>
+              <p className="text-sm font-bold text-violet-700">
+                {(typeof invoice.discountDoctor === 'object'
+                  ? (invoice.discountDoctor as any)?.doctorName
+                  : '') || invoice.discountDoctorName}
+              </p>
+              {invoice.discountReason && (
+                <p className="text-[11px] text-muted-foreground">{invoice.discountReason}</p>
+              )}
+            </div>
+          )}
+
           {invoice.clinicalNotes && (
             <div className="md:col-span-3 border-t pt-3">
               <p className="text-muted-foreground font-semibold uppercase">Notes for the Lab</p>
@@ -281,9 +311,25 @@ export const InvoiceDetailsPage: React.FC = () => {
               </thead>
               <tbody className="divide-y">
                 {items.map((item: any, index: number) => (
-                  <tr key={item._id || `${item.testCode}-${index}`}>
+                  <tr
+                    key={item._id || `${item.testCode}-${index}`}
+                    className={item.cancelled ? 'bg-muted/30 text-muted-foreground' : ''}
+                  >
                     <td className="p-3">
-                      <div className="font-bold">{item.testName}</div>
+                      <div className={`font-bold ${item.cancelled ? 'line-through' : ''}`}>
+                        {item.testName}
+                      </div>
+                      {item.cancelled && (
+                        <div className="mt-0.5 text-[11px] font-semibold text-amber-700">
+                          Cancelled
+                          {Number(item.refundedAmount) > 0
+                            ? ` · ${money(Number(item.refundedAmount))} refunded`
+                            : ''}
+                          {Number(item.retainedAmount) > 0
+                            ? ` · ${money(Number(item.retainedAmount))} retained`
+                            : ''}
+                        </div>
+                      )}
                       <div className="font-mono text-[11px] text-muted-foreground">{item.testCode}</div>
                       {item.packageName && (
                         <div className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-violet-700">
@@ -328,7 +374,7 @@ export const InvoiceDetailsPage: React.FC = () => {
                   </td>
                   <td className="p-3 text-right font-mono">{money(invoice.subtotal)}</td>
                   <td className="p-3 text-right font-mono text-emerald-700">
-                    - {money(Number(invoice.subtotal ?? 0) - Number(invoice.netAmount ?? 0))}
+                    - {money(Math.max(0, Number(invoice.subtotal ?? 0) - Number(invoice.netAmount ?? 0) - refundedTotal))}
                   </td>
                   <td className="p-3 text-right font-mono text-sm text-blue-700">
                     {money(invoice.netAmount)}
@@ -337,6 +383,16 @@ export const InvoiceDetailsPage: React.FC = () => {
                     <td className="p-3 text-right font-mono text-violet-700">{money(referralTotal)}</td>
                   )}
                 </tr>
+                {refundedTotal > 0 && (
+                  <tr className="text-amber-700">
+                    <td className="p-3" colSpan={5}>
+                      Cancelled &amp; refunded &mdash; {cancelledItems.length} test
+                      {cancelledItems.length === 1 ? '' : 's'}
+                    </td>
+                    <td className="p-3 text-right font-mono">- {money(refundedTotal)}</td>
+                    {hasReferral && <td className="p-3" />}
+                  </tr>
+                )}
               </tfoot>
             </table>
           </div>
@@ -696,6 +752,51 @@ export const InvoiceDetailsPage: React.FC = () => {
           }}
         />
       )}
+
+      {Array.isArray(invoice.revisions) && invoice.revisions.length > 0 && (
+        <Card data-print="hide">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base font-bold">
+              <History className="h-4 w-4 text-muted-foreground" />
+              Changes to this bill ({invoice.revisions.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ul className="divide-y text-xs">
+              {[...invoice.revisions].reverse().map((revision: any, index: number) => (
+                <li key={index} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+                  <div className="min-w-0">
+                    <p className="font-semibold">{revision.summary}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {revision.by?.name || 'Staff'}
+                      {revision.by?.role ? ` (${revision.by.role})` : ''} ·{' '}
+                      {new Date(revision.at).toLocaleString('en-IN')}
+                      {revision.testsAdded?.length ? ` · ${revision.testsAdded.join(', ')}` : ''}
+                    </p>
+                  </div>
+                  <span className="shrink-0 font-mono text-[11px]">
+                    {money(revision.netBefore)} &rarr;{' '}
+                    <strong className="text-blue-700">{money(revision.netAfter)}</strong>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      <ReviseInvoiceModal
+        isOpen={reviseOpen}
+        onClose={() => setReviseOpen(false)}
+        invoice={invoice}
+        onSaved={() => {
+          // The bill, its samples and what is owed all moved, so the invoice,
+          // the directory and the day's figures are re-read rather than
+          // served from cache.
+          queryClient.invalidateQueries({ queryKey: ['invoice-details', id] });
+          MONEY_QUERY_KEYS.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
+        }}
+      />
 </div>
   );
 };

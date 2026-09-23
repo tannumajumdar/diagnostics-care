@@ -16,11 +16,14 @@ export interface ISampleDocument extends Document {
   sampleContainer: string;
   processingMode?: 'In-house' | 'Outsource';
   outsourceLab?: string;
-  status: 'Registered' | 'Pending Collection' | 'Collected' | 'Received' | 'Processing' | 'Completed' | 'Rejected' | 'Recollected';
+  status: 'Registered' | 'Pending Collection' | 'Collected' | 'Received' | 'Processing' | 'Completed' | 'Rejected' | 'Recollected' | 'Cancelled';
   rejectionReason?: string;
   rejectionRemarks?: string;
   rejectedBy?: any;
   rejectedAt?: Date;
+  /** Called off by the patient, as against rejected by the lab. */
+  cancelledAt?: Date;
+  cancellationReason?: string;
   receivedAt?: Date;
   processingAt?: Date;
   completedAt?: Date;

@@ -20,6 +20,7 @@ import {
   UserCog,
   Package as PackageIcon,
   ClipboardList,
+  Undo2,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -68,6 +69,8 @@ export const PERMISSIONS = {
   PAYOUT_DELETE: 'payout:delete',
   REFUND_VIEW: 'refund:view',
   REFUND_ISSUE: 'refund:issue',
+  /** Writing the return policy itself - what a cancelled test is worth back. */
+  REFUND_POLICY_MANAGE: 'refund:policy-manage',
 
   SAMPLE_VIEW: 'sample:view',
   SAMPLE_COLLECT: 'sample:collect',
@@ -341,6 +344,13 @@ export const NAV_ITEMS: NavItem[] = [
     permissions: [P.ORGANIZATION_MANAGE],
   },
   { label: 'Staff & Roles', path: '/staff', icon: UserCog, group: 'Masters', permissions: [P.STAFF_MANAGE] },
+  {
+    label: 'Refund Policy',
+    path: '/refund-policy',
+    icon: Undo2,
+    group: 'Masters',
+    permissions: [P.REFUND_POLICY_MANAGE],
+  },
 
   // Finance
   {

@@ -11,6 +11,9 @@ router.use(auth_middleware_1.authenticate);
 router.get('/collections/daily', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.BILL_VIEW), accounts_controller_1.AccountsController.getDailyCollections);
 // The same money, day by day, for the desk and the dashboard.
 router.get('/collections/trend', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.BILL_VIEW), accounts_controller_1.AccountsController.getCollectionTrend);
+// Everything ever taken, with no window around it - what the owner asks for
+// once the day and the week have been answered.
+router.get('/collections/overall', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.BILL_VIEW), accounts_controller_1.AccountsController.getOverallCollections);
 router.get('/refunds', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.REFUND_VIEW), accounts_controller_1.AccountsController.getAllRefunds);
 router.post('/refunds', (0, auth_middleware_1.requirePermission)(permissions_1.PERMISSIONS.REFUND_ISSUE), (0, validate_middleware_1.validateRequest)(accounts_validator_1.createRefundSchema), accounts_controller_1.AccountsController.createRefund);
 // Money going out: the ambulance, the courier, a doctor cut. Literal segments

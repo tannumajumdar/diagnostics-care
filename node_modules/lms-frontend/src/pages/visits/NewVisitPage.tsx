@@ -184,6 +184,11 @@ export const NewVisitPage: React.FC = () => {
   const [discountType, setDiscountType] = useState<'Percentage' | 'Fixed'>('Fixed');
   const [discountValue, setDiscountValue] = useState(0);
   const [discountReason, setDiscountReason] = useState('');
+  // Whose concession this is. A bill is often discounted on one doctor's word
+  // while the prescription is another's, so it is asked separately from who
+  // referred the patient.
+  const [discountDoctorId, setDiscountDoctorId] = useState('');
+  const [discountDoctorName, setDiscountDoctorName] = useState('');
   const [paidAmount, setPaidAmount] = useState<number | ''>('');
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   /**
@@ -708,6 +713,8 @@ export const NewVisitPage: React.FC = () => {
         discountType,
         discountValue: Number(discountValue) || 0,
         discountReason: discountReason.trim() || undefined,
+        discountDoctorId: discountDoctorId || undefined,
+        discountDoctorName: discountDoctorId ? undefined : discountDoctorName.trim() || undefined,
         // Split legs are the payment when the desk is splitting; otherwise
         // the single amount and method, exactly as before. A gateway method
         // still collects nothing up front - the machine confirms it after.
@@ -1598,12 +1605,50 @@ export const NewVisitPage: React.FC = () => {
                 )}
 
                 {discount > 0 && (
-                  <Input
-                    value={discountReason}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDiscountReason(e.target.value)}
-                    placeholder="Reason for discount"
-                    className="h-9"
-                  />
+                  <>
+                    {/* Whose concession it is. Asked only once something has
+                        actually come off, so an undiscounted bill never
+                        carries a doctor's name against nothing. */}
+                    <div>
+                      <label className="mb-1 flex items-center gap-1 font-semibold">
+                        <Stethoscope className="h-3 w-3 text-violet-600" />
+                        Discount given through
+                      </label>
+                      <select
+                        value={discountDoctorId}
+                        onChange={(e) => {
+                          setDiscountDoctorId(e.target.value);
+                          if (e.target.value) setDiscountDoctorName('');
+                        }}
+                        className="h-9 w-full rounded-lg border bg-background px-2 text-xs"
+                      >
+                        <option value="">Centre&rsquo;s own concession / not through a doctor</option>
+                        {asList<Doctor>(doctorsData, 'doctors').map((doctor) => (
+                          <option key={doctor.id} value={doctor.id}>
+                            {doctor.doctorName}
+                            {doctor.specialty ? ` · ${doctor.specialty}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {!discountDoctorId && (
+                        <Input
+                          value={discountDoctorName}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            setDiscountDoctorName(e.target.value)
+                          }
+                          placeholder="Or type a doctor who is not on the panel"
+                          className="mt-1 h-9"
+                        />
+                      )}
+                    </div>
+
+                    <Input
+                      value={discountReason}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDiscountReason(e.target.value)}
+                      placeholder="Reason for discount"
+                      className="h-9"
+                    />
+                  </>
                 )}
 
                 {discountType === 'Percentage' && discountValue > 0 && (

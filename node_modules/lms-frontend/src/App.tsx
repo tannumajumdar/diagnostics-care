@@ -37,6 +37,7 @@ import { HomeCollectionPage } from './pages/appointments/HomeCollectionPage';
 import { PayoutsPage } from './pages/accounts/PayoutsPage';
 import { AccountsPage } from './pages/accounts/AccountsPage';
 import { ReportsPage } from './pages/reports/ReportsPage';
+import { RefundPolicyPage } from './pages/settings/RefundPolicyPage';
 
 const P = PERMISSIONS;
 
@@ -76,6 +77,11 @@ export default function App() {
                       element={guarded([P.ORGANIZATION_MANAGE], <OrganizationsPage />)}
                     />
                     <Route path="/staff" element={guarded([P.STAFF_MANAGE], <StaffPage />)} />
+                    {/* What a cancelled test is worth back to the patient. */}
+                    <Route
+                      path="/refund-policy"
+                      element={guarded([P.REFUND_POLICY_MANAGE], <RefundPolicyPage />)}
+                    />
 
                     {/* Front desk - intake is where the receptionist starts */}
                     <Route path="/visits/new" element={guarded([P.BILL_CREATE], <NewVisitPage />)} />

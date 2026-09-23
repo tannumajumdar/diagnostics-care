@@ -3,7 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.updatePayoutStatusSchema = exports.createPayoutSchema = exports.createRefundSchema = void 0;
 const zod_1 = require("zod");
 const expense_interface_1 = require("../types/expense.interface");
-const paymentMethod = zod_1.z.enum(['Cash', 'UPI', 'Card', 'Bank Transfer', 'Online']);
+const payment_methods_1 = require("../constants/payment-methods");
+const paymentMethod = zod_1.z.enum(payment_methods_1.DISBURSEMENT_METHOD_VALUES);
 exports.createRefundSchema = zod_1.z.object({
     body: zod_1.z.object({
         invoiceId: zod_1.z.string().min(1, 'Invoice ID is required'),

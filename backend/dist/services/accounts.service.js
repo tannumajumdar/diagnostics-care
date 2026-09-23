@@ -14,6 +14,7 @@ const counter_model_1 = require("../models/counter.model");
 const api_error_util_1 = require("../utils/api-error.util");
 const messages_1 = require("../constants/messages");
 const permissions_1 = require("../constants/permissions");
+const payment_methods_1 = require("../constants/payment-methods");
 /** Inclusive day window for a date filter, defaulting to the current month. */
 const dateWindow = (from, to) => {
     const now = new Date();
@@ -31,20 +32,22 @@ class AccountsService {
         const payments = await payment_model_1.Payment.find({
             createdAt: { $gte: startOfDay, $lte: endOfDay },
         }).populate('patient', 'patientName uhid');
-        let cash = 0, upi = 0, card = 0, bank = 0, online = 0;
+        /**
+         * Totalled off the shared method list rather than an if-else chain.
+         *
+         * The chain only knew five methods, so a receipt taken by any other one -
+         * a cheque, or a payment booked against credit - fell through every branch
+         * and vanished from both the breakdown and the day's total, while the
+         * week's trend counted it. The two figures are read side by side on the
+         * dashboard and disagreed by whatever those receipts came to.
+         */
+        const breakdown = Object.fromEntries(payment_methods_1.METHOD_FIELDS.map((field) => [field, 0]));
         payments.forEach((p) => {
-            if (p.paymentMethod === 'Cash')
-                cash += p.amount;
-            else if (p.paymentMethod === 'UPI')
-                upi += p.amount;
-            else if (p.paymentMethod === 'Card')
-                card += p.amount;
-            else if (p.paymentMethod === 'Bank Transfer')
-                bank += p.amount;
-            else if (p.paymentMethod === 'Online')
-                online += p.amount;
+            const field = payment_methods_1.METHOD_FIELD[p.paymentMethod];
+            if (field)
+                breakdown[field] += p.amount;
         });
-        const total = cash + upi + card + bank + online;
+        const total = payment_methods_1.METHOD_FIELDS.reduce((sum, field) => sum + breakdown[field], 0);
         // Cash out on the same day, so the drawer can be reconciled against the
         // collections rather than against the collections alone.
         const paidOutToday = await expense_model_1.Payout.aggregate([
@@ -54,7 +57,7 @@ class AccountsService {
         const totalPaidOut = paidOutToday[0]?.total || 0;
         return {
             date: startOfDay.toISOString().split('T')[0],
-            breakdown: { cash, upi, card, bank, online, total },
+            breakdown: { ...breakdown, total },
             totalPaidOut,
             netInHand: total - totalPaidOut,
             payments,
@@ -73,6 +76,100 @@ class AccountsService {
      * Days are the server's calendar days, the same boundary the daily figure
      * uses, so the two always agree on what "today" means.
      */
+    /**
+     * Every rupee the centre has ever taken, with no window around it.
+     *
+     * The dashboard answers "how did today go" and "how did the week go", and
+     * both are the wrong question when the owner wants to know what the place
+     * has done since it opened - a figure nobody could get without exporting
+     * the whole ledger and adding it up by hand. This is that figure, with the
+     * pieces it is made of: what patients were billed, what they have paid and
+     * by which method, what was handed back to them, and what is still owed.
+     *
+     * Payouts - the ambulance, the courier, a doctor's cut - are counted here
+     * too, but they are the centre's own spending and not patient money, so
+     * they are kept well away from the collection figure. Netting them off it
+     * answered a question nobody asked and turned a centre with money in the
+     * bank into one reading a negative balance.
+     *
+     * Counted in the database rather than by loading the receipts, so it stays
+     * one round trip whether the centre is a month old or ten years old.
+     */
+    static async getOverallCollections() {
+        const [collections, billing, refunds, payouts, firstReceipt] = await Promise.all([
+            payment_model_1.Payment.aggregate([
+                {
+                    $group: {
+                        _id: '$paymentMethod',
+                        amount: { $sum: '$amount' },
+                        receipts: { $sum: 1 },
+                    },
+                },
+            ]),
+            invoice_model_1.Invoice.aggregate([
+                {
+                    $group: {
+                        _id: null,
+                        bills: { $sum: 1 },
+                        billed: { $sum: '$netAmount' },
+                        // The gap between gross and net - there is no `discountAmount` on
+                        // a bill, that field lives on its lines.
+                        discount: { $sum: { $subtract: ['$subtotal', '$netAmount'] } },
+                        due: { $sum: '$dueAmount' },
+                    },
+                },
+            ]),
+            refund_model_1.Refund.aggregate([{ $group: { _id: null, total: { $sum: '$refundAmount' }, count: { $sum: 1 } } }]),
+            expense_model_1.Payout.aggregate([
+                { $match: { status: 'Paid' } },
+                { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
+            ]),
+            // When the centre took its first payment, so the figure above can be
+            // read as "since <date>" rather than as a number without a period.
+            payment_model_1.Payment.findOne().sort({ createdAt: 1 }).select('createdAt'),
+        ]);
+        // One entry per method on the shared list, including the methods nobody
+        // has ever used - a zero against Cheque is information when you are
+        // reading what the centre actually takes money by.
+        const byMethod = Object.fromEntries(payment_methods_1.METHOD_FIELDS.map((field) => [field, 0]));
+        let collected = 0;
+        let receipts = 0;
+        for (const row of collections) {
+            const field = payment_methods_1.METHOD_FIELD[row._id];
+            if (field)
+                byMethod[field] += row.amount || 0;
+            collected += row.amount || 0;
+            receipts += row.receipts || 0;
+        }
+        const bills = billing[0] || {};
+        const refunded = refunds[0]?.total || 0;
+        const paidOut = payouts[0]?.total || 0;
+        return {
+            since: firstReceipt?.createdAt || null,
+            collected,
+            receipts,
+            byMethod,
+            billed: bills.billed || 0,
+            bills: bills.bills || 0,
+            discount: bills.discount || 0,
+            outstanding: bills.due || 0,
+            refunded,
+            refunds: refunds[0]?.count || 0,
+            /**
+             * What patients have actually paid the centre, net of what was handed
+             * back to them. This is the collection figure - it has nothing taken
+             * off it for the centre's own spending.
+             */
+            netFromPatients: collected - refunded,
+            /** How much of everything billed has been collected, as a percentage. */
+            collectionRate: bills.billed ? Math.round((collected / bills.billed) * 100) : 0,
+            // Reported for completeness, and deliberately not netted off the
+            // collection above - this is the centre spending, not patients paying.
+            paidOut,
+            payouts: payouts[0]?.count || 0,
+            netInHand: collected - refunded - paidOut,
+        };
+    }
     static async getCollectionTrend(query = {}) {
         const requestedDays = Math.min(92, Math.max(1, Number(query.days) || 7));
         const end = query.to ? new Date(query.to) : new Date();
@@ -88,15 +185,12 @@ class AccountsService {
             payment_model_1.Payment.find({ createdAt: { $gte: start, $lte: end } }).select('amount paymentMethod createdAt'),
             expense_model_1.Payout.find({ status: 'Paid', expenseDate: { $gte: start, $lte: end } }).select('amount expenseDate'),
         ]);
+        // The per-method fields come off the shared list, so a method added there
+        // appears on every day of the trend without this shape being edited too.
         const blank = () => ({
             date: '',
             total: 0,
-            cash: 0,
-            upi: 0,
-            card: 0,
-            bank: 0,
-            online: 0,
-            credit: 0,
+            ...Object.fromEntries(payment_methods_1.METHOD_FIELDS.map((f) => [f, 0])),
             count: 0,
             paidOut: 0,
             netInHand: 0,
@@ -115,18 +209,10 @@ class AccountsService {
             }
             return bucket;
         };
-        const METHOD_FIELD = {
-            Cash: 'cash',
-            UPI: 'upi',
-            Card: 'card',
-            'Bank Transfer': 'bank',
-            Online: 'online',
-            Credit: 'credit',
-        };
         payments.forEach((payment) => {
             const bucket = bucketFor(new Date(payment.createdAt));
             const amount = Number(payment.amount) || 0;
-            const field = METHOD_FIELD[payment.paymentMethod];
+            const field = payment_methods_1.METHOD_FIELD[payment.paymentMethod];
             if (field)
                 bucket[field] += amount;
             bucket.total += amount;
@@ -151,12 +237,9 @@ class AccountsService {
                 paidOut: paidOutTotal,
                 netInHand: collectedTotal - paidOutTotal,
                 receipts: sum((d) => d.count),
-                cash: sum((d) => d.cash),
-                upi: sum((d) => d.upi),
-                card: sum((d) => d.card),
-                bank: sum((d) => d.bank),
-                online: sum((d) => d.online),
-                credit: sum((d) => d.credit),
+                // One entry per method on the shared list, so the totals cannot end up
+                // reporting a different set of methods than the days above them do.
+                ...Object.fromEntries(payment_methods_1.METHOD_FIELDS.map((field) => [field, sum((d) => d[field] || 0)])),
                 // Averaged over the days money actually came in, so a week containing
                 // a closed Sunday is not reported as a bad week.
                 averagePerActiveDay: daysWithCollection ? Math.round(collectedTotal / daysWithCollection) : 0,

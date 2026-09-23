@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppointmentService = void 0;
 const appointment_model_1 = require("../models/appointment.model");
+const patient_model_1 = require("../models/patient.model");
 const counter_model_1 = require("../models/counter.model");
 const notification_service_1 = require("./notification.service");
 const api_error_util_1 = require("../utils/api-error.util");
@@ -49,6 +50,15 @@ class AppointmentService {
                 { patientName: { $regex: search, $options: 'i' } },
                 { mobile: { $regex: search, $options: 'i' } },
             ];
+            // The UHID lives on the patient, not on the appointment, so searching it
+            // means finding the patient first. Without this the desk can read a UHID
+            // off a card but cannot use it to pull up the booking it belongs to.
+            const matchingPatients = await patient_model_1.Patient.find({
+                uhid: { $regex: search, $options: 'i' },
+            }).select('_id');
+            if (matchingPatients.length > 0) {
+                filter.$or.push({ patient: { $in: matchingPatients.map((p) => p._id) } });
+            }
         }
         const skip = (Number(page) - 1) * Number(limit);
         const [appointments, total] = await Promise.all([

@@ -29,6 +29,8 @@ export const PERMISSIONS = {
   PAYOUT_DELETE: 'payout:delete',
   REFUND_VIEW: 'refund:view',
   REFUND_ISSUE: 'refund:issue',
+  /** Writing the return policy itself - what a cancelled test is worth back. */
+  REFUND_POLICY_MANAGE: 'refund:policy-manage',
 
   // Laboratory
   SAMPLE_VIEW: 'sample:view',

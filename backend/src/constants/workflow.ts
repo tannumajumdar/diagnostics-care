@@ -13,6 +13,8 @@ export const SAMPLE_STATUS = {
   COMPLETED: 'Completed',
   REJECTED: 'Rejected',
   RECOLLECTED: 'Recollected',
+  /** The patient called the test off. Terminal, and not the lab's doing. */
+  CANCELLED: 'Cancelled',
 } as const;
 
 export type SampleStatus = (typeof SAMPLE_STATUS)[keyof typeof SAMPLE_STATUS];
@@ -28,16 +30,29 @@ export const SAMPLE_PIPELINE: SampleStatus[] = [
 ];
 
 export const SAMPLE_TRANSITIONS: Record<SampleStatus, SampleStatus[]> = {
-  [SAMPLE_STATUS.REGISTERED]: [SAMPLE_STATUS.PENDING_COLLECTION, SAMPLE_STATUS.REJECTED],
-  [SAMPLE_STATUS.PENDING_COLLECTION]: [SAMPLE_STATUS.COLLECTED, SAMPLE_STATUS.REJECTED],
+  // Cancelled is reachable from every stage short of a released result: the
+  // patient may call the test off at the counter, in the draw room or while it
+  // is on the bench, and the refund policy decides what that costs them.
+  [SAMPLE_STATUS.REGISTERED]: [
+    SAMPLE_STATUS.PENDING_COLLECTION,
+    SAMPLE_STATUS.REJECTED,
+    SAMPLE_STATUS.CANCELLED,
+  ],
+  [SAMPLE_STATUS.PENDING_COLLECTION]: [
+    SAMPLE_STATUS.COLLECTED,
+    SAMPLE_STATUS.REJECTED,
+    SAMPLE_STATUS.CANCELLED,
+  ],
   // A drawn specimen must be accessioned by the lab before it can go on the bench.
-  [SAMPLE_STATUS.COLLECTED]: [SAMPLE_STATUS.RECEIVED, SAMPLE_STATUS.REJECTED],
-  [SAMPLE_STATUS.RECEIVED]: [SAMPLE_STATUS.PROCESSING, SAMPLE_STATUS.REJECTED],
-  [SAMPLE_STATUS.PROCESSING]: [SAMPLE_STATUS.COMPLETED, SAMPLE_STATUS.REJECTED],
+  [SAMPLE_STATUS.COLLECTED]: [SAMPLE_STATUS.RECEIVED, SAMPLE_STATUS.REJECTED, SAMPLE_STATUS.CANCELLED],
+  [SAMPLE_STATUS.RECEIVED]: [SAMPLE_STATUS.PROCESSING, SAMPLE_STATUS.REJECTED, SAMPLE_STATUS.CANCELLED],
+  [SAMPLE_STATUS.PROCESSING]: [SAMPLE_STATUS.COMPLETED, SAMPLE_STATUS.REJECTED, SAMPLE_STATUS.CANCELLED],
   [SAMPLE_STATUS.COMPLETED]: [],
-  // A rejected specimen is closed out by ordering a fresh draw.
-  [SAMPLE_STATUS.REJECTED]: [SAMPLE_STATUS.RECOLLECTED],
-  [SAMPLE_STATUS.RECOLLECTED]: [SAMPLE_STATUS.PENDING_COLLECTION],
+  // A rejected specimen is closed out by ordering a fresh draw - or by the
+  // patient declining one, which is a cancellation like any other.
+  [SAMPLE_STATUS.REJECTED]: [SAMPLE_STATUS.RECOLLECTED, SAMPLE_STATUS.CANCELLED],
+  [SAMPLE_STATUS.RECOLLECTED]: [SAMPLE_STATUS.PENDING_COLLECTION, SAMPLE_STATUS.CANCELLED],
+  [SAMPLE_STATUS.CANCELLED]: [],
 };
 
 /** Timestamp stamped when a sample enters the stage. */
@@ -47,6 +62,7 @@ export const SAMPLE_STAGE_TIMESTAMP: Partial<Record<SampleStatus, string>> = {
   [SAMPLE_STATUS.PROCESSING]: 'processingAt',
   [SAMPLE_STATUS.COMPLETED]: 'completedAt',
   [SAMPLE_STATUS.REJECTED]: 'rejectedAt',
+  [SAMPLE_STATUS.CANCELLED]: 'cancelledAt',
 };
 
 /** Standard pre-analytical rejection reasons. */

@@ -115,6 +115,10 @@ export const NewBillingPage: React.FC = () => {
   const [discountType, setDiscountType] = useState<'Percentage' | 'Fixed'>('Fixed');
   const [discountValue, setDiscountValue] = useState<number>(0);
   const [discountReason, setDiscountReason] = useState<string>('');
+  // Whose concession this is - asked separately from who referred the patient,
+  // because the two are often different doctors.
+  const [discountDoctorId, setDiscountDoctorId] = useState<string>('');
+  const [discountDoctorName, setDiscountDoctorName] = useState<string>('');
   const [paidAmount, setPaidAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<any>('Cash');
   /**
@@ -365,6 +369,8 @@ export const NewBillingPage: React.FC = () => {
         discountType,
         discountValue: Number(discountValue),
         discountReason,
+        discountDoctorId: discountDoctorId || undefined,
+        discountDoctorName: discountDoctorId ? undefined : discountDoctorName.trim() || undefined,
         // Split legs are the payment when the desk is splitting; otherwise
         // the single amount and method, exactly as before. A gateway method
         // still collects nothing up front - the machine confirms it after.
@@ -853,6 +859,44 @@ export const NewBillingPage: React.FC = () => {
                     <span>Bill discount</span>
                     <span className="font-mono">- {money(calculatedDiscount)}</span>
                   </div>
+                )}
+
+                {/* Whose concession it is. Asked only once something has
+                    actually come off the bill. */}
+                {(calculatedDiscount > 0 || lineDiscountTotal > 0) && (
+                  <>
+                    <label className="block font-semibold">Discount given through</label>
+                    <select
+                      value={discountDoctorId}
+                      onChange={(e) => {
+                        setDiscountDoctorId(e.target.value);
+                        if (e.target.value) setDiscountDoctorName('');
+                      }}
+                      className="h-9 w-full rounded-lg border bg-background px-2 text-xs"
+                    >
+                      <option value="">Centre&rsquo;s own concession / not through a doctor</option>
+                      {asList<Doctor>(doctorsData, 'doctors').map((doctor) => (
+                        <option key={doctor.id} value={doctor.id}>
+                          {doctor.doctorName}
+                          {doctor.specialty ? ` · ${doctor.specialty}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {!discountDoctorId && (
+                      <Input
+                        value={discountDoctorName}
+                        onChange={(e) => setDiscountDoctorName(e.target.value)}
+                        placeholder="Or type a doctor who is not on the panel"
+                        className="h-9"
+                      />
+                    )}
+                    <Input
+                      value={discountReason}
+                      onChange={(e) => setDiscountReason(e.target.value)}
+                      placeholder="Reason for discount"
+                      className="h-9"
+                    />
+                  </>
                 )}
               </div>
 

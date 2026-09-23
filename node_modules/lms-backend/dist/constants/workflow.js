@@ -16,6 +16,8 @@ exports.SAMPLE_STATUS = {
     COMPLETED: 'Completed',
     REJECTED: 'Rejected',
     RECOLLECTED: 'Recollected',
+    /** The patient called the test off. Terminal, and not the lab's doing. */
+    CANCELLED: 'Cancelled',
 };
 /** Ordered happy path, used for progress rendering and stage indexing. */
 exports.SAMPLE_PIPELINE = [
@@ -27,16 +29,29 @@ exports.SAMPLE_PIPELINE = [
     exports.SAMPLE_STATUS.COMPLETED,
 ];
 exports.SAMPLE_TRANSITIONS = {
-    [exports.SAMPLE_STATUS.REGISTERED]: [exports.SAMPLE_STATUS.PENDING_COLLECTION, exports.SAMPLE_STATUS.REJECTED],
-    [exports.SAMPLE_STATUS.PENDING_COLLECTION]: [exports.SAMPLE_STATUS.COLLECTED, exports.SAMPLE_STATUS.REJECTED],
+    // Cancelled is reachable from every stage short of a released result: the
+    // patient may call the test off at the counter, in the draw room or while it
+    // is on the bench, and the refund policy decides what that costs them.
+    [exports.SAMPLE_STATUS.REGISTERED]: [
+        exports.SAMPLE_STATUS.PENDING_COLLECTION,
+        exports.SAMPLE_STATUS.REJECTED,
+        exports.SAMPLE_STATUS.CANCELLED,
+    ],
+    [exports.SAMPLE_STATUS.PENDING_COLLECTION]: [
+        exports.SAMPLE_STATUS.COLLECTED,
+        exports.SAMPLE_STATUS.REJECTED,
+        exports.SAMPLE_STATUS.CANCELLED,
+    ],
     // A drawn specimen must be accessioned by the lab before it can go on the bench.
-    [exports.SAMPLE_STATUS.COLLECTED]: [exports.SAMPLE_STATUS.RECEIVED, exports.SAMPLE_STATUS.REJECTED],
-    [exports.SAMPLE_STATUS.RECEIVED]: [exports.SAMPLE_STATUS.PROCESSING, exports.SAMPLE_STATUS.REJECTED],
-    [exports.SAMPLE_STATUS.PROCESSING]: [exports.SAMPLE_STATUS.COMPLETED, exports.SAMPLE_STATUS.REJECTED],
+    [exports.SAMPLE_STATUS.COLLECTED]: [exports.SAMPLE_STATUS.RECEIVED, exports.SAMPLE_STATUS.REJECTED, exports.SAMPLE_STATUS.CANCELLED],
+    [exports.SAMPLE_STATUS.RECEIVED]: [exports.SAMPLE_STATUS.PROCESSING, exports.SAMPLE_STATUS.REJECTED, exports.SAMPLE_STATUS.CANCELLED],
+    [exports.SAMPLE_STATUS.PROCESSING]: [exports.SAMPLE_STATUS.COMPLETED, exports.SAMPLE_STATUS.REJECTED, exports.SAMPLE_STATUS.CANCELLED],
     [exports.SAMPLE_STATUS.COMPLETED]: [],
-    // A rejected specimen is closed out by ordering a fresh draw.
-    [exports.SAMPLE_STATUS.REJECTED]: [exports.SAMPLE_STATUS.RECOLLECTED],
-    [exports.SAMPLE_STATUS.RECOLLECTED]: [exports.SAMPLE_STATUS.PENDING_COLLECTION],
+    // A rejected specimen is closed out by ordering a fresh draw - or by the
+    // patient declining one, which is a cancellation like any other.
+    [exports.SAMPLE_STATUS.REJECTED]: [exports.SAMPLE_STATUS.RECOLLECTED, exports.SAMPLE_STATUS.CANCELLED],
+    [exports.SAMPLE_STATUS.RECOLLECTED]: [exports.SAMPLE_STATUS.PENDING_COLLECTION, exports.SAMPLE_STATUS.CANCELLED],
+    [exports.SAMPLE_STATUS.CANCELLED]: [],
 };
 /** Timestamp stamped when a sample enters the stage. */
 exports.SAMPLE_STAGE_TIMESTAMP = {
@@ -45,6 +60,7 @@ exports.SAMPLE_STAGE_TIMESTAMP = {
     [exports.SAMPLE_STATUS.PROCESSING]: 'processingAt',
     [exports.SAMPLE_STATUS.COMPLETED]: 'completedAt',
     [exports.SAMPLE_STATUS.REJECTED]: 'rejectedAt',
+    [exports.SAMPLE_STATUS.CANCELLED]: 'cancelledAt',
 };
 /** Standard pre-analytical rejection reasons. */
 exports.REJECTION_REASONS = [

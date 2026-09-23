@@ -95,6 +95,7 @@ class ResultService {
                 invoice: sample.invoice,
                 patient: sample.patient,
                 uhid: sample.uhid,
+                enquiryNo: sample.enquiryNo,
                 test: sample.test,
                 department: sample.department,
                 results: initialParameters,
@@ -143,6 +144,7 @@ class ResultService {
             query.$or = [
                 { resultId: { $regex: params.search, $options: 'i' } },
                 { uhid: { $regex: params.search, $options: 'i' } },
+                { enquiryNo: { $regex: params.search, $options: 'i' } },
             ];
         }
         if (params.status)
@@ -207,6 +209,7 @@ class ResultService {
                 invoice: sampleObj.invoice,
                 patient: sampleObj.patient,
                 uhid: sampleObj.uhid,
+                enquiryNo: sampleObj.enquiryNo,
                 test: sampleObj.test,
                 department: sampleObj.department,
                 results: calculatedResults,

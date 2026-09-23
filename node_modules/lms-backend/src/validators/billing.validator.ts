@@ -45,6 +45,10 @@ export const createInvoiceSchema = z
     discountType: z.enum(['Percentage', 'Fixed']).optional(),
     discountValue: z.number().min(0).optional(),
     discountReason: z.string().optional(),
+    // Who the concession came through - a different question from who
+    // referred the patient, and only recorded when a discount was given.
+    discountDoctorId: z.string().optional(),
+    discountDoctorName: z.string().optional(),
     paidAmount: z.number().min(0).optional(),
     paymentMethod: z.enum(COLLECTION_METHOD_VALUES).optional(),
     paymentSplits: z.array(paymentTenderSchema).optional(),
@@ -88,6 +92,10 @@ export const createVisitSchema = z
     discountType: z.enum(['Percentage', 'Fixed']).optional(),
     discountValue: z.number().min(0).optional(),
     discountReason: z.string().optional(),
+    // Who the concession came through - a different question from who
+    // referred the patient, and only recorded when a discount was given.
+    discountDoctorId: z.string().optional(),
+    discountDoctorName: z.string().optional(),
     paidAmount: z.number().min(0).optional(),
     paymentMethod: z.enum(COLLECTION_METHOD_VALUES).optional(),
     paymentSplits: z.array(paymentTenderSchema).optional(),
@@ -97,6 +105,37 @@ export const createVisitSchema = z
     path: ['patientId'],
   })
   .refine(hasTests, { message: 'At least one test must be selected', path: ['testIds'] });
+
+/**
+ * A bill being changed after it was raised - a test added at the counter, a
+ * concession agreed when the patient came back to settle. Everything is
+ * optional, and a revision that changes nothing is refused below rather than
+ * written as an empty entry in the bill's history.
+ */
+export const reviseInvoiceSchema = z
+  .object({
+    addItems: z.array(invoiceLineSchema).optional(),
+    discountType: z.enum(['Percentage', 'Fixed']).optional(),
+    discountValue: z.number().min(0).optional(),
+    discountReason: z.string().optional(),
+    discountDoctorId: z.string().optional(),
+    discountDoctorName: z.string().optional(),
+    clinicalNotes: z.string().optional(),
+    priority: z.enum(['Routine', 'Urgent']).optional(),
+    revisionNote: z.string().optional(),
+  })
+  .refine(
+    (v) =>
+      Boolean(v.addItems?.length) ||
+      v.discountType !== undefined ||
+      v.discountValue !== undefined ||
+      v.discountReason !== undefined ||
+      v.discountDoctorId !== undefined ||
+      v.discountDoctorName !== undefined ||
+      v.clinicalNotes !== undefined ||
+      v.priority !== undefined,
+    { message: 'Add a test or change the discount - there is nothing to revise', path: ['addItems'] }
+  );
 
 /**
  * Collecting against a bill, by one method or several. The single-method form

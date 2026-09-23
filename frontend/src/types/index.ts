@@ -46,7 +46,9 @@ export type SampleStatus =
   | 'Processing'
   | 'Completed'
   | 'Rejected'
-  | 'Recollected';
+  | 'Recollected'
+  /** Called off by the patient, as against rejected by the lab. */
+  | 'Cancelled';
 
 export type SampleRejectionReason =
   | 'Insufficient Sample'
@@ -395,6 +397,13 @@ export interface TestPackage {
   packageName: string;
   packageCode: string;
   description?: string;
+  /**
+   * What the centre files the panel under. Null for a panel that spans the
+   * lab - a full body checkup belongs to no single bench.
+   */
+  department?: { id: string; departmentName: string; departmentCode?: string } | string | null;
+  /** The departments of the tests inside, when the panel itself has none. */
+  testDepartments?: string[];
   tests: LabTest[];
   /** What the patient pays for the whole panel. */
   rate: number;
@@ -484,6 +493,8 @@ export interface InvoiceItem {
   testCode: string;
   rate: number;
   discountPercent?: number;
+  /** What the desk knocked off this line before any bill-wide discount. */
+  lineDiscountAmount?: number;
   discountAmount: number;
   netAmount: number;
   processingMode?: ProcessingMode;
@@ -492,6 +503,19 @@ export interface InvoiceItem {
   referralRate?: number;
   packageId?: string;
   packageName?: string;
+  /**
+   * The patient decided against this test. The line stays on the bill struck
+   * through - a bill that silently loses a line cannot be reconciled against
+   * the receipt the patient is holding.
+   */
+  cancelled?: boolean;
+  cancelledAt?: string;
+  cancellationReason?: string;
+  /** What went back to the patient for this line. */
+  refundedAmount?: number;
+  /** What the centre kept of it, per the refund policy. */
+  retainedAmount?: number;
+  cancelledBy?: { userId: string; name: string; role: string };
 }
 
 export interface Invoice {
@@ -511,6 +535,21 @@ export interface Invoice {
   discountType: DiscountType;
   discountValue: number;
   discountReason?: string;
+  /**
+   * The doctor the concession came through - not necessarily the one who
+   * referred the patient.
+   */
+  discountDoctor?: { id?: string; _id?: string; doctorName: string } | string | null;
+  discountDoctorName?: string;
+  /** Every change made to the bill after it was raised. */
+  revisions?: Array<{
+    at: string;
+    by?: { userId?: string; name?: string; role?: string };
+    summary: string;
+    testsAdded: string[];
+    netBefore: number;
+    netAfter: number;
+  }>;
   totalDiscount?: number;
   netAmount: number;
   /** What the referring doctor's separate copy of this bill comes to. */

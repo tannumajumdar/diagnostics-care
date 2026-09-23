@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.Payout = exports.Expense = void 0;
 const mongoose_1 = require("mongoose");
 const expense_interface_1 = require("../types/expense.interface");
+const payment_methods_1 = require("../constants/payment-methods");
 /**
  * The outgoing-cash ledger: every rupee the centre hands to an ambulance
  * driver, courier, referring doctor or supplier. Modelled as one document per
@@ -48,7 +49,7 @@ const expenseSchema = new mongoose_1.Schema({
     },
     paymentMethod: {
         type: String,
-        enum: ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Online'],
+        enum: payment_methods_1.DISBURSEMENT_METHODS,
         default: 'Cash',
     },
     referenceNo: {

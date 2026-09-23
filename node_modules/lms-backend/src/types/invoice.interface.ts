@@ -14,6 +14,8 @@ export interface IInvoiceItem {
   department: Schema.Types.ObjectId;
   departmentName: string;
   rate: number;
+  /** What the desk knocked off this line before any bill-wide discount. */
+  lineDiscountAmount?: number;
   discountAmount?: number;
   netAmount: number;
   processingMode?: 'In-house' | 'Outsource';
@@ -21,6 +23,23 @@ export interface IInvoiceItem {
   referralRate?: number;
   packageId?: Schema.Types.ObjectId;
   packageName?: string;
+  /**
+   * Set when the patient decided against this test. The line stays on the
+   * bill - struck through rather than deleted, because the bill was printed
+   * with it on and the history has to keep reading the way it was handed over.
+   */
+  cancelled?: boolean;
+  cancelledAt?: Date;
+  cancellationReason?: string;
+  /** What actually went back to the patient for this line. */
+  refundedAmount?: number;
+  /** What the centre kept of it, per the refund policy in force that day. */
+  retainedAmount?: number;
+  cancelledBy?: {
+    userId: string;
+    name: string;
+    role: string;
+  };
 }
 
 export interface IInvoiceDocument extends Document {
@@ -40,6 +59,9 @@ export interface IInvoiceDocument extends Document {
   discountType: 'Percentage' | 'Fixed';
   discountValue: number;
   discountReason?: string;
+  /** The doctor the concession came through - not necessarily the referrer. */
+  discountDoctor?: Schema.Types.ObjectId;
+  discountDoctorName?: string;
   netAmount: number;
   /** What the referring doctor's own copy of this bill comes to. */
   referralTotal?: number;
@@ -55,5 +77,14 @@ export interface IInvoiceDocument extends Document {
     userId: Schema.Types.ObjectId;
     name: string;
   };
+  /** Every revision the bill has been through since it was raised. */
+  revisions?: Array<{
+    at: Date;
+    by: { userId?: string; name?: string; role?: string };
+    summary: string;
+    testsAdded: string[];
+    netBefore: number;
+    netAfter: number;
+  }>;
 }
 

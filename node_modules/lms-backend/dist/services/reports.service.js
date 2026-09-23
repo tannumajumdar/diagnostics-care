@@ -75,11 +75,23 @@ class ReportsService {
             { $sort: { testCount: -1 } },
         ]);
     };
+    /**
+     * Grouped by the doctor's name, not by `referringDoctor`. That field is an
+     * ObjectId, so the chart built on it was plotting raw 24-character ids along
+     * its axis with one unnamed bucket for every walk-in. The typed name is on
+     * every invoice whether or not the doctor is on the panel, which is what the
+     * owner is reading this chart to find out.
+     */
     static getDoctorWiseTests = async () => {
         return invoice_model_1.Invoice.aggregate([
             {
                 $group: {
-                    _id: '$referringDoctor',
+                    _id: {
+                        $let: {
+                            vars: { name: { $trim: { input: { $ifNull: ['$referringDoctorName', ''] } } } },
+                            in: { $cond: [{ $eq: ['$$name', ''] }, 'Walk-in / Direct', '$$name'] },
+                        },
+                    },
                     invoiceCount: { $sum: 1 },
                     totalRevenue: { $sum: '$netAmount' },
                 },

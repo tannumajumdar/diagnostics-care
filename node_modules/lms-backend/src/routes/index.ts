@@ -14,6 +14,7 @@ import sampleRoutes from './sample.routes';
 import resultRoutes from './result.routes';
 import appointmentRoutes from './appointment.routes';
 import accountsRoutes from './accounts.routes';
+import refundPolicyRoutes from './refundPolicy.routes';
 import reportsRoutes from './reports.routes';
 import auditRoutes from './audit.routes';
 
@@ -43,6 +44,8 @@ router.use('/samples', sampleRoutes);
 router.use('/results', resultRoutes);
 router.use('/appointments', appointmentRoutes);
 router.use('/accounts', accountsRoutes);
+// The centre's return policy, and cancelling a test against it.
+router.use('/refund-policy', refundPolicyRoutes);
 router.use('/reports', reportsRoutes);
 router.use('/audit-logs', auditRoutes);
 

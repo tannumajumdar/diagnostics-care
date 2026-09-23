@@ -35,6 +35,20 @@ class AccountsController {
             next(error);
         }
     };
+    static getOverallCollections = async (_req, res, next) => {
+        try {
+            const result = await accounts_service_1.AccountsService.getOverallCollections();
+            (0, api_response_util_1.sendResponse)({
+                res,
+                statusCode: messages_1.HTTP_STATUS.OK,
+                message: 'Overall collections retrieved',
+                data: result,
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    };
     static createRefund = async (req, res, next) => {
         try {
             const currentUser = req.user;

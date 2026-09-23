@@ -35,6 +35,14 @@ const invoiceItemSchema = new Schema(
     },
     departmentName: { type: String, required: true },
     rate: { type: Number, required: true, min: 0 },
+    /**
+     * What the desk knocked off this line at the counter, before any
+     * bill-wide discount reached it. `discountAmount` below is the two added
+     * together - the figure the bill prints - so this is kept beside it to
+     * make a bill revisable: without it, re-spreading a changed bill discount
+     * would count the counter's own concession twice.
+     */
+    lineDiscountAmount: { type: Number, default: 0, min: 0 },
     discountAmount: { type: Number, default: 0, min: 0 },
     netAmount: { type: Number, required: true, min: 0 },
     // Where this line is actually run. Copied off the test master when the
@@ -55,6 +63,21 @@ const invoiceItemSchema = new Schema(
     // the package back together and the package price can be traced.
     packageId: { type: Schema.Types.ObjectId, ref: 'TestPackage' },
     packageName: { type: String, trim: true, default: '' },
+    // The patient decided against this one. The line is struck through rather
+    // than removed: the bill was handed over with it on, and a reprint that
+    // quietly loses a line is a bill nobody can reconcile against the receipt.
+    cancelled: { type: Boolean, default: false },
+    cancelledAt: { type: Date },
+    cancellationReason: { type: String, trim: true, default: '' },
+    /** What went back to the patient for this line. */
+    refundedAmount: { type: Number, default: 0, min: 0 },
+    /** What the centre kept - the work already done, per the refund policy. */
+    retainedAmount: { type: Number, default: 0, min: 0 },
+    cancelledBy: {
+      userId: { type: String },
+      name: { type: String },
+      role: { type: String },
+    },
   },
   { _id: false }
 );
@@ -123,6 +146,22 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
     },
     discountValue: { type: Number, default: 0, min: 0 },
     discountReason: { type: String, default: '' },
+    /**
+     * The doctor the concession came through.
+     *
+     * Not the same question as who referred the patient: a bill is often
+     * discounted on one doctor's word while the prescription is another's,
+     * and the centre has to be able to answer "whose discounts are these"
+     * when the month is read. Only set when something was actually knocked
+     * off, so an undiscounted bill never carries a name it did not earn.
+     */
+    discountDoctor: {
+      type: Schema.Types.ObjectId,
+      ref: 'Doctor',
+      index: true,
+    },
+    /** Typed in when the doctor is not on the panel. */
+    discountDoctorName: { type: String, trim: true, default: '' },
     netAmount: { type: Number, required: true, min: 0 },
     // What the referring doctor's separate copy adds up to. Kept beside the
     // patient's total rather than derived on demand, so the doctor's bill
@@ -160,6 +199,31 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
     timestamps: true,
   }
 );
+
+/**
+ * Every revision the bill has been through - a test added at the counter, a
+ * discount changed when the patient came back to settle. The bill is a
+ * document the patient may be holding a printout of, so what changed and who
+ * changed it is kept on it rather than only in the totals.
+ */
+const revisionSchema = new Schema(
+  {
+    at: { type: Date, default: Date.now },
+    by: {
+      userId: { type: String },
+      name: { type: String },
+      role: { type: String },
+    },
+    /** What the revision did, in the words the counter would use. */
+    summary: { type: String, trim: true, default: '' },
+    testsAdded: [{ type: String }],
+    netBefore: { type: Number, default: 0 },
+    netAfter: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+invoiceSchema.add({ revisions: { type: [revisionSchema], default: [] } });
 
 invoiceSchema.index({ paymentStatus: 1, createdAt: -1 });
 invoiceSchema.index({ referringDoctor: 1, createdAt: -1 });

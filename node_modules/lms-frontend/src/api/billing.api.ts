@@ -17,6 +17,12 @@ export const billingApi = {
   /** Whole front-desk intake in one call: patient + bill + queued samples. */
   createVisit: async (data: any): Promise<any> => api.post('/billing/visit', data),
   addPayment: async (id: string, data: any): Promise<any> => api.post(`/billing/${id}/payments`, data),
+  /**
+   * A bill changed after it was raised: tests added to the same visit, or the
+   * discount reworked when the patient comes in to settle their due. The
+   * server re-prices the whole bill and queues samples for anything new.
+   */
+  reviseInvoice: async (id: string, data: any): Promise<any> => api.put(`/billing/${id}`, data),
   getByBarcode: async (barcode: string): Promise<any> => api.get(`/billing/barcode/${barcode}`),
 
   /**
