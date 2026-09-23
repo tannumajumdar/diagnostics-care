@@ -69,7 +69,7 @@ const StatTile: React.FC<{ tile: Tile; onClick?: () => void }> = ({ tile, onClic
       type="button"
       onClick={onClick}
       disabled={!onClick}
-      className={`group relative flex items-start gap-3 overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-sm ring-1 ring-slate-900/[0.02] transition-all duration-200 ${
+      className={`group relative flex items-start gap-2.5 sm:gap-3 overflow-hidden rounded-xl sm:rounded-2xl border border-slate-200/80 bg-white p-3 sm:p-4 text-left shadow-xs ring-1 ring-slate-900/[0.02] transition-all duration-200 ${
         onClick
           ? 'hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg hover:shadow-slate-200/60'
           : 'cursor-default'
@@ -79,20 +79,20 @@ const StatTile: React.FC<{ tile: Tile; onClick?: () => void }> = ({ tile, onClic
           without washing the number it sits next to. */}
       <span className={`absolute inset-y-0 left-0 w-[3px] ${tone.rail} opacity-70`} />
 
-      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${tone.chip}`}>
-        <Icon className={`h-[18px] w-[18px] ${tone.icon}`} />
+      <span className={`flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-lg sm:rounded-xl ${tone.chip}`}>
+        <Icon className={`h-4 w-4 sm:h-[18px] sm:w-[18px] ${tone.icon}`} />
       </span>
 
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] font-medium text-slate-500">{tile.label}</span>
-        <span className="mt-0.5 block truncate text-[24px] font-semibold leading-tight tracking-tight text-slate-900">
+        <span className="block truncate text-[11px] sm:text-[12px] font-medium text-slate-500">{tile.label}</span>
+        <span className="mt-0.5 block truncate text-[18px] sm:text-[24px] font-semibold leading-tight tracking-tight text-slate-900">
           {tile.value}
         </span>
-        {tile.hint && <span className="mt-0.5 block truncate text-[11px] text-slate-400">{tile.hint}</span>}
+        {tile.hint && <span className="mt-0.5 block truncate text-[10px] sm:text-[11px] text-slate-400">{tile.hint}</span>}
       </span>
 
       {onClick && (
-        <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" />
+        <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500 hidden sm:block" />
       )}
     </button>
   );
@@ -446,7 +446,7 @@ export const DashboardPage: React.FC = () => {
       {/* The hero band. One large figure, the shift's name for itself, and the
           actions - so the top of the page says what matters before the grid of
           counters below it starts competing for attention. */}
-      <section className="relative overflow-hidden rounded-3xl bg-slate-900 p-6 text-white shadow-lg shadow-slate-900/10 sm:p-7">
+      <section className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-slate-900 p-4 sm:p-7 text-white shadow-lg shadow-slate-900/10">
         <div
           aria-hidden
           className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-indigo-500/25 blur-3xl"
@@ -475,7 +475,7 @@ export const DashboardPage: React.FC = () => {
               <div className="flex flex-wrap items-end gap-3">
                 {/* Proportional figures, same sans as the rest - tabular-nums
                     makes a number this size read loose and gappy. */}
-                <span className="text-[48px] font-semibold leading-none tracking-tight sm:text-5xl">{hero.value}</span>
+                <span className="text-3xl sm:text-5xl font-semibold leading-none tracking-tight">{hero.value}</span>
                 {hero.delta !== undefined && <DeltaChip delta={hero.delta} />}
               </div>
               <p className="mt-2 text-xs font-medium text-slate-300">{hero.label}</p>
@@ -506,7 +506,7 @@ export const DashboardPage: React.FC = () => {
         </div>
       </section>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {tiles.map((tile) => (
           <StatTile key={tile.label} tile={tile} onClick={tile.to ? () => navigate(tile.to!) : undefined} />
         ))}

@@ -282,15 +282,15 @@ export const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children 
       </header>
 
       {/* ── Sub-Navigation Bar (Horizontal Tabs for Quick 1-Click Page Access) ── */}
-      <div data-print="hide" className="shrink-0 border-b border-slate-200 bg-white px-4 sm:px-6 shadow-xs">
+      <div data-print="hide" className="shrink-0 border-b border-slate-200 bg-white px-2.5 sm:px-6 shadow-xs">
         <div className="flex h-11 items-center justify-between overflow-x-auto scrollbar-none">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 min-w-0">
             {activeSection && activeSection.group !== 'Overview' ? (
               <>
                 <span className="hidden md:inline-block text-[11px] font-bold uppercase tracking-wider text-slate-600 mr-2 shrink-0">
                   {activeSection.group}:
                 </span>
-                <div className="flex items-center gap-1 overflow-x-auto py-1">
+                <div className="flex items-center gap-1 overflow-x-auto py-1 scrollbar-none">
                   {activeSection.items.map((item) => {
                     const Icon = item.icon;
                     const active = isCurrent(item);
@@ -298,7 +298,7 @@ export const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children 
                       <Link
                         key={item.path}
                         to={item.path}
-                        className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                        className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 sm:px-3 py-1.5 text-xs font-semibold transition-all ${
                           active
                             ? 'bg-indigo-600 text-white shadow-xs'
                             : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -312,10 +312,10 @@ export const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children 
                 </div>
               </>
             ) : (
-              <div className="flex items-center gap-2 text-xs text-slate-600">
-                <span className="font-bold text-slate-800">{heading}</span>
+              <div className="flex items-center gap-2 text-xs text-slate-600 truncate">
+                <span className="font-bold text-slate-800 shrink-0">{heading}</span>
                 <span className="text-slate-400">·</span>
-                <span className="text-slate-500">
+                <span className="text-slate-500 truncate">
                   {ROLE_INTRO[user?.role as Role]?.subtitle ?? 'Overview and operational metrics.'}
                 </span>
               </div>
@@ -332,7 +332,7 @@ export const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children 
       </div>
 
       {/* ── Main Full-Screen Content Area ── */}
-      <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+      <main className="flex-1 overflow-y-auto p-2.5 sm:p-6 lg:p-8">
         <div className="w-full">{children}</div>
       </main>
     </div>
