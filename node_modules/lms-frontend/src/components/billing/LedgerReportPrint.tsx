@@ -150,7 +150,7 @@ export const LedgerReportPrint: React.FC<LedgerReportPrintProps> = ({
             </span>
           </div>
           <div className="p-1 bg-amber-50">
-            <span className="block text-[8px] font-semibold text-amber-900 uppercase">Net Cash Flow</span>
+            <span className="block text-[8px] font-semibold text-amber-900 uppercase">Net Balance</span>
             <span className="font-mono text-[12px] font-extrabold">₹{money(summary.netBalance)}</span>
           </div>
         </div>
@@ -307,7 +307,7 @@ export const LedgerReportPrint: React.FC<LedgerReportPrintProps> = ({
         <div className="flex items-start justify-between gap-4 p-2 text-[9px] bg-white" style={{ breakInside: 'avoid' }}>
           <div className="min-w-0 max-w-sm">
             <p className="font-extrabold text-[10px] text-slate-900">
-              Net Cash Flow: ₹{money(summary.netBalance)} ({amountInWords(Number(summary.netBalance) || 0)})
+              Net Balance: ₹{money(summary.netBalance)} ({amountInWords(Number(summary.netBalance) || 0)})
             </p>
             <p className="text-[7.5px] leading-[10px] text-slate-500 mt-1">
               * Ledger report generated from the payment ledger of {centre.name}.

@@ -959,7 +959,7 @@ export const PaymentLedgerPage: React.FC = () => {
 
         <div className="rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] sm:text-xs font-semibold text-slate-700">Net Cash Flow</span>
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-700">Net Balance</span>
             <span className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg sm:rounded-xl bg-slate-100 text-slate-700">
               <IndianRupee className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </span>
@@ -1241,7 +1241,7 @@ export const PaymentLedgerPage: React.FC = () => {
                     <th className="px-4 py-3">Date</th>
                     <th className="px-4 py-3 text-right">Collections (Inflow)</th>
                     <th className="px-4 py-3 text-right">Payouts &amp; Refunds</th>
-                    <th className="px-4 py-3 text-right">Net Cash Flow</th>
+                    <th className="px-4 py-3 text-right">Net Balance</th>
                     <th className="px-4 py-3">Methods Breakdown</th>
                     <th className="px-4 py-3 text-center">Action</th>
                   </tr>
