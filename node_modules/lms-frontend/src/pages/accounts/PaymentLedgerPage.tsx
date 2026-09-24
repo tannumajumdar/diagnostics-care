@@ -13,6 +13,7 @@ import { PatientSearchSelect } from '../../components/patients/PatientSearchSele
 import { PatientLedgerBill } from '../../components/billing/PatientLedgerBill';
 import { LedgerVoucherPrint } from '../../components/billing/LedgerVoucherPrint';
 import { DayCollectionPrint } from '../../components/billing/DayCollectionPrint';
+import { LedgerReportPrint } from '../../components/billing/LedgerReportPrint';
 import { exportToExcel } from '../../utils/excel-export';
 import { formatDay, formatDateTime, relativeDayLabel, todayKey, daysAgoKey } from '../../utils/dates';
 import { ageSexLabel } from '../../utils/age';
@@ -88,11 +89,13 @@ export const PaymentLedgerPage: React.FC = () => {
   const [payeeType, setPayeeType] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'transactions' | 'daywise'>('transactions');
-  // The single row being printed, if any - a ledger entry's voucher or a day's
-  // collection statement. Null means a print covers the page as a whole.
+  // What is being printed, if anything other than the patient ledger bill - a
+  // ledger entry's voucher, a day's collection statement, or the overall
+  // report. Null means a print covers the page as a whole.
   const [printTarget, setPrintTarget] = useState<
-    { kind: 'transaction' | 'day'; data: any } | null
+    { kind: 'transaction' | 'day' | 'report'; data: any } | null
   >(null);
+  const [preparingReport, setPreparingReport] = useState(false);
 
   // Fetch center users/staff for the User / Handled By filter
   const { data: usersData } = useQuery({
@@ -293,6 +296,42 @@ export const PaymentLedgerPage: React.FC = () => {
     };
   }, [printTarget]);
 
+  /**
+   * The overall report prints every entry under the filter, not just the page
+   * of rows on screen, so the full list is fetched first.
+   */
+  const handlePrintReport = async () => {
+    setPreparingReport(true);
+    try {
+      const full = await accountsApi.getLedger({ ...filters, limit: 5000 });
+      setPrintTarget({ kind: 'report', data: full });
+    } catch {
+      // Fall back to what is already loaded rather than not printing at all.
+      setPrintTarget({ kind: 'report', data: ledgerData });
+    } finally {
+      setPreparingReport(false);
+    }
+  };
+
+  const reportFilterLines = (() => {
+    const lines: string[] = [];
+    const period =
+      from || to
+        ? `${from ? formatDay(from) : 'Start'}${fromTime ? ` ${fromTime}` : ''} to ${to ? formatDay(to) : 'Today'}${toTime ? ` ${toTime}` : ''}`
+        : 'Complete History';
+    lines.push(`Period: ${period}`);
+    if (patientProfile) {
+      const p: any = patientProfile;
+      lines.push(`Patient: ${p.patientName || p.name || '-'}${p.uhid ? ` (${p.uhid})` : ''}`);
+    }
+    if (staffNames.length) lines.push(`Handled By: ${staffNames.join(', ')}`);
+    if (paymentMethod !== 'All') lines.push(`Method: ${methodLabel(paymentMethod)}`);
+    if (flowType !== 'all') lines.push(`Flow: ${flowType.charAt(0).toUpperCase()}${flowType.slice(1)}`);
+    if (payeeType !== 'All') lines.push(`Payee: ${payeeType}`);
+    if (searchQuery.trim()) lines.push(`Search: "${searchQuery.trim()}"`);
+    return lines;
+  })();
+
   const handleExportExcel = () => {
     if (activeTab === 'daywise') {
       const dayRows = byDay.map((d: any, index: number) => ({
@@ -385,9 +424,18 @@ export const PaymentLedgerPage: React.FC = () => {
           )}
           <Button
             variant="outline"
+            onClick={handlePrintReport}
+            disabled={transactions.length === 0 || preparingReport}
+            className="text-xs sm:text-sm h-9"
+          >
+            <Printer className="mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            {preparingReport ? 'Preparing...' : 'Print Report'}
+          </Button>
+          <Button
+            variant="outline"
             onClick={handleExportExcel}
             disabled={transactions.length === 0}
-            className={`text-xs sm:text-sm h-9 ${!activePatientId ? 'col-span-2 sm:col-span-1' : ''}`}
+            className={`text-xs sm:text-sm h-9 ${activePatientId ? 'col-span-2 sm:col-span-1' : ''}`}
           >
             <Download className="mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
             Export Excel
@@ -1660,6 +1708,17 @@ export const PaymentLedgerPage: React.FC = () => {
       {printTarget?.kind === 'day' && (
         <div className="hidden print:block">
           <DayCollectionPrint day={printTarget.data} transactions={transactions} />
+        </div>
+      )}
+
+      {printTarget?.kind === 'report' && (
+        <div className="hidden print:block">
+          <LedgerReportPrint
+            summary={printTarget.data?.summary || summary}
+            byDay={printTarget.data?.byDay || byDay}
+            transactions={printTarget.data?.transactions || transactions}
+            filterLines={reportFilterLines}
+          />
         </div>
       )}
 
