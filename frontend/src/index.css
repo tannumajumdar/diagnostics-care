@@ -64,7 +64,10 @@ body {
 }
 
 @media print {
-  [data-print='hide'] {
+  /* Scoped under #root so it outranks the shell's `#root > div > div` reset
+     below - otherwise the sub-navigation bar, a plain div, is printed. */
+  [data-print='hide'],
+  #root [data-print='hide'] {
     display: none !important;
   }
 
