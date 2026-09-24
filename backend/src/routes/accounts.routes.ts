@@ -25,6 +25,7 @@ router.get(
 );
 
 // Unified Patient Ledger & Cash Flow
+router.get('/ledger/staff', requirePermission(PERMISSIONS.BILL_VIEW), AccountsController.getLedgerStaff);
 router.get('/ledger', requirePermission(PERMISSIONS.BILL_VIEW), AccountsController.getLedger);
 
 router.get('/refunds', requirePermission(PERMISSIONS.REFUND_VIEW), AccountsController.getAllRefunds);

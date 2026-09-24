@@ -1122,4 +1122,23 @@ export class AccountsService {
       },
     };
   }
+
+  /**
+   * Names of everyone who has handled a ledger entry - received a payment,
+   * approved a refund or recorded a payout - for the ledger's staff filter.
+   */
+  static async getLedgerStaff(): Promise<string[]> {
+    const [received, refunded, recorded, approved] = await Promise.all([
+      Payment.distinct('receivedBy.name'),
+      Refund.distinct('approvedBy.name'),
+      Payout.distinct('recordedBy.name', { status: 'Paid' }),
+      Payout.distinct('approvedBy.name', { status: 'Paid' }),
+    ]);
+    const names = new Map<string, string>();
+    [...received, ...refunded, ...recorded, ...approved].forEach((n: any) => {
+      const clean = String(n || '').trim();
+      if (clean && !names.has(clean.toLowerCase())) names.set(clean.toLowerCase(), clean);
+    });
+    return Array.from(names.values()).sort((a, b) => a.localeCompare(b));
+  }
 }

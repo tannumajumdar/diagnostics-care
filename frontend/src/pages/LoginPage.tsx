@@ -12,6 +12,7 @@ import {
   ArrowRight,
   FlaskConical,
   ShieldCheck,
+  ChevronDown,
 } from 'lucide-react';
 
 const DEMO_ACCOUNTS = [
@@ -39,15 +40,16 @@ const DEMO_ACCOUNTS = [
     initials: 'TE',
     tint: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   },
-  {
-    label: 'Receptionist',
-    desk: 'Front desk',
-    email: 'receptionist@lms.com',
-    password: 'User@123456',
-    initials: 'RE',
-    tint: 'bg-amber-50 text-amber-700 ring-amber-200',
-  },
 ];
+
+// The front desk is staffed by several people, each taking their own cash, so
+// the Receptionist card asks which of them is signing in.
+const RECEPTIONISTS = [
+  { name: 'Emily Davis', email: 'receptionist@lms.com', password: 'User@123456', initials: 'ED' },
+  { name: 'Neha Sharma', email: 'neha@lms.com', password: 'User@123456', initials: 'NS' },
+  { name: 'Rohit Verma', email: 'rohit@lms.com', password: 'User@123456', initials: 'RV' },
+];
+const RECEPTIONIST_TINT = 'bg-amber-50 text-amber-700 ring-amber-200';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -58,6 +60,7 @@ export const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [activeDemo, setActiveDemo] = useState<string | null>(null);
+  const [pickingReceptionist, setPickingReceptionist] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,12 +76,14 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const applyDemo = (account: (typeof DEMO_ACCOUNTS)[number]) => {
+  const applyDemo = (account: { email: string; password: string }) => {
     setEmail(account.email);
     setPassword(account.password);
     setActiveDemo(account.email);
     setError('');
   };
+
+  const activeReceptionist = RECEPTIONISTS.find((r) => r.email === activeDemo);
 
   const fieldClass =
     'h-12 w-full rounded-xl border border-slate-200 bg-slate-50/60 pl-11 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10';
@@ -214,7 +219,66 @@ export const LoginPage: React.FC = () => {
                   </button>
                 );
               })}
+
+              <button
+                type="button"
+                onClick={() => setPickingReceptionist((v) => !v)}
+                aria-expanded={pickingReceptionist}
+                className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
+                  activeReceptionist || pickingReceptionist
+                    ? 'border-blue-500 bg-blue-50/70 ring-2 ring-blue-500/15'
+                    : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md hover:shadow-slate-900/5'
+                }`}
+              >
+                <span
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ring-1 ring-inset ${RECEPTIONIST_TINT}`}
+                >
+                  {activeReceptionist?.initials ?? 'RE'}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-semibold text-slate-800">Receptionist</span>
+                  <span className="block truncate text-[11px] text-slate-400">
+                    {activeReceptionist?.name ?? 'Choose user'}
+                  </span>
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${pickingReceptionist ? 'rotate-180' : ''}`}
+                />
+              </button>
             </div>
+
+            {pickingReceptionist && (
+              <div className="lms-rise mt-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-1.5">
+                <p className="px-2 pb-1.5 pt-1 text-[11px] font-semibold text-slate-500">Sign in as</p>
+                {RECEPTIONISTS.map((r) => {
+                  const isActive = activeDemo === r.email;
+                  return (
+                    <button
+                      key={r.email}
+                      type="button"
+                      onClick={() => {
+                        applyDemo(r);
+                        setPickingReceptionist(false);
+                      }}
+                      aria-pressed={isActive}
+                      className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition ${
+                        isActive ? 'bg-blue-50 ring-1 ring-blue-500/30' : 'hover:bg-white'
+                      }`}
+                    >
+                      <span
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[10px] font-bold ring-1 ring-inset ${RECEPTIONIST_TINT}`}
+                      >
+                        {r.initials}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-semibold text-slate-800">{r.name}</span>
+                        <span className="block truncate text-[11px] text-slate-400">{r.email}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             <p className="mt-3.5 text-[12px] leading-relaxed text-slate-400">
               Selecting an account fills the form — press{' '}

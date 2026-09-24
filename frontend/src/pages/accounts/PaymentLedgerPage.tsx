@@ -14,6 +14,7 @@ import { PatientLedgerBill } from '../../components/billing/PatientLedgerBill';
 import { LedgerVoucherPrint } from '../../components/billing/LedgerVoucherPrint';
 import { DayCollectionPrint } from '../../components/billing/DayCollectionPrint';
 import { LedgerReportPrint } from '../../components/billing/LedgerReportPrint';
+import { PatientsLedgerPrint } from '../../components/billing/PatientsLedgerPrint';
 import { exportToExcel } from '../../utils/excel-export';
 import { formatDay, formatDateTime, relativeDayLabel, todayKey, daysAgoKey } from '../../utils/dates';
 import { ageSexLabel } from '../../utils/age';
@@ -30,7 +31,6 @@ import {
   User,
   UserCheck,
   RotateCcw,
-  Search,
   Receipt,
   Building2,
   Stethoscope,
@@ -54,6 +54,49 @@ const monthStartIso = () => {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
 };
+// Current local time as HH:mm, the value an <input type="time"> takes.
+const nowTime = () => {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+};
+
+type FlowType = 'all' | 'collection' | 'payout' | 'refund';
+
+interface FilterValues {
+  from: string;
+  to: string;
+  fromTime: string;
+  toTime: string;
+  // Staff / users whose transactions the ledger is narrowed to. Empty = whole centre.
+  staffNames: string[];
+  paymentMethod: string;
+  flowType: FlowType;
+  payeeType: string;
+}
+
+// No filter at all - every ledger entry.
+const unfilteredValues = (): FilterValues => ({
+  from: '',
+  to: '',
+  fromTime: '',
+  toTime: '',
+  staffNames: [],
+  paymentMethod: 'All',
+  flowType: 'all',
+  payeeType: 'All',
+});
+
+// This month, from midnight up to the current minute.
+const defaultFilterValues = (): FilterValues => ({
+  from: monthStartIso(),
+  to: todayIso(),
+  fromTime: '00:00',
+  toTime: nowTime(),
+  staffNames: [],
+  paymentMethod: 'All',
+  flowType: 'all',
+  payeeType: 'All',
+});
 
 export const PaymentLedgerPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -61,14 +104,24 @@ export const PaymentLedgerPage: React.FC = () => {
 
   const initialPatientId = searchParams.get('patientId') || '';
 
+  // Patient picked in the filter form - only takes effect on "Apply Filter".
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  const [from, setFrom] = useState(initialPatientId ? '' : monthStartIso());
-  const [to, setTo] = useState(initialPatientId ? '' : todayIso());
-  const [fromTime, setFromTime] = useState('');
-  const [toTime, setToTime] = useState('');
-  // Staff / users whose transactions the ledger is narrowed to. Empty = whole centre.
-  const [staffNames, setStaffNames] = useState<string[]>([]);
-  const [customStaffName, setCustomStaffName] = useState('');
+  // What the form shows while it is being filled in, and what the ledger was
+  // last loaded with. Nothing is fetched until "Apply Filter" copies the draft.
+  const [draft, setDraft] = useState<FilterValues>(() =>
+    initialPatientId ? { ...defaultFilterValues(), from: '', to: '', fromTime: '', toTime: '' } : defaultFilterValues()
+  );
+  // The form opens pre-filled, but the ledger starts unfiltered - the date,
+  // time and other filters only take effect once "Apply Filter" is clicked.
+  const [applied, setApplied] = useState<FilterValues & { patientId: string }>(() => ({
+    ...unfilteredValues(),
+    patientId: initialPatientId,
+  }));
+  const { from, to, fromTime, toTime, staffNames, paymentMethod, flowType, payeeType } = applied;
+  const setDraftField = <K extends keyof FilterValues>(key: K, value: FilterValues[K]) =>
+    setDraft((d) => ({ ...d, [key]: value }));
+  const setStaffNames = (update: (prev: string[]) => string[]) =>
+    setDraft((d) => ({ ...d, staffNames: update(d.staffNames) }));
   const handledBy = staffNames.join(', ');
   const [staffMenuOpen, setStaffMenuOpen] = useState(false);
   const staffMenuRef = useRef<HTMLDivElement>(null);
@@ -84,18 +137,16 @@ export const PaymentLedgerPage: React.FC = () => {
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [staffMenuOpen]);
-  const [paymentMethod, setPaymentMethod] = useState('All');
-  const [flowType, setFlowType] = useState<'all' | 'collection' | 'payout' | 'refund'>('all');
-  const [payeeType, setPayeeType] = useState('All');
-  const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'transactions' | 'daywise'>('transactions');
   // What is being printed, if anything other than the patient ledger bill - a
   // ledger entry's voucher, a day's collection statement, or the overall
   // report. Null means a print covers the page as a whole.
   const [printTarget, setPrintTarget] = useState<
-    { kind: 'transaction' | 'day' | 'report'; data: any } | null
+    { kind: 'transaction' | 'day' | 'report' | 'patients'; data: any } | null
   >(null);
   const [preparingReport, setPreparingReport] = useState(false);
+  // Patient bills being fetched for printing - a patient's key, or 'all'.
+  const [preparingPatients, setPreparingPatients] = useState<string | null>(null);
 
   // Fetch center users/staff for the User / Handled By filter
   const { data: usersData } = useQuery({
@@ -104,10 +155,25 @@ export const PaymentLedgerPage: React.FC = () => {
     staleTime: 60000,
   });
 
-  const staffList = asList(usersData, 'users');
+  // Names of the staff who have actually handled a ledger entry - the filter
+  // only offers users that appear in the payment ledger.
+  const { data: ledgerStaffData } = useQuery({
+    queryKey: ['accounts-ledger-staff'],
+    queryFn: () => accountsApi.getLedgerStaff(),
+    staleTime: 60000,
+  });
+
+  const staffList = useMemo(() => {
+    const inLedger = new Set(
+      (Array.isArray(ledgerStaffData) ? ledgerStaffData : []).map((n: string) => n.trim().toLowerCase())
+    );
+    return asList(usersData, 'users').filter(
+      (u: any) => u?.name && inLedger.has(String(u.name).trim().toLowerCase())
+    );
+  }, [usersData, ledgerStaffData]);
 
   // Staff grouped by role for the filter - Admin and the front-desk
-  // receptionists (one per shift) first, then everyone else.
+  // receptionists first, then everyone else.
   const staffByRole = useMemo(() => {
     const order = ['Admin', 'Receptionist'];
     const groups = new Map<string, any[]>();
@@ -130,20 +196,17 @@ export const PaymentLedgerPage: React.FC = () => {
   const { data: initialPatientData } = useQuery({
     queryKey: ['patient-ledger-lookup', initialPatientId],
     queryFn: () => patientApi.getById(initialPatientId),
-    enabled: !!initialPatientId && !selectedPatient,
+    enabled: !!initialPatientId,
   });
 
   React.useEffect(() => {
-    if (initialPatientData && !selectedPatient) {
-      setSelectedPatient(initialPatientData as Patient);
-    }
-  }, [initialPatientData, selectedPatient]);
+    if (initialPatientData) setSelectedPatient(initialPatientData as Patient);
+  }, [initialPatientData]);
 
-  const activePatientId = selectedPatient?.id || (selectedPatient as any)?._id || initialPatientId || undefined;
+  const activePatientId = applied.patientId || undefined;
 
   const filters: LedgerFilters = {
     patientId: activePatientId,
-    search: searchQuery.trim() || undefined,
     from: from || undefined,
     to: to || undefined,
     fromTime: fromTime.trim() || undefined,
@@ -154,6 +217,18 @@ export const PaymentLedgerPage: React.FC = () => {
     payeeType: payeeType !== 'All' ? payeeType : undefined,
     limit: 100,
   };
+
+  // Load the ledger with what is in the form, and keep the URL on the patient.
+  const applyFilters = (values: FilterValues = draft, patient: Patient | null = selectedPatient) => {
+    const patientId = patient?.id || (patient as any)?._id || '';
+    setDraft(values);
+    setApplied({ ...values, patientId });
+    setSearchParams(patientId ? { patientId } : {});
+  };
+
+  const hasPendingChanges =
+    JSON.stringify({ ...draft, patientId: selectedPatient?.id || (selectedPatient as any)?._id || '' }) !==
+    JSON.stringify(applied);
 
   const { data: ledgerData, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['accounts-ledger', filters],
@@ -183,7 +258,7 @@ export const PaymentLedgerPage: React.FC = () => {
 
   const byDay: any[] = ledgerData?.byDay || [];
   const transactions: any[] = ledgerData?.transactions || [];
-  const patientProfile = ledgerData?.patient || selectedPatient;
+  const patientProfile = ledgerData?.patient || (activePatientId ? selectedPatient : null);
   const patientSummary = ledgerData?.patientSummary;
   const patientInvoices: any[] = ledgerData?.invoices || [];
 
@@ -199,15 +274,9 @@ export const PaymentLedgerPage: React.FC = () => {
     setStaffNames((prev) => prev.filter((n) => n !== name));
   };
 
-  const selectLedgerPatient = (patientId: string) => {
-    setSelectedPatient(null);
-    setSearchParams({ patientId });
-  };
-
-  // Patients whose payments / refunds were handled by the selected staff,
-  // one row per patient, most recent activity first.
+  // Patients in the filtered ledger, one per patient, most recent activity
+  // first - what "Print All Patients" prints.
   const staffPatients = useMemo(() => {
-    if (!staffNames.length) return [];
     const map = new Map<string, any>();
     transactions.forEach((t: any) => {
       if (t.type !== 'Patient Collection' && t.type !== 'Patient Refund') return;
@@ -238,29 +307,23 @@ export const PaymentLedgerPage: React.FC = () => {
     );
   }, [transactions, staffNames]);
 
-  const isViewingToday =from === todayIso() && to === todayIso() && !fromTime && !toTime;
+  // Today from midnight, with the window still reaching the current minute.
+  const isViewingToday =
+    from === todayIso() && to === todayIso() && (!fromTime || fromTime === '00:00') && (!toTime || toTime >= nowTime());
 
+  // The quick day buttons below the form apply at once, like "Apply Filter".
   const filterTodayOnly = () => {
-    setFrom(todayIso());
-    setTo(todayIso());
-    setFromTime('');
-    setToTime('');
+    applyFilters({ ...draft, from: todayIso(), to: todayIso(), fromTime: '00:00', toTime: nowTime() });
     setActiveTab('transactions');
   };
 
   const handleFilterDay = (dayDate: string) => {
-    setFrom(dayDate);
-    setTo(dayDate);
-    setFromTime('');
-    setToTime('');
+    applyFilters({ ...draft, from: dayDate, to: dayDate, fromTime: '', toTime: '' });
     setActiveTab('transactions');
   };
 
   const showAllDays = () => {
-    setFrom(monthStartIso());
-    setTo(todayIso());
-    setFromTime('');
-    setToTime('');
+    applyFilters({ ...draft, from: monthStartIso(), to: todayIso(), fromTime: '00:00', toTime: nowTime() });
   };
 
   const handlePrint = () => {
@@ -313,11 +376,39 @@ export const PaymentLedgerPage: React.FC = () => {
     }
   };
 
+  /**
+   * Ledger bills for patients in the filtered list - one patient, or every
+   * patient in it together on one statement. Each bill is fetched under the
+   * applied filters so it covers the same period and staff.
+   */
+  const handlePrintPatients = async (rows: any[], key: string) => {
+    const withId = rows.filter((p) => p.patientId);
+    if (!withId.length) return;
+    setPreparingPatients(key);
+    try {
+      const bills = await Promise.all(
+        withId.map((p) =>
+          accountsApi.getLedger({ ...filters, patientId: p.patientId, limit: 5000 }).catch(() => null)
+        )
+      );
+      const printable = bills.filter((b: any) => b?.patient);
+      if (printable.length) setPrintTarget({ kind: 'patients', data: printable });
+    } finally {
+      setPreparingPatients(null);
+    }
+  };
+
   const reportFilterLines = (() => {
     const lines: string[] = [];
+    // 24h "HH:mm" as "hh:mm AM/PM"; an open end of the day reads as its edge.
+    const clock = (t: string, fallback: string) => {
+      if (!t) return fallback;
+      const [h, m] = t.split(':').map(Number);
+      return `${String(h % 12 || 12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+    };
     const period =
       from || to
-        ? `${from ? formatDay(from) : 'Start'}${fromTime ? ` ${fromTime}` : ''} to ${to ? formatDay(to) : 'Today'}${toTime ? ` ${toTime}` : ''}`
+        ? `${from ? formatDay(from) : 'Start'}, ${clock(fromTime, '12:00 AM')} to ${to ? formatDay(to) : 'Today'}, ${clock(toTime, '11:59 PM')}`
         : 'Complete History';
     lines.push(`Period: ${period}`);
     if (patientProfile) {
@@ -328,7 +419,6 @@ export const PaymentLedgerPage: React.FC = () => {
     if (paymentMethod !== 'All') lines.push(`Method: ${methodLabel(paymentMethod)}`);
     if (flowType !== 'all') lines.push(`Flow: ${flowType.charAt(0).toUpperCase()}${flowType.slice(1)}`);
     if (payeeType !== 'All') lines.push(`Payee: ${payeeType}`);
-    if (searchQuery.trim()) lines.push(`Search: "${searchQuery.trim()}"`);
     return lines;
   })();
 
@@ -382,19 +472,12 @@ export const PaymentLedgerPage: React.FC = () => {
     );
   };
 
+  // Back to the pre-filled form and the unfiltered ledger, as on first load.
   const clearFilters = () => {
     setSelectedPatient(null);
+    setDraft(defaultFilterValues());
+    setApplied({ ...unfilteredValues(), patientId: '' });
     setSearchParams({});
-    setFrom(monthStartIso());
-    setTo(todayIso());
-    setFromTime('');
-    setToTime('');
-    setStaffNames([]);
-    setCustomStaffName('');
-    setPaymentMethod('All');
-    setFlowType('all');
-    setPayeeType('All');
-    setSearchQuery('');
   };
 
   return (
@@ -462,7 +545,7 @@ export const PaymentLedgerPage: React.FC = () => {
           </div>
         </CardHeader>
         <CardContent className="space-y-3.5 p-3 sm:p-5">
-          {/* Row 1: Patient Filter & Staff / User Filter (Shift Cashier) */}
+          {/* Row 1: Patient Filter & Staff / User Filter */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {/* 1. Patient Picker */}
             <div>
@@ -471,30 +554,22 @@ export const PaymentLedgerPage: React.FC = () => {
               </label>
               <PatientSearchSelect
                 value={selectedPatient}
-                onChange={(p) => {
-                  setSelectedPatient(p);
-                  if (p?.id) {
-                    setSearchParams({ patientId: p.id });
-                  } else {
-                    setSearchParams({});
-                  }
-                }}
+                onChange={(p) => setSelectedPatient(p)}
               />
             </div>
 
-            {/* 2. Staff / User Filter (Shift Cashier) */}
+            {/* 2. Staff / User Filter */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                   <UserCheck className="h-3.5 w-3.5 text-indigo-600" />
                   <span>Filter by Staff / Users (Multiple)</span>
                 </label>
-                {staffNames.length > 0 && (
+                {draft.staffNames.length > 0 && (
                   <button
                     type="button"
                     onClick={() => {
-                      setStaffNames([]);
-                      setCustomStaffName('');
+                      setStaffNames(() => []);
                     }}
                     className="text-[10px] font-semibold text-rose-600 hover:underline"
                   >
@@ -510,8 +585,8 @@ export const PaymentLedgerPage: React.FC = () => {
                     className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-slate-300 bg-background px-2.5 text-left text-xs font-medium text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <span className="truncate">
-                      {staffNames.length
-                        ? `${staffNames.length} user${staffNames.length === 1 ? '' : 's'} selected`
+                      {draft.staffNames.length
+                        ? `${draft.staffNames.length} user${draft.staffNames.length === 1 ? '' : 's'} selected`
                         : 'All Staff / Users (Entire Center)'}
                     </span>
                     <span className="text-slate-400">▾</span>
@@ -523,7 +598,7 @@ export const PaymentLedgerPage: React.FC = () => {
                         <p className="px-2 py-3 text-xs text-slate-500">No staff users found.</p>
                       ) : (
                         staffByRole.map((group) => {
-                          const allOn = group.users.every((u: any) => staffNames.includes(u.name));
+                          const allOn = group.users.every((u: any) => draft.staffNames.includes(u.name));
                           return (
                             <div key={group.role} className="mb-1 last:mb-0">
                               <div className="flex items-center justify-between rounded-md bg-slate-50 px-2 py-1">
@@ -542,7 +617,7 @@ export const PaymentLedgerPage: React.FC = () => {
                                     }
                                     className="text-[10px] font-semibold text-indigo-600 hover:underline"
                                   >
-                                    {allOn ? 'Clear all' : 'Select all shifts'}
+                                    {allOn ? 'Clear all' : 'Select all'}
                                   </button>
                                 )}
                               </div>
@@ -553,7 +628,7 @@ export const PaymentLedgerPage: React.FC = () => {
                                 >
                                   <input
                                     type="checkbox"
-                                    checked={staffNames.includes(u.name)}
+                                    checked={draft.staffNames.includes(u.name)}
                                     onChange={(e) => (e.target.checked ? addStaff(u.name) : removeStaff(u.name))}
                                     className="h-3.5 w-3.5 accent-indigo-600"
                                   />
@@ -567,35 +642,10 @@ export const PaymentLedgerPage: React.FC = () => {
                     </div>
                   )}
                 </div>
-                <form
-                  className="flex items-center gap-1"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    addStaff(customStaffName);
-                    setCustomStaffName('');
-                  }}
-                >
-                  <Input
-                    type="text"
-                    placeholder="Or type name..."
-                    value={customStaffName}
-                    onChange={(e) => setCustomStaffName(e.target.value)}
-                    className="h-9 w-32 sm:w-36 text-xs font-medium"
-                  />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    variant="outline"
-                    disabled={!customStaffName.trim()}
-                    className="h-9 px-2.5 text-xs"
-                  >
-                    Add
-                  </Button>
-                </form>
               </div>
-              {staffNames.length > 0 && (
+              {draft.staffNames.length > 0 && (
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {staffNames.map((name) => (
+                  {draft.staffNames.map((name) => (
                     <span
                       key={name}
                       className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-800"
@@ -627,8 +677,8 @@ export const PaymentLedgerPage: React.FC = () => {
               </label>
               <Input
                 type="date"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
+                value={draft.from}
+                onChange={(e) => setDraftField('from', e.target.value)}
                 className="h-9 text-xs w-full min-w-[140px] px-2.5 font-medium text-slate-900"
               />
             </div>
@@ -641,8 +691,8 @@ export const PaymentLedgerPage: React.FC = () => {
               </label>
               <Input
                 type="time"
-                value={fromTime}
-                onChange={(e) => setFromTime(e.target.value)}
+                value={draft.fromTime}
+                onChange={(e) => setDraftField('fromTime', e.target.value)}
                 className="h-9 text-xs w-full px-2.5 font-medium text-slate-900"
                 placeholder="00:00"
                 title="Shift Start Time (e.g. 07:00 AM)"
@@ -657,8 +707,8 @@ export const PaymentLedgerPage: React.FC = () => {
               </label>
               <Input
                 type="date"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
+                value={draft.to}
+                onChange={(e) => setDraftField('to', e.target.value)}
                 className="h-9 text-xs w-full min-w-[140px] px-2.5 font-medium text-slate-900"
               />
             </div>
@@ -671,8 +721,8 @@ export const PaymentLedgerPage: React.FC = () => {
               </label>
               <Input
                 type="time"
-                value={toTime}
-                onChange={(e) => setToTime(e.target.value)}
+                value={draft.toTime}
+                onChange={(e) => setDraftField('toTime', e.target.value)}
                 className="h-9 text-xs w-full px-2.5 font-medium text-slate-900"
                 placeholder="23:59"
                 title="Shift End Time (e.g. 02:00 PM)"
@@ -685,8 +735,8 @@ export const PaymentLedgerPage: React.FC = () => {
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-700">Payment Method</label>
               <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
+                value={draft.paymentMethod}
+                onChange={(e) => setDraftField('paymentMethod', e.target.value)}
                 className="h-9 w-full rounded-lg border bg-background px-2.5 text-xs font-medium"
               >
                 <option value="All">All Methods (Cash, UPI, Card, Split...)</option>
@@ -705,8 +755,8 @@ export const PaymentLedgerPage: React.FC = () => {
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-700">Transaction Flow</label>
               <select
-                value={flowType}
-                onChange={(e) => setFlowType(e.target.value as any)}
+                value={draft.flowType}
+                onChange={(e) => setDraftField('flowType', e.target.value as FlowType)}
                 className="h-9 w-full rounded-lg border bg-background px-2.5 text-xs font-medium"
               >
                 <option value="all">All Flows (Inflows + Outflows)</option>
@@ -722,8 +772,8 @@ export const PaymentLedgerPage: React.FC = () => {
                 Payout Recipient / Payee Type
               </label>
               <select
-                value={payeeType}
-                onChange={(e) => setPayeeType(e.target.value)}
+                value={draft.payeeType}
+                onChange={(e) => setDraftField('payeeType', e.target.value)}
                 className="h-9 w-full rounded-lg border bg-background px-2.5 text-xs font-medium"
               >
                 <option value="All">All Payees / Recipients</option>
@@ -737,19 +787,19 @@ export const PaymentLedgerPage: React.FC = () => {
               </select>
             </div>
 
-            {/* 7. Search Text */}
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-700">Keyword Search</label>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Receipt #, Bill #, Name..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-9 pl-8 text-xs"
-                />
-              </div>
+            {/* 7. Apply - nothing is loaded until the filters are applied */}
+            <div className="flex items-end">
+              <Button
+                type="button"
+                onClick={() => applyFilters()}
+                disabled={isFetching}
+                className={`h-9 w-full text-xs font-semibold ${
+                  hasPendingChanges ? 'bg-red-600 hover:bg-red-700 ring-2 ring-red-300' : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                <Filter className="mr-1.5 h-3.5 w-3.5" />
+                Apply Filter
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -939,7 +989,7 @@ export const PaymentLedgerPage: React.FC = () => {
       </div>
 
       {/* ── Active Patient Ledger Banner (if a patient is selected) ── */}
-      {selectedPatient && patientProfile && (
+      {activePatientId && patientProfile && (
         <Card className="border-indigo-200 bg-gradient-to-r from-indigo-50/80 via-white to-indigo-50/40 shadow-xs print:hidden">
           <CardContent className="p-3.5 sm:p-5">
             <div className="flex flex-col gap-3.5 md:flex-row md:items-center md:justify-between">
@@ -1025,74 +1075,6 @@ export const PaymentLedgerPage: React.FC = () => {
             Show All Days ({formatDay(monthStartIso())} - Today)
           </Button>
         </div>
-      )}
-
-      {/* ── Patients handled by the selected staff / users ── */}
-      {staffNames.length > 0 && !activePatientId && (
-        <Card className="border-indigo-200 shadow-xs print:hidden">
-          <CardHeader className="border-b border-slate-100 bg-indigo-50/50 pb-2.5 pt-2.5 px-3 sm:px-6">
-            <div className="flex items-center justify-between flex-wrap gap-1">
-              <CardTitle className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-2">
-                <UserCheck className="h-4 w-4 text-indigo-600" />
-                <span>
-                  Patients handled by {staffNames.join(', ')} ({staffPatients.length})
-                </span>
-              </CardTitle>
-              <span className="text-[11px] font-medium text-slate-500">
-                Click a patient to open their ledger
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {isLoading ? (
-              <p className="p-4 text-xs text-slate-500">Loading patients...</p>
-            ) : staffPatients.length === 0 ? (
-              <p className="p-4 text-xs text-slate-500">
-                No patient records for the selected user(s) in this period.
-              </p>
-            ) : (
-              <div className="max-h-80 overflow-auto">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Patient</th>
-                      <th className="px-3 py-2 text-left">Mobile</th>
-                      <th className="px-3 py-2 text-right">Entries</th>
-                      <th className="px-3 py-2 text-right">Collected</th>
-                      <th className="px-3 py-2 text-right">Refunded</th>
-                      <th className="px-3 py-2 text-left">Handled By</th>
-                      <th className="px-3 py-2 text-left">Last Activity</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {staffPatients.map((p) => (
-                      <tr
-                        key={p.key}
-                        onClick={() => p.patientId && selectLedgerPatient(p.patientId)}
-                        className={p.patientId ? 'cursor-pointer hover:bg-indigo-50/60' : ''}
-                      >
-                        <td className="px-3 py-2">
-                          <span className="font-semibold text-slate-900">{p.name}</span>
-                          {p.uhid && <span className="ml-1.5 text-[10px] text-slate-500">{p.uhid}</span>}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600">{p.mobile || '-'}</td>
-                        <td className="px-3 py-2 text-right font-mono">{p.count}</td>
-                        <td className="px-3 py-2 text-right font-mono font-semibold text-emerald-700">
-                          {money(p.collected)}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-rose-700">
-                          {p.refunded ? money(p.refunded) : '-'}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600">{Array.from(p.staff).join(', ') || '-'}</td>
-                        <td className="px-3 py-2 text-slate-600">{formatDateTime(p.lastDate)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
       )}
 
       {/* ── Ledger View Switcher Tabs ── */}
@@ -1401,13 +1383,28 @@ export const PaymentLedgerPage: React.FC = () => {
         <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-2.5 pt-2.5 px-3 sm:px-6">
           <div className="flex items-center justify-between">
             <CardTitle className="text-xs sm:text-sm font-bold text-slate-800">
-              {selectedPatient
+              {activePatientId
                 ? `Patient Receipts & Refunds (${transactions.length})`
                 : `All Ledger Transactions (${transactions.length})`}
             </CardTitle>
-            <span className="text-[11px] font-medium text-slate-500">
-              {transactions.length} record{transactions.length === 1 ? '' : 's'}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium text-slate-500">
+                {transactions.length} record{transactions.length === 1 ? '' : 's'}
+              </span>
+              {!activePatientId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handlePrintPatients(staffPatients, 'all')}
+                  disabled={!staffPatients.some((p) => p.patientId) || !!preparingPatients}
+                  title="Print ledger of every patient in this list together"
+                  className="h-7 px-2.5 text-[11px] font-semibold border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                >
+                  <Printer className="mr-1 h-3 w-3" />
+                  {preparingPatients === 'all' ? 'Preparing...' : 'Print All Patients'}
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -1722,8 +1719,26 @@ export const PaymentLedgerPage: React.FC = () => {
         </div>
       )}
 
+      {/* One patient prints their full ledger bill; several print together on
+          one patient-wise statement. */}
+      {printTarget?.kind === 'patients' && (
+        <div className="hidden print:block">
+          {printTarget.data.length === 1 ? (
+            <PatientLedgerBill
+              patient={printTarget.data[0].patient}
+              invoices={printTarget.data[0].invoices || []}
+              transactions={printTarget.data[0].transactions || []}
+              summary={printTarget.data[0].patientSummary}
+              periodLabel={from && to ? `${formatDay(from)} to ${formatDay(to)}` : 'Complete Account History'}
+            />
+          ) : (
+            <PatientsLedgerPrint bills={printTarget.data} filterLines={reportFilterLines} />
+          )}
+        </div>
+      )}
+
       {/* ── Printable Patient Ledger Bill (Activated on Print) ── */}
-      {!printTarget && selectedPatient && patientProfile && (
+      {!printTarget && activePatientId && patientProfile && (
         <div className="hidden print:block">
           <PatientLedgerBill
             patient={patientProfile}

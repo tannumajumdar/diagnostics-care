@@ -80,7 +80,7 @@ export async function seedDatabase() {
       // The desk runs in shifts - each shift's receptionist takes their own cash.
       {
         name: 'Neha Sharma',
-        email: 'reception.morning@lms.com',
+        email: 'neha@lms.com',
         password: 'User@123456',
         role: 'Receptionist',
         mobile: '9876543215',
@@ -88,7 +88,7 @@ export async function seedDatabase() {
       },
       {
         name: 'Rohit Verma',
-        email: 'reception.evening@lms.com',
+        email: 'rohit@lms.com',
         password: 'User@123456',
         role: 'Receptionist',
         mobile: '9876543216',

@@ -205,4 +205,18 @@ export class AccountsController {
       next(error);
     }
   };
+
+  static getLedgerStaff = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const result = await AccountsService.getLedgerStaff();
+      sendResponse({
+        res,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Ledger staff retrieved',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }

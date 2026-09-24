@@ -65,6 +65,8 @@ export const accountsApi = {
   /** Unified Patient Ledger & Cash Flow report */
   getLedger: async (params?: LedgerFilters): Promise<any> =>
     api.get('/accounts/ledger', { params }),
+  /** Names of staff who have handled at least one ledger entry. */
+  getLedgerStaff: async (): Promise<string[]> => api.get('/accounts/ledger/staff'),
 
   getAllRefunds: async (params?: any): Promise<any> => api.get('/accounts/refunds', { params }),
   createRefund: async (data: CreateRefundParams): Promise<any> => api.post('/accounts/refunds', data),

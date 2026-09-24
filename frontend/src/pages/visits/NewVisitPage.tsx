@@ -242,6 +242,8 @@ export const NewVisitPage: React.FC = () => {
   const [drafts, setDrafts] = useState<VisitDraft[]>(initialDraftState.drafts);
   const [activeDraftId, setActiveDraftId] = useState<string>(initialDraftState.activeId);
   const isSwitchingRef = useRef(false);
+  // Narrows the Active Visits bar to held patients whose name matches.
+  const [draftSearch, setDraftSearch] = useState('');
 
   const currentInitialDraft =
     initialDraftState.drafts.find((d) => d.id === initialDraftState.activeId) || initialDraftState.drafts[0];
@@ -1163,6 +1165,21 @@ export const NewVisitPage: React.FC = () => {
     visitMutation.mutate();
   };
 
+  // The active draft's live state is newer than its saved copy in `drafts`.
+  const draftPatientName = (draft: VisitDraft) =>
+    draft.id === activeDraftId
+      ? (mode === 'existing' ? selectedPatient?.patientName : newPatient.patientName)
+      : (draft.mode === 'existing' ? draft.selectedPatient?.patientName : draft.newPatient?.patientName);
+
+  // Case-insensitive partial match on the patient name, or the tab's
+  // "Patient N" label for drafts with no name yet.
+  const draftMatchesSearch = (draft: VisitDraft, idx: number) => {
+    const q = draftSearch.trim().toLowerCase();
+    if (!q) return true;
+    const label = draftPatientName(draft)?.trim() || `Patient ${idx + 1}`;
+    return label.toLowerCase().includes(q);
+  };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1207,11 +1224,39 @@ export const NewVisitPage: React.FC = () => {
             <span>Active Visits:</span>
           </span>
 
+          {drafts.length > 1 && (
+            <div className="relative shrink-0">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={draftSearch}
+                onChange={(e) => setDraftSearch(e.target.value)}
+                placeholder="Search patient..."
+                className="h-8 w-36 sm:w-44 rounded-xl border border-slate-200 bg-white pl-7 pr-6 text-xs focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30"
+              />
+              {draftSearch && (
+                <button
+                  type="button"
+                  onClick={() => setDraftSearch('')}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                  title="Clear search"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {drafts.length > 1 &&
+            draftSearch.trim() &&
+            !drafts.some((draft, idx) => draftMatchesSearch(draft, idx)) && (
+              <span className="shrink-0 px-1 text-xs text-slate-400">No held patient matches</span>
+            )}
+
           {drafts.map((draft, idx) => {
+            if (!draftMatchesSearch(draft, idx)) return null;
             const isActive = draft.id === activeDraftId;
-            const patientName = isActive
-              ? (mode === 'existing' ? selectedPatient?.patientName : newPatient.patientName)
-              : (draft.mode === 'existing' ? draft.selectedPatient?.patientName : draft.newPatient?.patientName);
+            const patientName = draftPatientName(draft);
             const testCount = isActive ? lines.length : (draft.lines?.length || 0);
             const hasData = Boolean(patientName?.trim() || testCount > 0);
             const tabTitle = patientName?.trim() || `Patient ${idx + 1}`;

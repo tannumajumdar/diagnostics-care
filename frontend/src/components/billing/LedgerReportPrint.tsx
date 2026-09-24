@@ -303,9 +303,49 @@ export const LedgerReportPrint: React.FC<LedgerReportPrintProps> = ({
           </tfoot>
         </table>
 
+        {/* Footer & Signature Section */}
+        <div className="flex items-start justify-between gap-4 p-2 text-[9px] bg-white" style={{ breakInside: 'avoid' }}>
+          <div className="min-w-0 max-w-sm">
+            <p className="font-extrabold text-[10px] text-slate-900">
+              Net Cash Flow: ₹{money(summary.netBalance)} ({amountInWords(Number(summary.netBalance) || 0)})
+            </p>
+            <p className="text-[7.5px] leading-[10px] text-slate-500 mt-1">
+              * Ledger report generated from the payment ledger of {centre.name}.
+            </p>
+          </div>
+          <div className="flex gap-8 shrink-0 pt-6 text-center">
+            <div className="w-[110px]">
+              <p className="border-t border-black pt-[2px] text-[8px] font-semibold">Accountant / Cashier</p>
+            </div>
+            <div className="w-[120px]">
+              <p className="border-t border-black pt-[2px] text-[8px] font-bold">Authorised Signatory</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Ledger entries start on a page of their own, under the same period. */}
+      <div className="mt-3 border border-black" style={{ breakBefore: 'page' }}>
+        <div className="flex items-center border-b border-black bg-slate-100 px-2 py-[4px] text-[9px]">
+          <span className="w-1/3 font-bold">{centre.name}</span>
+          <span className="w-1/3 text-center text-[13px] font-extrabold uppercase tracking-wide leading-[15px]">
+            LEDGER ENTRIES
+          </span>
+          <span className="w-1/3 text-right font-bold">{summary.totalCount} entries</span>
+        </div>
+        {filterLines.length > 0 && (
+          <div className="border-b border-black px-2 py-1 text-[8.5px] leading-[12px]">
+            {filterLines.map((line) => (
+              <span key={line} className="mr-4 inline-block">
+                {line}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* 4. Itemised ledger entries */}
         <div className={sectionHead}>
-          4. LEDGER ENTRIES
+          ALL ENTRIES
           {!listedAll && (
             <span className="ml-1 text-[8px] font-semibold text-slate-600">
               (showing {transactions.length} of {summary.totalCount} entries - totals above cover all entries)
@@ -316,7 +356,7 @@ export const LedgerReportPrint: React.FC<LedgerReportPrintProps> = ({
           <thead className="table-header-group">
             <tr className={headRow}>
               <th className="w-[22px] px-1 py-[3px] text-center">Sr</th>
-              <th className="w-[80px] px-1 py-[3px] text-left">Date / Time</th>
+              <th className="w-[92px] px-1 py-[3px] text-left">Date &amp; Time</th>
               <th className="w-[75px] px-1 py-[3px] text-left">Receipt / Ref</th>
               <th className="px-1 py-[3px] text-left">Party / Type</th>
               <th className="w-[62px] px-1 py-[3px] text-left">Method</th>
@@ -332,7 +372,7 @@ export const LedgerReportPrint: React.FC<LedgerReportPrintProps> = ({
                 return (
                   <tr key={t.id || index} className="border-b border-gray-200" style={{ breakInside: 'avoid' }}>
                     <td className="px-1 py-[3px] text-center font-mono">{index + 1}</td>
-                    <td className="px-1 py-[3px]">{formatDateTime(t.date)}</td>
+                    <td className="whitespace-nowrap px-1 py-[3px]">{formatDateTime(t.date)}</td>
                     <td className="px-1 py-[3px] font-mono font-semibold">
                       {t.receiptNumber || '-'}
                       {t.invoiceNumber && (
@@ -376,25 +416,6 @@ export const LedgerReportPrint: React.FC<LedgerReportPrintProps> = ({
           </tfoot>
         </table>
 
-        {/* Footer & Signature Section */}
-        <div className="flex items-start justify-between gap-4 p-2 text-[9px] bg-white" style={{ breakInside: 'avoid' }}>
-          <div className="min-w-0 max-w-sm">
-            <p className="font-extrabold text-[10px] text-slate-900">
-              Net Cash Flow: ₹{money(summary.netBalance)} ({amountInWords(Number(summary.netBalance) || 0)})
-            </p>
-            <p className="text-[7.5px] leading-[10px] text-slate-500 mt-1">
-              * Ledger report generated from the payment ledger of {centre.name}.
-            </p>
-          </div>
-          <div className="flex gap-8 shrink-0 pt-6 text-center">
-            <div className="w-[110px]">
-              <p className="border-t border-black pt-[2px] text-[8px] font-semibold">Accountant / Cashier</p>
-            </div>
-            <div className="w-[120px]">
-              <p className="border-t border-black pt-[2px] text-[8px] font-bold">Authorised Signatory</p>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
