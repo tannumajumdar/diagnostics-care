@@ -215,7 +215,41 @@ export class PatientController {
   static update = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const patient = await Patient.findByIdAndUpdate(id, req.body, { new: true });
+
+      // Only the details the desk fills in at registration are correctable
+      // here - the UHID and status are never taken from the request body.
+      const EDITABLE = [
+        'patientName',
+        'gender',
+        'age',
+        'mobile',
+        'dateOfBirth',
+        'emergencyContact',
+        'address',
+        'city',
+        'state',
+        'pinCode',
+        'referringDoctor',
+        'organization',
+      ];
+      // Fields that cannot hold an empty string: clearing them removes them.
+      const UNSETTABLE = ['dateOfBirth', 'referringDoctor', 'organization'];
+
+      const $set: Record<string, any> = {};
+      const $unset: Record<string, ''> = {};
+      EDITABLE.forEach((key) => {
+        if (!(key in req.body)) return;
+        const value = req.body[key];
+        if (UNSETTABLE.includes(key) && (value === '' || value === null)) $unset[key] = '';
+        else $set[key] = typeof value === 'string' ? value.trim() : value;
+      });
+
+      const update: any = { $set };
+      if (Object.keys($unset).length) update.$unset = $unset;
+
+      const patient = await Patient.findByIdAndUpdate(id, update, { new: true, runValidators: true })
+        .populate('referringDoctor')
+        .populate('organization');
       if (!patient) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Patient not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Patient updated', data: patient });
     } catch (error) {

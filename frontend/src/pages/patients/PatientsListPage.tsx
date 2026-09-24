@@ -7,7 +7,7 @@ import { Card } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
-import { Users, Plus, Search, Eye, History, Receipt, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users, Plus, Search, Eye, History, Receipt, Pencil, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission, PERMISSIONS } from '../../config/roles';
 import { ageLabel } from '../../utils/age';
@@ -17,6 +17,7 @@ export const PatientsListPage: React.FC = () => {
   const { user } = useAuth();
   const canSeeHistory = hasPermission(user, PERMISSIONS.PATIENT_HISTORY);
   const canBill = hasPermission(user, PERMISSIONS.BILL_CREATE);
+  const canEdit = hasPermission(user, PERMISSIONS.PATIENT_EDIT);
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
 
@@ -134,6 +135,17 @@ export const PatientsListPage: React.FC = () => {
                             title={`Past visits, bills and reports for ${p.patientName}`}
                           >
                             <History className="h-4 w-4" /> History
+                          </Button>
+                        )}
+                        {canEdit && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate(`/patients/${p.id}/edit`)}
+                            className="gap-1 text-xs"
+                            title={`Correct the details for ${p.patientName}`}
+                          >
+                            <Pencil className="h-4 w-4" /> Edit
                           </Button>
                         )}
                         <Button

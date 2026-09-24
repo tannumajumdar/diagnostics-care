@@ -89,6 +89,8 @@ export default function App() {
 
                     <Route path="/patients" element={guarded([P.PATIENT_VIEW], <PatientsListPage />)} />
                     <Route path="/patients/new" element={guarded([P.PATIENT_CREATE], <PatientFormPage />)} />
+                    {/* Same form, pre-filled - for correcting details the desk got wrong. */}
+                    <Route path="/patients/:id/edit" element={guarded([P.PATIENT_EDIT], <PatientFormPage />)} />
                     {/* The full record by visit. Its own permission, because
                         a desk that may look a patient up is not automatically
                         a desk that may read everything they have ever owed. */}

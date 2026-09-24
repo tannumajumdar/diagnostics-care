@@ -5,7 +5,7 @@ import { patientApi } from '../../api/patient.api';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
-import { ArrowLeft, CreditCard, TestTube, History, Receipt, Download, Printer } from 'lucide-react';
+import { ArrowLeft, CreditCard, TestTube, History, Receipt, Download, Printer, Pencil } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { hasPermission, PERMISSIONS } from '../../config/roles';
@@ -61,6 +61,11 @@ export const PatientDetailsPage: React.FC<{ isNew?: boolean }> = () => {
           <h1 className="text-2xl font-bold tracking-tight">{patient.patientName}</h1>
           <p className="text-xs text-muted-foreground font-mono">UHID: {patient.uhid}</p>
         </div>
+        {hasPermission(user, PERMISSIONS.PATIENT_EDIT) && (
+          <Button variant="outline" size="sm" onClick={() => navigate(`/patients/${id}/edit`)} className="gap-1.5">
+            <Pencil className="h-4 w-4" /> Edit details
+          </Button>
+        )}
         {hasPermission(user, PERMISSIONS.PATIENT_HISTORY) && (
           <Button variant="outline" size="sm" onClick={() => navigate(`/patients/${id}/history`)} className="gap-1.5">
             <History className="h-4 w-4" /> Full history

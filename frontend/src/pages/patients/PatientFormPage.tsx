@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { patientApi } from '../../api/patient.api';
 import { doctorApi } from '../../api/doctor.api';
 import { organizationApi } from '../../api/organization.api';
@@ -11,7 +11,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/ca
 import { Input } from '../../components/ui/input';
 import { DateInput } from '../../components/ui/date-input';
 import { Button } from '../../components/ui/button';
-import { ArrowLeft, UserPlus, Save } from 'lucide-react';
+import { ArrowLeft, UserPlus, UserPen, Save } from 'lucide-react';
 
 const selectClass =
   'flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -31,9 +31,18 @@ const Field: React.FC<{ label: string; required?: boolean; error?: string; child
   </div>
 );
 
+/** A populated reference comes back as the whole document; the form wants its id. */
+const refId = (ref: any): string => (ref && typeof ref === 'object' ? ref._id ?? ref.id ?? '' : ref ?? '');
+
 export const PatientFormPage: React.FC = () => {
+  // With an id in the URL this is the edit form for a patient already on the
+  // register - the desk correcting a name, age or number it got wrong.
+  const { id } = useParams<{ id: string }>();
+  const isEdit = !!id;
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const backTo = isEdit ? `/patients/${id}` : '/patients';
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -45,15 +54,35 @@ export const PatientFormPage: React.FC = () => {
     dateOfBirth: '',
     emergencyContact: '',
     address: '',
-    city: '',
-    state: '',
-    pinCode: '',
     referringDoctor: '',
     organization: '',
   });
 
   const { data: doctorsData } = useQuery({ queryKey: ['doctors'], queryFn: () => doctorApi.getAll() });
   const { data: orgsData } = useQuery({ queryKey: ['organizations'], queryFn: () => organizationApi.getAll() });
+
+  const { data: existing, isLoading: isLoadingPatient } = useQuery({
+    queryKey: ['patient', id],
+    queryFn: () => patientApi.getById(id!),
+    enabled: isEdit,
+  });
+  const existingPatient = existing?.patient;
+
+  useEffect(() => {
+    if (!existingPatient) return;
+    const p = existingPatient;
+    setForm({
+      patientName: p.patientName ?? '',
+      gender: p.gender ?? '',
+      age: p.age === undefined || p.age === null ? '' : String(p.age),
+      mobile: p.mobile ?? '',
+      dateOfBirth: p.dateOfBirth ? String(p.dateOfBirth).slice(0, 10) : '',
+      emergencyContact: p.emergencyContact ?? '',
+      address: p.address ?? '',
+      referringDoctor: refId(p.referringDoctor),
+      organization: refId(p.organization),
+    });
+  }, [existingPatient]);
 
   const doctors = asList(doctorsData, 'doctors');
   const organizations = asList(orgsData, 'organizations');
@@ -106,9 +135,6 @@ export const PatientFormPage: React.FC = () => {
         'dateOfBirth',
         'emergencyContact',
         'address',
-        'city',
-        'state',
-        'pinCode',
         'referringDoctor',
         'organization',
       ] as const;
@@ -117,31 +143,58 @@ export const PatientFormPage: React.FC = () => {
         if (value) payload[key] = value;
       });
 
+      if (isEdit) {
+        // An edit sends every optional field, empty or not, so a value the
+        // desk deletes is cleared on the record rather than left behind.
+        optional.forEach((key) => {
+          payload[key] = form[key].trim();
+        });
+        await patientApi.update(id!, payload);
+        queryClient.invalidateQueries({ queryKey: ['patient', id] });
+        queryClient.invalidateQueries({ queryKey: ['patients'] });
+        showToast('Patient details updated', 'success');
+        navigate(`/patients/${id}`);
+        return;
+      }
+
       const created = await patientApi.create(payload);
       showToast('Patient registered successfully', 'success');
 
       const newId = created?.id || created?.patient?.id;
       navigate(newId ? `/patients/${newId}` : '/patients');
     } catch (err: any) {
-      showToast(err?.message || 'Failed to register patient', 'error');
+      showToast(err?.message || (isEdit ? 'Failed to update patient' : 'Failed to register patient'), 'error');
     } finally {
       setIsSaving(false);
     }
   };
 
+  if (isEdit && isLoadingPatient) {
+    return <div className="p-8 text-center text-muted-foreground">Loading patient details...</div>;
+  }
+  if (isEdit && !existingPatient) {
+    return <div className="p-8 text-center text-muted-foreground">Patient profile not found.</div>;
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Button variant="outline" size="sm" onClick={() => navigate('/patients')}>
+        <Button variant="outline" size="sm" onClick={() => navigate(backTo)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <UserPlus className="h-6 w-6 text-blue-600" />
-            <span>Register New Patient</span>
+            {isEdit ? (
+              <UserPen className="h-6 w-6 text-blue-600" />
+            ) : (
+              <UserPlus className="h-6 w-6 text-blue-600" />
+            )}
+            <span>{isEdit ? 'Edit Patient Details' : 'Register New Patient'}</span>
           </h1>
           <p className="text-xs text-muted-foreground mt-1">
-            A unique UHID is generated automatically once the record is saved.
+            {isEdit
+              ? `UHID ${existingPatient.uhid} stays the same - bills and reports pick up the corrected details.`
+              : 'A unique UHID is generated automatically once the record is saved.'}
           </p>
         </div>
       </div>
@@ -236,32 +289,12 @@ export const PatientFormPage: React.FC = () => {
           <CardHeader className="pb-3 border-b">
             <CardTitle className="text-sm font-bold">Address</CardTitle>
           </CardHeader>
-          <CardContent className="pt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="md:col-span-4">
-              <Field label="Street Address">
-                <Input
-                  value={form.address}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('address', e.target.value)}
-                  placeholder="House / street / locality"
-                />
-              </Field>
-            </div>
-            <Field label="City">
+          <CardContent className="pt-4">
+            <Field label="Street Address">
               <Input
-                value={form.city}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('city', e.target.value)}
-              />
-            </Field>
-            <Field label="State">
-              <Input
-                value={form.state}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('state', e.target.value)}
-              />
-            </Field>
-            <Field label="PIN Code">
-              <Input
-                value={form.pinCode}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('pinCode', e.target.value)}
+                value={form.address}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('address', e.target.value)}
+                placeholder="House / street / locality"
               />
             </Field>
           </CardContent>
@@ -305,12 +338,12 @@ export const PatientFormPage: React.FC = () => {
         </Card>
 
         <div className="flex items-center justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => navigate('/patients')}>
+          <Button type="button" variant="outline" onClick={() => navigate(backTo)}>
             Cancel
           </Button>
           <Button type="submit" isLoading={isSaving} className="gap-2 bg-blue-600 hover:bg-blue-700">
             <Save className="h-4 w-4" />
-            <span>Register Patient</span>
+            <span>{isEdit ? 'Save Changes' : 'Register Patient'}</span>
           </Button>
         </div>
       </form>
