@@ -19,6 +19,9 @@ router.get(
   requirePermission(PERMISSIONS.APPOINTMENT_MANAGE, PERMISSIONS.SAMPLE_VIEW),
   UserController.getCollectors
 );
+// Names and roles of the staff who take money, for the payment ledger's
+// cashier filter - anyone who can read the ledger needs this, not just Admin.
+router.get('/cashiers', requirePermission(PERMISSIONS.BILL_VIEW), UserController.getCashiers);
 router.post(
   '/',
   requirePermission(PERMISSIONS.STAFF_MANAGE),

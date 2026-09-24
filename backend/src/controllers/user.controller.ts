@@ -109,6 +109,20 @@ export class UserController {
     }
   };
 
+  /**
+   * Everyone who can take a payment or pay one out, for filtering the ledger
+   * by shift cashier. Names and roles only - not the staff register.
+   */
+  static getCashiers = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const cashiers = await User.find({ status: 'Active' }).select('name role').sort({ role: 1, name: 1 });
+
+      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Cashiers retrieved', data: cashiers });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   static getUserById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;

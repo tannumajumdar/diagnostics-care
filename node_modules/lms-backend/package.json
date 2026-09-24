@@ -11,6 +11,7 @@
     "migrate": "npx ts-node --transpile-only src/scripts/migrate-roles.ts",
     "backfill:parameters": "npx ts-node --transpile-only src/scripts/backfill-parameters.ts",
     "seed:tests": "npx ts-node --transpile-only src/scripts/seed-tests.ts",
+    "seed:staff": "npx ts-node --transpile-only src/scripts/seed-staff.ts",
     "seed:checkup": "npx ts-node --transpile-only src/scripts/seed-full-body-checkup.ts",
     "list:patients": "npx ts-node --transpile-only src/scripts/list-patient-ids.ts",
     "backfill:enquiry": "npx ts-node --transpile-only src/scripts/backfill-enquiry-numbers.ts"

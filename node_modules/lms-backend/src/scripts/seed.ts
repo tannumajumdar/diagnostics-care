@@ -77,6 +77,23 @@ export async function seedDatabase() {
         mobile: '9876543214',
         status: 'Active',
       },
+      // The desk runs in shifts - each shift's receptionist takes their own cash.
+      {
+        name: 'Neha Sharma',
+        email: 'reception.morning@lms.com',
+        password: 'User@123456',
+        role: 'Receptionist',
+        mobile: '9876543215',
+        status: 'Active',
+      },
+      {
+        name: 'Rohit Verma',
+        email: 'reception.evening@lms.com',
+        password: 'User@123456',
+        role: 'Receptionist',
+        mobile: '9876543216',
+        status: 'Active',
+      },
     ]);
 
     const adminUser = users[0];

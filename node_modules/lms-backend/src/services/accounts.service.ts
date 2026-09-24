@@ -687,6 +687,16 @@ export class AccountsService {
   }) {
     const { patientId, search, from, to, fromTime, toTime, handledBy, paymentMethod, flowType, payeeType, page = 1, limit = 50 } = query;
 
+    // handledBy may name several staff, comma separated; each is a case-insensitive
+    // partial match on the name stored on the payment / refund / payout.
+    const staffNames = (handledBy && handledBy !== 'All' ? handledBy.split(',') : [])
+      .map((n) => n.trim())
+      .filter(Boolean);
+    const staffRegexes = staffNames.map(
+      (n) => new RegExp(n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+    );
+    const staffMatch = staffRegexes.length ? { $in: staffRegexes } : null;
+
     let dateFilter: any = null;
     if (from || to || fromTime || toTime) {
       const { start, end } = dateWindow(from, to, fromTime, toTime);
@@ -747,9 +757,7 @@ export class AccountsService {
       if (paymentMethod && paymentMethod !== 'All' && paymentMethod !== 'Split') {
         paymentQuery.paymentMethod = paymentMethod;
       }
-      if (handledBy && handledBy !== 'All' && handledBy.trim()) {
-        paymentQuery['receivedBy.name'] = { $regex: handledBy.trim(), $options: 'i' };
-      }
+      if (staffMatch) paymentQuery['receivedBy.name'] = staffMatch;
 
       const payments = await Payment.find(paymentQuery)
         .populate('patient', 'patientName uhid mobile age gender address')
@@ -816,9 +824,7 @@ export class AccountsService {
         if (paymentMethod && paymentMethod !== 'All' && paymentMethod !== 'Split') {
           refundQuery.paymentMethod = paymentMethod;
         }
-        if (handledBy && handledBy !== 'All' && handledBy.trim()) {
-          refundQuery['approvedBy.name'] = { $regex: handledBy.trim(), $options: 'i' };
-        }
+        if (staffMatch) refundQuery['approvedBy.name'] = staffMatch;
 
         const refunds = await Refund.find(refundQuery)
           .populate('patient', 'patientName uhid mobile age gender address')
@@ -866,9 +872,8 @@ export class AccountsService {
           payoutQuery.paymentMethod = paymentMethod;
         }
         if (payeeType && payeeType !== 'All') payoutQuery.payeeType = payeeType;
-        if (handledBy && handledBy !== 'All' && handledBy.trim()) {
-          const r = { $regex: handledBy.trim(), $options: 'i' };
-          payoutQuery.$or = [{ 'recordedBy.name': r }, { 'approvedBy.name': r }];
+        if (staffMatch) {
+          payoutQuery.$or = [{ 'recordedBy.name': staffMatch }, { 'approvedBy.name': staffMatch }];
         }
 
         const payouts = await Payout.find(payoutQuery)
@@ -988,9 +993,10 @@ export class AccountsService {
       );
     }
 
-    if (handledBy && handledBy !== 'All' && handledBy.trim()) {
-      const hb = handledBy.trim().toLowerCase();
-      allTransactions = allTransactions.filter((t) => t.handledBy?.toLowerCase().includes(hb));
+    if (staffRegexes.length) {
+      allTransactions = allTransactions.filter(
+        (t) => t.handledBy && staffRegexes.some((r) => r.test(t.handledBy))
+      );
     }
 
     // Totals

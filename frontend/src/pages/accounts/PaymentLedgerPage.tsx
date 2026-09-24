@@ -65,9 +65,24 @@ export const PaymentLedgerPage: React.FC = () => {
   const [to, setTo] = useState(initialPatientId ? '' : todayIso());
   const [fromTime, setFromTime] = useState('');
   const [toTime, setToTime] = useState('');
-  const [handledBy, setHandledBy] = useState('All');
-  const [staffSelectValue, setStaffSelectValue] = useState('All');
+  // Staff / users whose transactions the ledger is narrowed to. Empty = whole centre.
+  const [staffNames, setStaffNames] = useState<string[]>([]);
   const [customStaffName, setCustomStaffName] = useState('');
+  const handledBy = staffNames.join(', ');
+  const [staffMenuOpen, setStaffMenuOpen] = useState(false);
+  const staffMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close the staff picker on a click anywhere outside it.
+  React.useEffect(() => {
+    if (!staffMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (staffMenuRef.current && !staffMenuRef.current.contains(e.target as Node)) {
+        setStaffMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [staffMenuOpen]);
   const [paymentMethod, setPaymentMethod] = useState('All');
   const [flowType, setFlowType] = useState<'all' | 'collection' | 'payout' | 'refund'>('all');
   const [payeeType, setPayeeType] = useState('All');
@@ -81,12 +96,32 @@ export const PaymentLedgerPage: React.FC = () => {
 
   // Fetch center users/staff for the User / Handled By filter
   const { data: usersData } = useQuery({
-    queryKey: ['users-list-ledger'],
-    queryFn: () => userApi.getAll({ limit: 100 }),
+    queryKey: ['users-cashiers-ledger'],
+    queryFn: () => userApi.getCashiers(),
     staleTime: 60000,
   });
 
   const staffList = asList(usersData, 'users');
+
+  // Staff grouped by role for the filter - Admin and the front-desk
+  // receptionists (one per shift) first, then everyone else.
+  const staffByRole = useMemo(() => {
+    const order = ['Admin', 'Receptionist'];
+    const groups = new Map<string, any[]>();
+    staffList.forEach((u: any) => {
+      if (!u?.name) return;
+      const role = u.role || 'Staff';
+      if (!groups.has(role)) groups.set(role, []);
+      groups.get(role)!.push(u);
+    });
+    const rank = (r: string) => (order.includes(r) ? order.indexOf(r) : order.length);
+    return Array.from(groups.entries())
+      .map(([role, users]) => ({
+        role,
+        users: users.sort((a, b) => String(a.name).localeCompare(String(b.name))),
+      }))
+      .sort((a, b) => rank(a.role) - rank(b.role) || a.role.localeCompare(b.role));
+  }, [staffList]);
 
   // Fetch patient profile if patientId was passed in query params
   const { data: initialPatientData } = useQuery({
@@ -110,7 +145,7 @@ export const PaymentLedgerPage: React.FC = () => {
     to: to || undefined,
     fromTime: fromTime.trim() || undefined,
     toTime: toTime.trim() || undefined,
-    handledBy: handledBy !== 'All' && handledBy.trim() ? handledBy.trim() : undefined,
+    handledBy: staffNames.length ? staffNames.join(',') : undefined,
     paymentMethod: paymentMethod !== 'All' ? paymentMethod : undefined,
     flowType: flowType !== 'all' ? flowType : undefined,
     payeeType: payeeType !== 'All' ? payeeType : undefined,
@@ -149,7 +184,58 @@ export const PaymentLedgerPage: React.FC = () => {
   const patientSummary = ledgerData?.patientSummary;
   const patientInvoices: any[] = ledgerData?.invoices || [];
 
-  const isViewingToday = from === todayIso() && to === todayIso() && !fromTime && !toTime;
+  const addStaff = (name: string) => {
+    const clean = name.replace(/,/g, ' ').trim();
+    if (!clean) return;
+    setStaffNames((prev) =>
+      prev.some((n) => n.toLowerCase() === clean.toLowerCase()) ? prev : [...prev, clean]
+    );
+  };
+
+  const removeStaff = (name: string) => {
+    setStaffNames((prev) => prev.filter((n) => n !== name));
+  };
+
+  const selectLedgerPatient = (patientId: string) => {
+    setSelectedPatient(null);
+    setSearchParams({ patientId });
+  };
+
+  // Patients whose payments / refunds were handled by the selected staff,
+  // one row per patient, most recent activity first.
+  const staffPatients = useMemo(() => {
+    if (!staffNames.length) return [];
+    const map = new Map<string, any>();
+    transactions.forEach((t: any) => {
+      if (t.type !== 'Patient Collection' && t.type !== 'Patient Refund') return;
+      const key = String(t.patientId || t.partyUhid || t.partyName);
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          patientId: t.patientId ? String(t.patientId) : '',
+          name: t.partyName,
+          uhid: t.partyUhid,
+          mobile: t.partyMobile,
+          count: 0,
+          collected: 0,
+          refunded: 0,
+          lastDate: t.date,
+          staff: new Set<string>(),
+        });
+      }
+      const row = map.get(key);
+      row.count++;
+      if (t.flow === 'INFLOW') row.collected += Number(t.amount) || 0;
+      else row.refunded += Number(t.amount) || 0;
+      if (new Date(t.date).getTime() > new Date(row.lastDate).getTime()) row.lastDate = t.date;
+      if (t.handledBy) row.staff.add(t.handledBy);
+    });
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(b.lastDate).getTime() - new Date(a.lastDate).getTime()
+    );
+  }, [transactions, staffNames]);
+
+  const isViewingToday =from === todayIso() && to === todayIso() && !fromTime && !toTime;
 
   const filterTodayOnly = () => {
     setFrom(todayIso());
@@ -248,7 +334,9 @@ export const PaymentLedgerPage: React.FC = () => {
     }));
 
     const timeSuffix = fromTime || toTime ? `_${fromTime || '0000'}-${toTime || '2359'}` : '';
-    const staffSuffix = handledBy && handledBy !== 'All' ? `_Staff-${handledBy.replace(/\s+/g, '_')}` : '';
+    const staffSuffix = staffNames.length
+      ? `_Staff-${staffNames.map((n) => n.replace(/\s+/g, '_')).join('+')}`
+      : '';
     exportToExcel(
       `Ledger_Report_${activePatientId ? patientProfile?.patientName : 'All'}_${from}_${to}${timeSuffix}${staffSuffix}`,
       rows
@@ -262,8 +350,7 @@ export const PaymentLedgerPage: React.FC = () => {
     setTo(todayIso());
     setFromTime('');
     setToTime('');
-    setHandledBy('All');
-    setStaffSelectValue('All');
+    setStaffNames([]);
     setCustomStaffName('');
     setPaymentMethod('All');
     setFlowType('all');
@@ -352,14 +439,13 @@ export const PaymentLedgerPage: React.FC = () => {
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                   <UserCheck className="h-3.5 w-3.5 text-indigo-600" />
-                  <span>Filter by Staff / User (Shift Cashier)</span>
+                  <span>Filter by Staff / Users (Multiple)</span>
                 </label>
-                {handledBy !== 'All' && (
+                {staffNames.length > 0 && (
                   <button
                     type="button"
                     onClick={() => {
-                      setHandledBy('All');
-                      setStaffSelectValue('All');
+                      setStaffNames([]);
                       setCustomStaffName('');
                     }}
                     className="text-[10px] font-semibold text-rose-600 hover:underline"
@@ -369,41 +455,117 @@ export const PaymentLedgerPage: React.FC = () => {
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <select
-                  value={staffSelectValue}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setStaffSelectValue(val);
-                    if (val === 'CUSTOM') {
-                      setHandledBy(customStaffName);
-                    } else {
-                      setHandledBy(val);
-                    }
+                <div ref={staffMenuRef} className="relative flex-1 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setStaffMenuOpen((o) => !o)}
+                    className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-slate-300 bg-background px-2.5 text-left text-xs font-medium text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <span className="truncate">
+                      {staffNames.length
+                        ? `${staffNames.length} user${staffNames.length === 1 ? '' : 's'} selected`
+                        : 'All Staff / Users (Entire Center)'}
+                    </span>
+                    <span className="text-slate-400">▾</span>
+                  </button>
+
+                  {staffMenuOpen && (
+                    <div className="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+                      {staffByRole.length === 0 ? (
+                        <p className="px-2 py-3 text-xs text-slate-500">No staff users found.</p>
+                      ) : (
+                        staffByRole.map((group) => {
+                          const allOn = group.users.every((u: any) => staffNames.includes(u.name));
+                          return (
+                            <div key={group.role} className="mb-1 last:mb-0">
+                              <div className="flex items-center justify-between rounded-md bg-slate-50 px-2 py-1">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">
+                                  {group.role} ({group.users.length})
+                                </span>
+                                {group.users.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      allOn
+                                        ? setStaffNames((prev) =>
+                                            prev.filter((n) => !group.users.some((u: any) => u.name === n))
+                                          )
+                                        : group.users.forEach((u: any) => addStaff(u.name))
+                                    }
+                                    className="text-[10px] font-semibold text-indigo-600 hover:underline"
+                                  >
+                                    {allOn ? 'Clear all' : 'Select all shifts'}
+                                  </button>
+                                )}
+                              </div>
+                              {group.users.map((u: any) => (
+                                <label
+                                  key={u.id || u._id}
+                                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-800 hover:bg-indigo-50"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={staffNames.includes(u.name)}
+                                    onChange={(e) => (e.target.checked ? addStaff(u.name) : removeStaff(u.name))}
+                                    className="h-3.5 w-3.5 accent-indigo-600"
+                                  />
+                                  <span className="font-medium">{u.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+                <form
+                  className="flex items-center gap-1"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    addStaff(customStaffName);
+                    setCustomStaffName('');
                   }}
-                  className="h-9 flex-1 rounded-lg border border-slate-300 bg-background px-2.5 text-xs font-medium text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 >
-                  <option value="All">All Staff / Users (Entire Center)</option>
-                  {staffList.map((u: any) => (
-                    <option key={u.id || u._id} value={u.name}>
-                      {u.name} — {u.role || 'Staff'}
-                    </option>
-                  ))}
-                  <option value="CUSTOM">Type Name Manually / Search Name...</option>
-                </select>
-                {staffSelectValue === 'CUSTOM' && (
                   <Input
                     type="text"
-                    placeholder="Type cashier name..."
+                    placeholder="Or type name..."
                     value={customStaffName}
-                    onChange={(e) => {
-                      setCustomStaffName(e.target.value);
-                      setHandledBy(e.target.value);
-                    }}
-                    className="h-9 w-44 text-xs font-medium"
-                    autoFocus
+                    onChange={(e) => setCustomStaffName(e.target.value)}
+                    className="h-9 w-32 sm:w-36 text-xs font-medium"
                   />
-                )}
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="outline"
+                    disabled={!customStaffName.trim()}
+                    className="h-9 px-2.5 text-xs"
+                  >
+                    Add
+                  </Button>
+                </form>
               </div>
+              {staffNames.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {staffNames.map((name) => (
+                    <span
+                      key={name}
+                      className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-800"
+                    >
+                      <User className="h-3 w-3" />
+                      {name}
+                      <button
+                        type="button"
+                        onClick={() => removeStaff(name)}
+                        className="ml-0.5 text-indigo-500 hover:text-rose-600"
+                        title={`Remove ${name}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -782,7 +944,7 @@ export const PaymentLedgerPage: React.FC = () => {
       )}
 
       {/* ── Active Date, Time & Staff Filter Notice ── */}
-      {((from && to && from === to) || fromTime || toTime || (handledBy && handledBy !== 'All')) && (
+      {((from && to && from === to) || fromTime || toTime || staffNames.length > 0) && (
         <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 px-3.5 py-2 rounded-xl text-xs text-indigo-900 print:hidden flex-wrap gap-2">
           <div className="flex items-center gap-2 flex-wrap">
             <Calendar className="h-4 w-4 text-indigo-600 shrink-0" />
@@ -798,7 +960,7 @@ export const PaymentLedgerPage: React.FC = () => {
                   Shift: {fromTime || '00:00'} - {toTime || '23:59'}
                 </span>
               )}
-              {handledBy && handledBy !== 'All' && (
+              {staffNames.length > 0 && (
                 <span className="ml-1.5 inline-flex items-center gap-1 font-semibold text-indigo-800 bg-indigo-200/80 px-2 py-0.5 rounded-md">
                   <UserCheck className="h-3 w-3 text-indigo-700" />
                   Staff: <strong>{handledBy}</strong>
@@ -815,6 +977,74 @@ export const PaymentLedgerPage: React.FC = () => {
             Show All Days ({formatDay(monthStartIso())} - Today)
           </Button>
         </div>
+      )}
+
+      {/* ── Patients handled by the selected staff / users ── */}
+      {staffNames.length > 0 && !activePatientId && (
+        <Card className="border-indigo-200 shadow-xs print:hidden">
+          <CardHeader className="border-b border-slate-100 bg-indigo-50/50 pb-2.5 pt-2.5 px-3 sm:px-6">
+            <div className="flex items-center justify-between flex-wrap gap-1">
+              <CardTitle className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-2">
+                <UserCheck className="h-4 w-4 text-indigo-600" />
+                <span>
+                  Patients handled by {staffNames.join(', ')} ({staffPatients.length})
+                </span>
+              </CardTitle>
+              <span className="text-[11px] font-medium text-slate-500">
+                Click a patient to open their ledger
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {isLoading ? (
+              <p className="p-4 text-xs text-slate-500">Loading patients...</p>
+            ) : staffPatients.length === 0 ? (
+              <p className="p-4 text-xs text-slate-500">
+                No patient records for the selected user(s) in this period.
+              </p>
+            ) : (
+              <div className="max-h-80 overflow-auto">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Patient</th>
+                      <th className="px-3 py-2 text-left">Mobile</th>
+                      <th className="px-3 py-2 text-right">Entries</th>
+                      <th className="px-3 py-2 text-right">Collected</th>
+                      <th className="px-3 py-2 text-right">Refunded</th>
+                      <th className="px-3 py-2 text-left">Handled By</th>
+                      <th className="px-3 py-2 text-left">Last Activity</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {staffPatients.map((p) => (
+                      <tr
+                        key={p.key}
+                        onClick={() => p.patientId && selectLedgerPatient(p.patientId)}
+                        className={p.patientId ? 'cursor-pointer hover:bg-indigo-50/60' : ''}
+                      >
+                        <td className="px-3 py-2">
+                          <span className="font-semibold text-slate-900">{p.name}</span>
+                          {p.uhid && <span className="ml-1.5 text-[10px] text-slate-500">{p.uhid}</span>}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600">{p.mobile || '-'}</td>
+                        <td className="px-3 py-2 text-right font-mono">{p.count}</td>
+                        <td className="px-3 py-2 text-right font-mono font-semibold text-emerald-700">
+                          {money(p.collected)}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-rose-700">
+                          {p.refunded ? money(p.refunded) : '-'}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600">{Array.from(p.staff).join(', ') || '-'}</td>
+                        <td className="px-3 py-2 text-slate-600">{formatDateTime(p.lastDate)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* ── Ledger View Switcher Tabs ── */}
