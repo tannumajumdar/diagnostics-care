@@ -17,6 +17,9 @@ const parameterResultSchema = new Schema(
       enum: ['Normal', 'Low', 'High', 'Critical'],
       default: 'Normal',
     },
+    // Set when the bench picked the flag by hand instead of leaving it to be
+    // read off the range - a re-save then keeps their choice.
+    flagManual: { type: Boolean, default: false },
     method: { type: String, default: '' },
     remarks: { type: String, default: '' },
     resultType: { type: String, default: 'Numeric' },

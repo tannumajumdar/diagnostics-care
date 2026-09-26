@@ -8,6 +8,8 @@ export interface IParameterResult {
   unit?: string;
   referenceRange?: string;
   flag?: 'Normal' | 'Low' | 'High' | 'Critical';
+  /** The bench set the flag by hand - it is kept rather than recalculated. */
+  flagManual?: boolean;
   method?: string;
   remarks?: string;
   resultType?: string;

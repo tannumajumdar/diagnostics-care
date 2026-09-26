@@ -277,12 +277,17 @@ export class ResultService {
     // the browser sent - a corrected value with a stale 'Normal' beside it is
     // the kind of thing that gets missed on a printed report. A header row is
     // only a section title - whatever the browser sent, it holds no value and
-    // can never flag.
+    // can never flag. The one exception is a flag the bench picked by hand:
+    // that is a deliberate call on the value, so it is kept as sent.
+    const MANUAL_FLAGS = ['Normal', 'Low', 'High', 'Critical'];
     const calculatedResults = (data.results || []).map((r: any) =>
       r.resultType === 'Header'
-        ? { ...r, value: '', flag: 'Normal' }
+        ? { ...r, value: '', flag: 'Normal', flagManual: false }
+        : r.flagManual && String(r.value ?? '').trim() !== '' && MANUAL_FLAGS.includes(r.flag)
+        ? { ...r, flagManual: true }
         : {
             ...r,
+            flagManual: false,
             flag: calculateResultFlag(r.value, r.referenceRange, {
               criticalLow: r.criticalLow,
               criticalHigh: r.criticalHigh,

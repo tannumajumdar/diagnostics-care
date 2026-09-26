@@ -63,6 +63,8 @@ const flagVariant = (flag: string) => {
   return 'success' as const;
 };
 
+const FLAG_CHOICES = ['Normal', 'High', 'Low', 'Critical'];
+
 const OPTIONS_BY_TYPE: Record<string, string[]> = {
   'Positive/Negative': ['Negative', 'Positive'],
   'Reactive/Non-Reactive': ['Non-Reactive', 'Reactive'],
@@ -87,6 +89,8 @@ export const ResultEntryPage: React.FC = () => {
   // that measure a parameter of the same name never overwrite each other.
   const [values, setValues] = useState<Record<string, Record<string, string>>>({});
   const [remarks, setRemarks] = useState<Record<string, string>>({});
+  // Flags picked by hand, same keying. '' means "back to automatic".
+  const [flagEdits, setFlagEdits] = useState<Record<string, Record<string, string>>>({});
 
   const { data, isLoading } = useQuery({
     queryKey: ['result-entry-visit', sampleId],
@@ -121,6 +125,19 @@ export const ResultEntryPage: React.FC = () => {
     return typed !== undefined ? typed : p.value || '';
   };
 
+  /** The flag chosen by hand for this line, or '' when it is left to the range. */
+  const manualFlagOf = (sheet: any, p: any): string => {
+    const picked = flagEdits[sheet._id]?.[p.parameterName];
+    if (picked !== undefined) return picked;
+    return p.flagManual && p.flag ? p.flag : '';
+  };
+
+  const flagOf = (sheet: any, p: any) =>
+    manualFlagOf(sheet, p) || previewFlag(valueOf(sheet, p), p.referenceRange, p);
+
+  const setManualFlag = (sheetId: string, parameterName: string, flag: string) =>
+    setFlagEdits((prev) => ({ ...prev, [sheetId]: { ...(prev[sheetId] || {}), [parameterName]: flag } }));
+
   const remarksOf = (sheet: any) =>
     remarks[sheet._id] !== undefined ? remarks[sheet._id] : sheet.overallRemarks || '';
 
@@ -134,7 +151,15 @@ export const ResultEntryPage: React.FC = () => {
     entryRowsOf(sheet).filter((p: any) => String(valueOf(sheet, p)).trim() !== '').length;
 
   const payloadFor = (sheet: any): ParameterResult[] =>
-    parametersOf(sheet).map((p: any) => ({ ...p, value: valueOf(sheet, p) }));
+    parametersOf(sheet).map((p: any) => {
+      const manual = manualFlagOf(sheet, p);
+      return {
+        ...p,
+        value: valueOf(sheet, p),
+        flag: manual || previewFlag(valueOf(sheet, p), p.referenceRange, p),
+        flagManual: !!manual,
+      };
+    });
 
   /** Sheets worth writing back - anything with a value typed or already held. */
   const sheetsWithValues = () => sheets.filter((sheet) => filledCount(sheet) > 0);
@@ -322,7 +347,9 @@ export const ResultEntryPage: React.FC = () => {
                         }
 
                         const value = valueOf(sheet, p);
-                        const flag = previewFlag(value, p.referenceRange, p);
+                        const manualFlag = manualFlagOf(sheet, p);
+                        const autoFlag = previewFlag(value, p.referenceRange, p);
+                        const flag = flagOf(sheet, p);
                         const options =
                           p.resultType === 'Dropdown' ? p.dropdownOptions : OPTIONS_BY_TYPE[p.resultType];
 
@@ -363,7 +390,25 @@ export const ResultEntryPage: React.FC = () => {
                               {String(value).trim() === '' ? (
                                 <span className="text-muted-foreground">-</span>
                               ) : (
-                                <Badge variant={flagVariant(flag)}>{flag}</Badge>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={flagVariant(flag)}>
+                                    {flag}
+                                    {manualFlag && <span className="ml-1 opacity-75">(manual)</span>}
+                                  </Badge>
+                                  <select
+                                    className={`${selectClass} w-28`}
+                                    value={manualFlag}
+                                    title="Leave on Auto to read the flag off the range, or pick one to override it"
+                                    onChange={(e) => setManualFlag(sheet._id, p.parameterName, e.target.value)}
+                                  >
+                                    <option value="">Auto ({autoFlag})</option>
+                                    {FLAG_CHOICES.map((f) => (
+                                      <option key={f} value={f}>
+                                        {f}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
                               )}
                             </td>
                           </tr>

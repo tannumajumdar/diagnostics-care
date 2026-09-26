@@ -227,6 +227,8 @@ export interface ParameterResult {
   unit?: string;
   referenceRange: string;
   flag: ResultFlag;
+  /** The bench set the flag by hand - the server keeps it instead of recalculating. */
+  flagManual?: boolean;
   method?: string;
   remarks?: string;
   resultType: string;
