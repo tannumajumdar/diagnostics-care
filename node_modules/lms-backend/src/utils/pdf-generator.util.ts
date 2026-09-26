@@ -154,9 +154,11 @@ export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer>
     rule(doc);
     doc.moveDown(0.8);
 
-    // One section per test, in the order the visit was billed. Everything the
-    // counter needs to tell two draws apart - sample id, barcode, department -
-    // sits with its own test rather than in a header that can only hold one.
+    // One section per test, arrived at already grouped by department and in
+    // billing order within it. Everything the counter needs to tell two draws
+    // apart - sample id, barcode - sits with its own test rather than in a
+    // header that can only hold one.
+    let lastDepartment: string | null = null;
     sheets.forEach((sheet: any, index: number) => {
       const test = typeof sheet.test === 'object' ? sheet.test || {} : {};
       const sample = typeof sheet.sample === 'object' ? sheet.sample || {} : {};
@@ -165,6 +167,21 @@ export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer>
       // A long panel followed by another test would start half off the page.
       if (index > 0 && doc.y > 620) doc.addPage();
       if (index > 0) doc.moveDown(1);
+
+      // A banner each time the report moves into another department.
+      const departmentName = department.departmentName || '';
+      if (departmentName && departmentName !== lastDepartment) {
+        doc
+          .fillColor('#2563eb')
+          .font('Helvetica-Bold')
+          .fontSize(10)
+          .text(`DEPARTMENT OF ${departmentName.toUpperCase()}`, LEFT, doc.y, {
+            width: RIGHT - LEFT,
+            align: 'center',
+          });
+        doc.moveDown(0.5);
+      }
+      lastDepartment = departmentName;
 
       doc.fillColor('#111827').font('Helvetica-Bold').fontSize(11).text(
         `${test.testName || 'Diagnostic Test'}${test.testCode ? ` (${test.testCode})` : ''}`,
@@ -175,7 +192,6 @@ export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer>
       const meta = [
         sample.sampleId ? `Sample ${sample.sampleId}` : '',
         sample.barcode ? `Barcode ${sample.barcode}` : '',
-        department.departmentName || '',
         test.sampleType || sample.sampleType || '',
         sample.collectionDate ? `Collected ${stamp(sample.collectionDate)}` : '',
         sheet.status && sheet.status !== 'Approved' ? `Status ${sheet.status}` : '',

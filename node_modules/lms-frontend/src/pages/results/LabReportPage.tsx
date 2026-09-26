@@ -95,8 +95,22 @@ export const LabReportPage: React.FC = () => {
   const hasValues = (sheet: any) =>
     parametersOf(sheet).some((p: any) => String(p.value ?? '').trim() !== '');
 
-  const reportable = sheets.filter((sheet) => hasValues(sheet) || sheet._id === opened._id);
-  const pending = sheets.filter((sheet) => !hasValues(sheet) && sheet._id !== opened._id);
+  /**
+   * The patient is handed one report for the visit, so it is only generated
+   * once every test billed on it has been run and released. Tests finish at
+   * their own pace; until the last one is out, this page shows where each
+   * test stands instead of a report with gaps in it.
+   */
+  const isReleased = (sheet: any) => {
+    const sample = typeof sheet?.sample === 'object' ? sheet.sample : {};
+    return sample.status === 'Completed' && (sheet.status === 'Approved' || sheet.status === 'Final');
+  };
+  const stageOf = (sheet: any) => {
+    const sample = typeof sheet?.sample === 'object' ? sheet.sample : {};
+    return sample.status === 'Completed' ? `Result ${sheet.status || 'Draft'}` : sample.status || 'Pending';
+  };
+  const notReady = sheets.filter((sheet) => !isReleased(sheet));
+  const reportable = sheets;
 
   const primary: any = reportable[0] || opened;
   const patient: any = typeof primary.patient === 'object' ? primary.patient : {};
@@ -122,7 +136,6 @@ export const LabReportPage: React.FC = () => {
   const allCritical = reportable.flatMap((sheet) =>
     parametersOf(sheet).filter((p: any) => p.flag === 'Critical')
   );
-  const unreleased = reportable.filter((s) => s.status !== 'Approved' && s.status !== 'Final');
 
   // One pathologist for the whole visit is the usual case; where two signed
   // different tests, the sections carry their own line instead.
@@ -131,6 +144,72 @@ export const LabReportPage: React.FC = () => {
   );
 
   const handleDownloadPDF = () => window.open(resultApi.getPDFUrl(primary._id), '_blank');
+
+  if (notReady.length > 0) {
+    const done = sheets.length - notReady.length;
+    return (
+      <div className="mx-auto max-w-2xl space-y-4 py-4">
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">Report not ready yet</h1>
+            <p className="text-xs text-muted-foreground">
+              {patient.patientName} · UHID {primary.uhid}
+              {(primary.enquiryNo || invoice.enquiryNo) && ` · Enq ${primary.enquiryNo || invoice.enquiryNo}`}
+            </p>
+          </div>
+        </div>
+
+        <Card className="space-y-4 p-5">
+          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              The patient&apos;s report is generated once every test on this visit is completed and released by the
+              pathologist. {done} of {sheets.length} test{sheets.length === 1 ? '' : 's'} done so far.
+            </span>
+          </div>
+
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-emerald-500 transition-all"
+              style={{ width: `${Math.round((done / sheets.length) * 100)}%` }}
+            />
+          </div>
+
+          <ul className="divide-y rounded-xl border text-xs">
+            {sheets.map((sheet: any) => {
+              const test: any = typeof sheet.test === 'object' ? sheet.test : {};
+              const sample: any = typeof sheet.sample === 'object' ? sheet.sample : {};
+              const department: any = typeof sheet.department === 'object' ? sheet.department : {};
+              const released = isReleased(sheet);
+              return (
+                <li key={sheet._id} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground">{test.testName || sample.testName || 'Test'}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      <span className="font-mono">{sample.sampleId}</span>
+                      {department.departmentName && <span className="ml-2">{department.departmentName}</span>}
+                    </p>
+                  </div>
+                  {released ? (
+                    <span className="flex items-center gap-1 font-semibold text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4" /> Released
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                      {stageOf(sheet)}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 py-4 print:max-w-none print:py-0">
@@ -156,34 +235,6 @@ export const LabReportPage: React.FC = () => {
           </Button>
         </div>
       </div>
-
-      {unreleased.length > 0 && (
-        <div
-          className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
-          data-print="hide"
-        >
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            {unreleased.length} of these test{unreleased.length === 1 ? '' : 's'} (
-            {unreleased.map((s) => (typeof s.test === 'object' ? s.test?.testName : 'test')).join(', ')}) has not
-            been released by the pathologist yet. Do not hand this copy to the patient.
-          </span>
-        </div>
-      )}
-
-      {pending.length > 0 && (
-        <div
-          className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700"
-          data-print="hide"
-        >
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            Also billed on this visit, still with no values entered:{' '}
-            {pending.map((s) => (typeof s.test === 'object' ? s.test?.testName : 'test')).join(', ')}. They are
-            left off the report until the bench fills them in.
-          </span>
-        </div>
-      )}
 
       <Card className="report-sheet space-y-5 border-2 bg-card p-6 print:border-0 print:p-0 print:shadow-none">
         {/* Letterhead. Read from the same centre profile the bill prints, so
@@ -267,8 +318,9 @@ export const LabReportPage: React.FC = () => {
           </div>
         )}
 
-        {/* One section per test, in the order they were billed. */}
-        {reportable.map((sheet: any) => {
+        {/* One section per test, grouped by department and in billing order
+            within it - the server hands the visit over already laid out so. */}
+        {reportable.map((sheet: any, index: number) => {
           const test: any = typeof sheet.test === 'object' ? sheet.test : {};
           const sample: any = typeof sheet.sample === 'object' ? sheet.sample : {};
           const department: any = typeof sheet.department === 'object' ? sheet.department : {};
@@ -276,9 +328,18 @@ export const LabReportPage: React.FC = () => {
           const measured = parameters.filter((p: any) => p.resultType !== 'Header');
           const abnormal = parameters.filter((p: any) => p.flag && p.flag !== 'Normal');
           const noValuesEntered = parameters.length > 0 && !hasValues(sheet);
+          const previous: any = index > 0 ? reportable[index - 1] : null;
+          const previousDepartment =
+            previous && typeof previous.department === 'object' ? previous.department?.departmentName : undefined;
+          const startsDepartment = department.departmentName && department.departmentName !== previousDepartment;
 
           return (
             <div key={sheet._id} className="space-y-3">
+              {startsDepartment && (
+                <p className="pt-2 text-center text-xs font-bold uppercase tracking-widest text-blue-600">
+                  Department of {department.departmentName}
+                </p>
+              )}
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-y bg-muted/30 px-3 py-2">
                 <div>
                   <h3 className="text-sm font-bold uppercase tracking-wide text-foreground">
@@ -292,7 +353,6 @@ export const LabReportPage: React.FC = () => {
                   <p className="text-[12px] text-muted-foreground">
                     <span className="font-mono">{sample.sampleId}</span>
                     {sample.barcode && <span className="ml-2 font-mono">{sample.barcode}</span>}
-                    {department.departmentName && <span className="ml-2">{department.departmentName}</span>}
                     {(test.sampleType || sample.sampleType) && (
                       <span className="ml-2">{test.sampleType || sample.sampleType}</span>
                     )}

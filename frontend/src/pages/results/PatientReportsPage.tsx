@@ -175,6 +175,7 @@ export const PatientReportsPage: React.FC = () => {
             const patient = typeof visit.patient === 'object' && visit.patient ? visit.patient : {};
             const tests = asList<any>(visit.tests);
             const open = expanded[visit._id] ?? true;
+            const readiness = visit.readiness || { isReady: false, completed: 0, total: tests.length, pending: [] };
             const abnormal = tests.reduce(
               (n: number, t: any) => n + asList<any>(t.results).filter(isAbnormal).length,
               0
@@ -206,13 +207,49 @@ export const PatientReportsPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    {readiness.isReady ? (
+                      <Badge variant="success">Report ready</Badge>
+                    ) : (
+                      <Badge variant="amber">
+                        Report pending · {readiness.completed}/{readiness.total} done
+                      </Badge>
+                    )}
                     <Badge variant="outline">
-                      {tests.length} test{tests.length === 1 ? '' : 's'}
+                      {readiness.total || tests.length} test{(readiness.total || tests.length) === 1 ? '' : 's'}
                     </Badge>
                     {abnormal > 0 && <Badge variant="destructive">{abnormal} abnormal</Badge>}
                     {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </div>
                 </button>
+
+                {open && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5 text-xs">
+                    {readiness.isReady ? (
+                      <span className="text-muted-foreground">
+                        Every test on this visit is released - the report can be printed.
+                      </span>
+                    ) : (
+                      <span className="text-amber-700">
+                        Waiting on:{' '}
+                        {asList<any>(readiness.pending)
+                          .map((p: any) => `${p.testName} (${p.stage})`)
+                          .join(', ')}
+                      </span>
+                    )}
+                    <Button
+                      size="sm"
+                      disabled={!readiness.isReady || !tests[0]}
+                      title={
+                        readiness.isReady
+                          ? 'Open the patient report'
+                          : 'The report is generated once every test on the visit is released'
+                      }
+                      onClick={() => navigate(`/results/report/${tests[0]._id}`)}
+                    >
+                      <Eye className="mr-1 h-4 w-4" /> Patient Report
+                    </Button>
+                  </div>
+                )}
 
                 {open && (
                   <div className="divide-y">
@@ -229,13 +266,6 @@ export const PatientReportsPage: React.FC = () => {
                               <Badge variant={statusVariant(test.status)}>{test.status}</Badge>
                               <span className="font-mono text-muted-foreground">{test.resultId}</span>
                             </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => navigate(`/results/report/${test._id}`)}
-                            >
-                              <Eye className="mr-1 h-4 w-4" /> Report View
-                            </Button>
                           </div>
 
                           <div className="overflow-x-auto">

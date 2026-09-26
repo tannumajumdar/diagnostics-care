@@ -133,12 +133,64 @@ const buildSheetForTest = (test: any, patient: any) => {
 const hasAnyValue = (rows: any[] = []) =>
   rows.some((r: any) => String(r?.value ?? '').trim() !== '');
 
+const RELEASED = ['Approved', 'Final'];
+
+const departmentNameOf = (sheet: any): string =>
+  (typeof sheet?.department === 'object' && sheet.department?.departmentName) || '';
+
+/**
+ * The visit's tests laid out the way the report reads them: grouped by
+ * department (Haematology together, Biochemistry together), and in the order
+ * they were billed inside each department. A plain billing order scattered one
+ * department's tests across the report whenever the desk added them out of
+ * turn.
+ */
+const organizeSheets = <T>(sheets: T[]): T[] =>
+  sheets
+    .map((sheet, index) => ({ sheet, index }))
+    .sort(
+      (a, b) =>
+        departmentNameOf(a.sheet).localeCompare(departmentNameOf(b.sheet)) || a.index - b.index
+    )
+    .map(({ sheet }) => sheet);
+
+/**
+ * A patient is handed one report for the visit, so it is only ready once
+ * every test billed on it has been run and released. Tests on a visit finish
+ * at different times - a CBC is out in an hour, a culture in three days - and
+ * printing the fast ones early meant the patient carried home a report with
+ * tests missing from it.
+ */
+const visitReadiness = (sheets: any[]) => {
+  const pending = sheets
+    .filter((sheet) => {
+      const sample = typeof sheet?.sample === 'object' ? sheet.sample : null;
+      return sample?.status !== SAMPLE_STATUS.COMPLETED || !RELEASED.includes(sheet?.status);
+    })
+    .map((sheet) => {
+      const sample = typeof sheet?.sample === 'object' ? sheet.sample : {};
+      const test = typeof sheet?.test === 'object' ? sheet.test : {};
+      return {
+        testName: test.testName || sample.testName || 'Test',
+        sampleId: sample.sampleId,
+        stage: sample.status === SAMPLE_STATUS.COMPLETED ? `Result ${sheet?.status || 'Draft'}` : sample.status,
+      };
+    });
+  return {
+    total: sheets.length,
+    completed: sheets.length - pending.length,
+    pending,
+    isReady: sheets.length > 0 && pending.length === 0,
+  };
+};
+
 export class ResultService {
   static getBySampleId = async (sampleId: string) => {
     let result = await Result.findOne({ sample: sampleId })
       .populate('patient')
       .populate('sample')
-      .populate('test');
+      .populate('test')
+      .populate('department');
 
     // A record that predates the parameter catalogue can be sitting there with
     // an empty sheet. Nothing has been typed into it yet, so filling it in now
@@ -176,7 +228,11 @@ export class ResultService {
         },
       });
 
-      result = await Result.findById(result._id).populate('patient').populate('sample').populate('test');
+      result = await Result.findById(result._id)
+        .populate('patient')
+        .populate('sample')
+        .populate('test')
+        .populate('department');
     }
 
     return result;
@@ -198,9 +254,13 @@ export class ResultService {
     if (!sample) throw new ApiError(404, 'Sample not found');
 
     // A sample raised before bills carried samples has nothing to group by;
-    // it is a visit of one.
+    // it is a visit of one. A test the patient called off is not part of the
+    // visit's work or its report, unless it is the one being opened.
     const siblings = sample.invoice
-      ? await Sample.find({ invoice: sample.invoice }).sort({ createdAt: 1 })
+      ? await Sample.find({
+          invoice: sample.invoice,
+          $or: [{ status: { $ne: SAMPLE_STATUS.CANCELLED } }, { _id: sample._id }],
+        }).sort({ createdAt: 1 })
       : [sample];
 
     const sheets = [];
@@ -208,7 +268,7 @@ export class ResultService {
       sheets.push(await ResultService.getBySampleId(sibling._id.toString()));
     }
 
-    return sheets;
+    return organizeSheets(sheets);
   };
 
   static getAll = async (params: { search?: string; status?: string; page?: number; limit?: number }) => {
@@ -314,8 +374,29 @@ export class ResultService {
       .populate({ path: 'invoice', populate: [{ path: 'referringDoctor' }] })
       .sort({ createdAt: 1 });
 
+    // Every test billed on these visits, filled in or not, so a row can say
+    // which tests the report is still waiting on.
+    const visitSamples = await Sample.find({
+      invoice: { $in: visitIds },
+      status: { $ne: SAMPLE_STATUS.CANCELLED },
+    })
+      .select('invoice sampleId testName status test')
+      .populate('test', 'testName')
+      .sort({ createdAt: 1 });
+    const visitSheets = await Result.find({ sample: { $in: visitSamples.map((s) => s._id) } }).select(
+      'sample status'
+    );
+    const sheetStatusBySample = new Map(visitSheets.map((r: any) => [String(r.sample), r.status]));
+
     const reports = (grouped?.rows || []).map((row: any) => {
-      const tests = sheets.filter((s: any) => String(s.invoice?._id || s.invoice) === String(row._id));
+      const tests = organizeSheets(
+        sheets.filter((s: any) => String(s.invoice?._id || s.invoice) === String(row._id))
+      );
+      const readiness = visitReadiness(
+        visitSamples
+          .filter((s: any) => String(s.invoice) === String(row._id))
+          .map((s: any) => ({ sample: s, test: s.test, status: sheetStatusBySample.get(String(s._id)) }))
+      );
       const first: any = tests[0] || {};
       const invoice: any = first.invoice || {};
 
@@ -331,6 +412,7 @@ export class ResultService {
           'Self / Walk-in',
         visitDate: invoice.createdAt || first.createdAt,
         lastUpdated: row.lastUpdated,
+        readiness,
         tests: tests.map((s: any) => ({
           _id: s._id,
           resultId: s.resultId,
@@ -574,11 +656,18 @@ export class ResultService {
     const sampleId = (result as any)?.sample?._id || (result as any)?.sample;
     const sheets = sampleId ? await ResultService.getVisitBySampleId(String(sampleId)) : [result];
 
-    const printable = sheets.filter(
-      (sheet: any) => hasAnyValue(sheet?.results) || String(sheet?._id) === String((result as any)?._id)
-    );
+    // No partial reports: the patient gets one document once the last test on
+    // the visit is released, not a copy per test as each one finishes.
+    const readiness = visitReadiness(sheets);
+    if (!readiness.isReady) {
+      throw new ApiError(
+        409,
+        `The report is not ready - ${readiness.completed} of ${readiness.total} tests are completed. ` +
+          `Still waiting on: ${readiness.pending.map((p) => `${p.testName} (${p.stage})`).join(', ')}.`
+      );
+    }
 
-    return generateDiagnosticReportPDF(printable.length ? printable : [result]);
+    return generateDiagnosticReportPDF(sheets);
   };
 
   static generatePDFReport = ResultService.generateReportPDF;

@@ -105,22 +105,26 @@ export const LabWorkflowPage: React.FC = () => {
   };
 
   /**
-   * Moves every sample on the bill in this lane together - they were drawn in
-   * one sitting and travel as one. Results entry already shows the whole visit
-   * on one screen, so opening it from any of the samples is enough.
+   * Moves the given tests of a visit one step on. Each test on a bill moves on
+   * its own - a urine pot turns up an hour after the blood, a culture is still
+   * on the bench days after the CBC is out - so a row can be moved by itself,
+   * and the whole-visit button is only a shortcut for when they do go together.
+   * Results entry shows every bench-ready test of the visit on one screen, so
+   * opening it from any of the samples is enough.
    */
-  const advance = async (visit: Visit, meta: StageMeta) => {
+  const advance = async (visit: Visit, meta: StageMeta, samples: any[] = visit.samples) => {
     if (meta.entryRoute) {
-      navigate(`/results/entry/${visit.samples[0].id}`);
+      navigate(`/results/entry/${samples[0].id}`);
       return;
     }
     if (!meta.next) return;
-    setBusyId(visit.key);
+    const busyKey = samples.length === 1 && visit.samples.length > 1 ? samples[0].id : visit.key;
+    setBusyId(busyKey);
     let moved = 0;
     try {
       // One after another, so a sample the backend refuses stops the run with
       // its own reason rather than a batch of half-applied writes.
-      for (const sample of visit.samples) {
+      for (const sample of samples) {
         await sampleApi.updateStatus(sample.id, {
           status: meta.next,
           ...(meta.next === 'Collected'
@@ -130,7 +134,9 @@ export const LabWorkflowPage: React.FC = () => {
         moved += 1;
       }
       showToast(
-        `${visit.patient.patientName || visit.samples[0].sampleId}: ${moved} test${moved === 1 ? '' : 's'} → ${meta.next}`,
+        `${visit.patient.patientName || samples[0].sampleId}: ${
+          samples.length === 1 ? samples[0].testName : `${moved} tests`
+        } → ${meta.next}`,
         'success'
       );
     } catch (err: any) {
@@ -312,6 +318,16 @@ export const LabWorkflowPage: React.FC = () => {
                               >
                                 <History className="h-3.5 w-3.5" />
                               </button>
+                              {meta.next && count > 1 && (
+                                <button
+                                  onClick={() => advance(visit, meta, [s])}
+                                  disabled={!allowed || busyId === visit.key || busyId === s.id}
+                                  className="shrink-0 rounded-md border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 transition hover:border-slate-900 hover:bg-slate-900 hover:text-white disabled:opacity-40"
+                                  title={allowed ? `${meta.action}: ${s.testName}` : `${meta.owner} performs this step`}
+                                >
+                                  {busyId === s.id ? '…' : meta.stepLabel ?? meta.action}
+                                </button>
+                              )}
                               {(meta.next || meta.entryRoute) && (
                                 <button
                                   onClick={() => setRejectFor(s)}
@@ -356,7 +372,10 @@ export const LabWorkflowPage: React.FC = () => {
                         {(meta.next || meta.entryRoute) && (
                           <Button
                             size="sm"
-                            className="mt-2 h-7 w-full gap-1 bg-slate-900 px-2 text-[11px] hover:bg-slate-800"
+                            variant={count > 1 && !meta.entryRoute ? 'outline' : undefined}
+                            className={`mt-2 h-7 w-full gap-1 px-2 text-[11px] ${
+                              count > 1 && !meta.entryRoute ? '' : 'bg-slate-900 hover:bg-slate-800'
+                            }`}
                             disabled={!allowed || busyId === visit.key}
                             onClick={() => advance(visit, meta)}
                             title={allowed ? meta.action : `${meta.owner} performs this step`}

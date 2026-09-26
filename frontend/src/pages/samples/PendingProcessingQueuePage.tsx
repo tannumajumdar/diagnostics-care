@@ -63,15 +63,17 @@ export const PendingProcessingQueuePage: React.FC = () => {
     .filter((v) => v.samples.some((s) => s.status !== 'Pending Collection'));
 
   /**
-   * Manual sign-off that the visit's specimens are all in and going on the
-   * bench. Each sample still walks Collected → Received → Processing so every
-   * stage is stamped in its audit trail.
+   * Puts collected specimens on the bench. Tests on one visit arrive and run
+   * on their own clocks, so a single test can go on as soon as its own vial is
+   * in - the rest of the visit does not hold it back. Each sample still walks
+   * Collected → Received → Processing so every stage is stamped in its audit
+   * trail.
    */
-  const markDone = async (visit: Visit) => {
-    setBusyKey(visit.key);
+  const markDone = async (visit: Visit, samples: SampleRecord[], key: string) => {
+    setBusyKey(key);
     let moved = 0;
     try {
-      for (const s of visit.samples) {
+      for (const s of samples) {
         if (s.status === 'Collected') {
           await sampleApi.updateStatus(s._id, { status: 'Received' });
         }
@@ -81,7 +83,9 @@ export const PendingProcessingQueuePage: React.FC = () => {
         }
       }
       showToast(
-        `${visit.patient.patientName || visit.samples[0].sampleId}: ${moved} test${moved === 1 ? '' : 's'} in process`,
+        `${visit.patient.patientName || samples[0].sampleId}: ${
+          samples.length === 1 ? samples[0].testName : `${moved} tests`
+        } in process`,
         'success'
       );
     } catch (err: any) {
@@ -100,7 +104,8 @@ export const PendingProcessingQueuePage: React.FC = () => {
           <span>Central Laboratory Processing Queue</span>
         </h1>
         <p className="text-xs text-muted-foreground mt-1">
-          One row per patient visit. Once every test is collected, mark the visit Done to put it on the bench.
+          One row per patient visit. Each test goes on the bench as soon as its own sample is in - use Start on a
+          test, or Start all to move every collected test of the visit together.
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
           <span className="flex items-center gap-1">
@@ -144,8 +149,6 @@ export const PendingProcessingQueuePage: React.FC = () => {
                   const notCollected = visit.samples.filter((s) => s.status === 'Pending Collection').length;
                   const waiting = visit.samples.filter((s) => s.status === 'Collected' || s.status === 'Received');
                   const inProcess = visit.samples.filter((s) => s.status === 'Processing').length;
-                  const allCollected = notCollected === 0;
-                  const allInProcess = inProcess === visit.samples.length;
 
                   return (
                     <tr key={visit.key} className="align-top hover:bg-muted/30">
@@ -173,6 +176,17 @@ export const PendingProcessingQueuePage: React.FC = () => {
                                   <Badge variant="amber">Out{s.outsourceLab ? ` · ${s.outsourceLab}` : ''}</Badge>
                                 )}
                                 <span className="ml-auto text-[10px] font-semibold uppercase">{state.label}</span>
+                                {(s.status === 'Collected' || s.status === 'Received') && visit.samples.length > 1 && (
+                                  <button
+                                    type="button"
+                                    className="rounded border border-current px-1.5 py-0.5 text-[10px] font-semibold transition hover:bg-white disabled:opacity-40"
+                                    disabled={busyKey === visit.key || busyKey === s._id}
+                                    onClick={() => markDone(visit, [s], s._id)}
+                                    title={`Put ${s.testName} on the bench`}
+                                  >
+                                    {busyKey === s._id ? '…' : 'Start'}
+                                  </button>
+                                )}
                                 {drawn && (
                                   <span className="w-full pl-4 text-[10px] opacity-80">Collected {drawn}</span>
                                 )}
@@ -190,30 +204,37 @@ export const PendingProcessingQueuePage: React.FC = () => {
                         </div>
                       </td>
                       <td className="p-3 text-right">
-                        {allInProcess ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => navigate(`/results/entry/${visit.samples[0]._id}`)}
-                          >
-                            <ClipboardEdit className="h-4 w-4 mr-1" /> Enter Results
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            disabled={!allCollected || waiting.length === 0 || busyKey === visit.key}
-                            onClick={() => markDone(visit)}
-                            title={
-                              allCollected
-                                ? 'All tests collected - put them on the bench'
-                                : `${notCollected} test(s) still to be collected`
-                            }
-                          >
-                            <CheckCircle2 className="h-4 w-4 mr-1" />
-                            {busyKey === visit.key ? 'Working…' : 'Done'}
-                          </Button>
-                        )}
-                        {!allCollected && (
+                        <div className="flex flex-col items-end gap-1.5">
+                          {waiting.length > 0 && (
+                            <Button
+                              size="sm"
+                              disabled={busyKey === visit.key || waiting.some((s) => busyKey === s._id)}
+                              onClick={() => markDone(visit, waiting, visit.key)}
+                              title="Put every collected test of this visit on the bench"
+                            >
+                              <CheckCircle2 className="h-4 w-4 mr-1" />
+                              {busyKey === visit.key
+                                ? 'Working…'
+                                : waiting.length > 1
+                                ? `Start all (${waiting.length})`
+                                : 'Start'}
+                            </Button>
+                          )}
+                          {inProcess > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                navigate(
+                                  `/results/entry/${visit.samples.find((s) => s.status === 'Processing')!._id}`
+                                )
+                              }
+                            >
+                              <ClipboardEdit className="h-4 w-4 mr-1" /> Enter Results
+                            </Button>
+                          )}
+                        </div>
+                        {notCollected > 0 && (
                           <p className="mt-1 text-[10px] text-rose-600">{notCollected} not collected yet</p>
                         )}
                       </td>

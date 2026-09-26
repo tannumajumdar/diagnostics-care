@@ -25,6 +25,8 @@ export interface StageMeta {
   detail: string;
   /** Label on the button that advances a sample out of this stage. */
   action: string;
+  /** The same step on one test's row, where there is room for a word. */
+  stepLabel?: string;
   next?: SampleStage;
   /** Stage advances via the result-entry screen rather than a status change. */
   entryRoute?: boolean;
@@ -40,6 +42,7 @@ export const STAGES: StageMeta[] = [
     short: 'To Collect',
     detail: 'Ordered and billed. Awaiting the draw.',
     action: 'Mark collected',
+    stepLabel: 'Collect',
     next: 'Collected',
     icon: ClipboardList,
     accent: 'border-amber-200 bg-amber-50',
@@ -51,6 +54,7 @@ export const STAGES: StageMeta[] = [
     short: 'Collected',
     detail: 'Drawn and labelled. In transit to the lab.',
     action: 'Receive in lab',
+    stepLabel: 'Receive',
     next: 'Received',
     icon: Syringe,
     accent: 'border-sky-200 bg-sky-50',
@@ -62,6 +66,7 @@ export const STAGES: StageMeta[] = [
     short: 'Accessioned',
     detail: 'Checked in by the lab. Container and volume verified.',
     action: 'Start processing',
+    stepLabel: 'Start',
     next: 'Processing',
     icon: PackageCheck,
     accent: 'border-violet-200 bg-violet-50',

@@ -98,7 +98,25 @@ export const ResultEntryPage: React.FC = () => {
     enabled: !!sampleId,
   });
 
-  const sheets = asList<any>(data, 'results');
+  const visitSheets = asList<any>(data, 'results');
+
+  /**
+   * Only the tests that have reached the bench. The visit's other tests move
+   * on their own clocks - one may still be waiting for its draw - and a sheet
+   * for a specimen nobody has run yet is not something to type values into.
+   * A sheet that already has work on it stays, wherever its sample is.
+   */
+  const onBench = (sheet: any) => {
+    const sample = typeof sheet?.sample === 'object' ? sheet.sample : {};
+    return (
+      ['Processing', 'Completed'].includes(sample.status) ||
+      String(sample._id || sample.id) === String(sampleId) ||
+      (sheet.status && sheet.status !== 'Draft') ||
+      asList<any>(sheet.results).some((p: any) => String(p.value ?? '').trim() !== '')
+    );
+  };
+  const sheets = visitSheets.filter(onBench);
+  const notYetOnBench = visitSheets.filter((sheet) => !onBench(sheet));
 
   /**
    * Sending a result up moves it out of the bench's queue and into the
@@ -266,7 +284,7 @@ export const ResultEntryPage: React.FC = () => {
 
         <div className="text-right">
           <p className="text-xs font-semibold text-muted-foreground">
-            {sheets.length} test{sheets.length === 1 ? '' : 's'} on this visit
+            {sheets.length} of {visitSheets.length} test{visitSheets.length === 1 ? '' : 's'} on the bench
           </p>
           <p className="text-[12px] text-muted-foreground">
             {totalFilled} of {totalParameters} values filled
@@ -280,6 +298,20 @@ export const ResultEntryPage: React.FC = () => {
           <span>
             One of these reports has already been released. Editing and saving it pulls it back to Draft, so the
             pathologist has to verify it again before the patient can be given the corrected copy.
+          </span>
+        </div>
+      )}
+
+      {notYetOnBench.length > 0 && (
+        <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Also on this visit, not on the bench yet:{' '}
+            {notYetOnBench
+              .map((sheet) => `${testOf(sheet)?.testName || 'Test'} (${sampleOf(sheet).status || 'Pending'})`)
+              .join(', ')}
+            . They open here once they reach Processing. The patient&apos;s report is generated only after every test
+            is released.
           </span>
         </div>
       )}
