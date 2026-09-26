@@ -106,7 +106,7 @@ export const REJECTION_REASONS = [
 
 /** Roles permitted to advance a sample out of a given stage. */
 const STAGE_ACTORS: Record<string, string[]> = {
-  'Pending Collection': ['Phlebotomist', 'Receptionist', 'Lab Technician'],
+  'Pending Collection': ['Phlebotomist', 'Receptionist', 'Lab Technician', 'Pathologist'],
   Collected: ['Lab Technician', 'Pathologist'],
   Received: ['Lab Technician', 'Pathologist'],
   Processing: ['Lab Technician', 'Pathologist'],

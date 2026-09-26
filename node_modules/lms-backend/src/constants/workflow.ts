@@ -79,7 +79,7 @@ export const REJECTION_REASONS = [
 
 /** Which role is expected to move a sample into each stage. */
 export const SAMPLE_STAGE_OWNER: Partial<Record<SampleStatus, string[]>> = {
-  [SAMPLE_STATUS.COLLECTED]: ['Phlebotomist', 'Lab Technician', 'Receptionist'],
+  [SAMPLE_STATUS.COLLECTED]: ['Phlebotomist', 'Lab Technician', 'Receptionist', 'Pathologist'],
   [SAMPLE_STATUS.RECEIVED]: ['Lab Technician', 'Pathologist'],
   [SAMPLE_STATUS.PROCESSING]: ['Lab Technician', 'Pathologist'],
   [SAMPLE_STATUS.COMPLETED]: ['Lab Technician', 'Pathologist'],

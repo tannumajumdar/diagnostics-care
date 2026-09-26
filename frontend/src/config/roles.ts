@@ -144,6 +144,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     P.PATIENT_VIEW,
     P.PATIENT_HISTORY,
     P.SAMPLE_VIEW,
+    P.SAMPLE_COLLECT,
     P.SAMPLE_PROCESS,
     P.SAMPLE_REJECT,
     P.RESULT_VIEW,

@@ -114,6 +114,9 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     P.PATIENT_VIEW,
     P.PATIENT_HISTORY,
     P.SAMPLE_VIEW,
+    // The pathologist runs the whole bench in a smaller lab, from the draw
+    // onwards, so they can mark a sample collected like the phlebotomist.
+    P.SAMPLE_COLLECT,
     P.SAMPLE_PROCESS,
     P.SAMPLE_REJECT,
     P.RESULT_VIEW,
