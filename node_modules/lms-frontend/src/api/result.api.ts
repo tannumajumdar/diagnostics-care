@@ -2,6 +2,8 @@ import api from './axios';
 
 export const resultApi = {
   getAll: async (params?: any): Promise<any> => api.get('/results', { params }),
+  /** Every patient's entered results, one row per visit. */
+  getPatientReports: async (params?: any): Promise<any> => api.get('/results/patient-reports', { params }),
   getPending: async (params?: any): Promise<any> => api.get('/results/pending', { params }),
   getBySampleId: async (sampleId: string): Promise<any> => api.get(`/results/sample/${sampleId}`),
   /** Every test billed on the same visit as this sample, one sheet each. */

@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Undo2,
   BookOpen,
+  FileText,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -316,6 +317,13 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Verification',
     path: '/results/pending',
     icon: ClipboardCheck,
+    group: 'Laboratory',
+    permissions: [P.RESULT_VERIFY],
+  },
+  {
+    label: 'Patient Reports',
+    path: '/patient-reports',
+    icon: FileText,
     group: 'Laboratory',
     permissions: [P.RESULT_VERIFY],
   },

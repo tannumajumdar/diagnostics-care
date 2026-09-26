@@ -11,6 +11,10 @@ router.use(authenticate);
 
 router.get('/', requirePermission(PERMISSIONS.RESULT_VIEW), ResultController.getAll);
 router.get('/pending', requirePermission(PERMISSIONS.RESULT_VERIFY), ResultController.getPendingVerification);
+// Every patient's entered results, one row per visit - the Admin's and the
+// Pathologist's register of reports. Declared before '/:id' so it is not read
+// as a result id.
+router.get('/patient-reports', requirePermission(PERMISSIONS.RESULT_VERIFY), ResultController.getPatientReports);
 router.get('/sample/:sampleId', requirePermission(PERMISSIONS.RESULT_VIEW), ResultController.getBySampleId);
 // The whole visit's sheets in one call, so the bench types every test the
 // patient was billed for without walking back to the queue between them.

@@ -50,6 +50,21 @@ export class ResultController {
     }
   };
 
+  static getPatientReports = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const result = await ResultService.getPatientReports(req.query as any);
+      sendResponse({
+        res,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Patient reports retrieved',
+        data: result.reports,
+        meta: result.pagination,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   static getAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const result = await ResultService.getAllResults(req.query);

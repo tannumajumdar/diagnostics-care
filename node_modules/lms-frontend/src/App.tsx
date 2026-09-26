@@ -30,6 +30,7 @@ import { ResultsListPage } from './pages/results/ResultsListPage';
 import { VerificationDashboardPage } from './pages/verification/VerificationDashboardPage';
 import { ResultEntryPage } from './pages/results/ResultEntryPage';
 import { LabReportPage } from './pages/results/LabReportPage';
+import { PatientReportsPage } from './pages/results/PatientReportsPage';
 import { LabWorkflowPage } from './pages/workflow/LabWorkflowPage';
 import { NewVisitPage } from './pages/visits/NewVisitPage';
 import { AppointmentsPage } from './pages/appointments/AppointmentsPage';
@@ -130,6 +131,11 @@ export default function App() {
                     <Route
                       path="/results/entry/:sampleId"
                       element={guarded([P.RESULT_ENTER], <ResultEntryPage />)}
+                    />
+                    {/* Every patient's entered results - the Admin's and the Pathologist's register. */}
+                    <Route
+                      path="/patient-reports"
+                      element={guarded([P.RESULT_VERIFY], <PatientReportsPage />)}
                     />
                     {/* The front desk hands over the printed report. */}
                     <Route

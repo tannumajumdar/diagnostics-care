@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { Result } from '../models/result.model';
 import { Sample } from '../models/sample.model';
+import { Patient } from '../models/patient.model';
 import { getNextResultId } from '../models/counter.model';
 import { ApiError } from '../utils/api-error.util';
 import { generateDiagnosticReportPDF } from '../utils/pdf-generator.util';
@@ -240,6 +241,119 @@ export class ResultService {
   };
 
   static getAllResults = ResultService.getAll;
+
+  /**
+   * Every patient's report, one row per visit, carrying the values typed
+   * against each test. Only sheets the bench has actually filled in are
+   * listed - an empty sheet is work still waiting, not a report.
+   */
+  static getPatientReports = async (params: {
+    search?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    page?: number | string;
+    limit?: number | string;
+  }) => {
+    const page = Math.max(1, Number(params.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(params.limit) || 10));
+    const skip = (page - 1) * limit;
+
+    const match: any = {
+      results: { $elemMatch: { value: { $nin: ['', null] } } },
+    };
+    if (params.status) match.status = params.status;
+
+    if (params.from || params.to) {
+      match.updatedAt = {};
+      if (params.from) match.updatedAt.$gte = new Date(`${params.from}T00:00:00`);
+      if (params.to) match.updatedAt.$lte = new Date(`${params.to}T23:59:59.999`);
+    }
+
+    const search = String(params.search || '').trim();
+    if (search) {
+      const pattern = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const patients = await Patient.find({
+        $or: [
+          { patientName: { $regex: pattern, $options: 'i' } },
+          { mobile: { $regex: pattern, $options: 'i' } },
+        ],
+      })
+        .select('_id')
+        .limit(500);
+
+      match.$or = [
+        { resultId: { $regex: pattern, $options: 'i' } },
+        { uhid: { $regex: pattern, $options: 'i' } },
+        { enquiryNo: { $regex: pattern, $options: 'i' } },
+        { patient: { $in: patients.map((p) => p._id) } },
+      ];
+    }
+
+    // Page by visit, not by test, so one patient's three tests never straddle
+    // two pages.
+    const [grouped] = await Result.aggregate([
+      { $match: match },
+      { $group: { _id: '$invoice', lastUpdated: { $max: '$updatedAt' } } },
+      { $sort: { lastUpdated: -1 } },
+      {
+        $facet: {
+          rows: [{ $skip: skip }, { $limit: limit }],
+          total: [{ $count: 'count' }],
+        },
+      },
+    ]);
+
+    const visitIds = (grouped?.rows || []).map((row: any) => row._id);
+    const total = grouped?.total?.[0]?.count || 0;
+
+    const sheets = await Result.find({ ...match, invoice: { $in: visitIds } })
+      .populate('patient')
+      .populate('test')
+      .populate('department')
+      .populate({ path: 'invoice', populate: [{ path: 'referringDoctor' }] })
+      .sort({ createdAt: 1 });
+
+    const reports = (grouped?.rows || []).map((row: any) => {
+      const tests = sheets.filter((s: any) => String(s.invoice?._id || s.invoice) === String(row._id));
+      const first: any = tests[0] || {};
+      const invoice: any = first.invoice || {};
+
+      return {
+        _id: String(row._id),
+        invoiceNumber: invoice.invoiceNumber,
+        enquiryNo: first.enquiryNo || invoice.enquiryNo,
+        uhid: first.uhid,
+        patient: first.patient,
+        referredBy:
+          (typeof invoice.referringDoctor === 'object' ? invoice.referringDoctor?.doctorName : '') ||
+          invoice.referringDoctorName ||
+          'Self / Walk-in',
+        visitDate: invoice.createdAt || first.createdAt,
+        lastUpdated: row.lastUpdated,
+        tests: tests.map((s: any) => ({
+          _id: s._id,
+          resultId: s.resultId,
+          testName: s.test?.testName || 'Test',
+          department: s.department?.departmentName,
+          status: s.status,
+          overallRemarks: s.overallRemarks,
+          enteredBy: s.enteredBy,
+          verifiedBy: s.verifiedBy,
+          updatedAt: s.updatedAt,
+          results: (s.results || [])
+            .filter((p: any) => p.resultType === 'Header' || String(p.value ?? '').trim() !== '')
+            .sort((a: any, b: any) => (a.displayOrder || 0) - (b.displayOrder || 0)),
+        })),
+      };
+    });
+
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    return {
+      reports,
+      pagination: { total, page, limit, totalPages },
+    };
+  };
 
   static getPending = async (params?: { page?: number; limit?: number }) => {
     return ResultService.getAll({ ...params, status: 'Submitted' });
