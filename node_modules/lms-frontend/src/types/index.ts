@@ -396,7 +396,17 @@ export interface LabTest {
   fastingRequired: boolean;
   preparationRequired?: string;
   /** What the result means - kept with the test in the catalogue. */
+  /** The interpretation's headline, printed above the comments on the report. */
+  interpretationTitle?: string;
   interpretation?: string;
+  /** A Word file the report for this test is printed from, placeholders filled in. */
+  reportTemplate?: {
+    attachment: string;
+    fileName: string;
+    size?: number;
+    uploadedAt?: string;
+    uploadedBy?: string;
+  } | null;
   turnaroundTime: string;
   description?: string;
   instructions?: string;

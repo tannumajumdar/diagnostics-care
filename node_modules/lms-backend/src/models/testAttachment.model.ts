@@ -11,6 +11,8 @@ export interface ITestAttachment {
   mimeType: string;
   size: number;
   data: Buffer;
+  /** 'report-template' is the Word file the test's report is printed from. */
+  kind?: 'reference' | 'report-template';
   uploadedBy?: { userId?: Types.ObjectId; name?: string };
   createdAt?: Date;
 }
@@ -22,6 +24,7 @@ const testAttachmentSchema = new Schema<ITestAttachment>(
     mimeType: { type: String, required: true },
     size: { type: Number, required: true },
     data: { type: Buffer, required: true, select: false },
+    kind: { type: String, enum: ['reference', 'report-template'], default: 'reference' },
     uploadedBy: {
       userId: { type: Schema.Types.ObjectId, ref: 'User' },
       name: { type: String },

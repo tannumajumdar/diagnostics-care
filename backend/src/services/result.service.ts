@@ -5,6 +5,8 @@ import { Patient } from '../models/patient.model';
 import { getNextResultId } from '../models/counter.model';
 import { ApiError } from '../utils/api-error.util';
 import { generateDiagnosticReportPDF } from '../utils/pdf-generator.util';
+import { fillReportTemplate } from '../utils/docx-report.util';
+import { TestAttachment } from '../models/testAttachment.model';
 import { calculateResultFlag } from '../utils/flag-calculator.util';
 import { parametersForTest } from '../constants/test-parameters';
 import { SampleService } from './sample.service';
@@ -667,8 +669,49 @@ export class ResultService {
       );
     }
 
-    return generateDiagnosticReportPDF(sheets);
+    // A test with its own Word format is printed from that file instead, so it
+    // is not repeated in the standard layout.
+    const standard = sheets.filter((sheet: any) => !sheet?.test?.reportTemplate);
+    if (standard.length === 0) {
+      throw new ApiError(
+        400,
+        'Every test on this visit prints in its own Word format - download those from the report page.'
+      );
+    }
+
+    return generateDiagnosticReportPDF(standard);
   };
 
   static generatePDFReport = ResultService.generateReportPDF;
+
+  /**
+   * One test's report printed from the Word file uploaded on that test, with
+   * the patient's details and results filled into its #PLACEHOLDERS#. Only a
+   * released result is printed, as with the standard report.
+   */
+  static generateReportDocx = async (id: string): Promise<{ buffer: Buffer; fileName: string }> => {
+    const sheet: any = await ResultService.getById(id);
+    const test = sheet?.test || {};
+    if (!test.reportTemplate?.attachment) {
+      throw new ApiError(404, `${test.testName || 'This test'} has no Word report format uploaded`);
+    }
+
+    const readiness = visitReadiness([sheet]);
+    if (!readiness.isReady) {
+      throw new ApiError(
+        409,
+        `The report is not ready - ${test.testName || 'the test'} is at ${readiness.pending[0]?.stage || 'an earlier stage'}.`
+      );
+    }
+
+    const file = await TestAttachment.findById(test.reportTemplate.attachment).select('+data');
+    if (!file) throw new ApiError(404, `The Word report format for ${test.testName} is missing - upload it again`);
+
+    const patientName = String(sheet?.patient?.patientName || 'Patient').replace(/[^\w.-]+/g, '_');
+    const testName = String(test.testName || 'Report').replace(/[^\w.-]+/g, '_');
+    return {
+      buffer: fillReportTemplate(file.data, sheet),
+      fileName: `${patientName}_${testName}_${sheet.resultId || id}.docx`,
+    };
+  };
 }

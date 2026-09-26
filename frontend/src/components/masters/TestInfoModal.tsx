@@ -5,9 +5,9 @@ import { asList } from '../../utils/api-list';
 import { useToast } from '../../context/ToastContext';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { X, FileText, Upload, ClipboardCheck, Download, Trash2, Eye } from 'lucide-react';
+import { X, FileText, Upload, ClipboardCheck, Download, Trash2, Eye, FileType } from 'lucide-react';
 
-export type TestInfoTab = 'interpretation' | 'files' | 'review';
+export type TestInfoTab = 'interpretation' | 'format' | 'files' | 'review';
 
 interface TestInfoModalProps {
   isOpen: boolean;
@@ -30,6 +30,7 @@ interface Attachment {
 
 const TABS: { key: TestInfoTab; label: string; icon: React.ElementType }[] = [
   { key: 'interpretation', label: 'Interpretation', icon: FileText },
+  { key: 'format', label: 'Report Format', icon: FileType },
   { key: 'files', label: 'File Upload', icon: Upload },
   { key: 'review', label: 'Review', icon: ClipboardCheck },
 ];
@@ -37,6 +38,33 @@ const TABS: { key: TestInfoTab; label: string; icon: React.ElementType }[] = [
 /** Matches the backend's list, so a file is refused here rather than after uploading. */
 const ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv';
 const MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * What a Word report format can carry. Typed into the .docx between two #
+ * signs; case and spaces inside do not matter.
+ */
+const PLACEHOLDERS: [string, string][] = [
+  ['#PTNAME#', "Patient's name"],
+  ['#AGE/SEX#', 'Age / Sex (32 Yrs / Male)'],
+  ['#AGE#  #SEX#', 'Age, sex separately'],
+  ['#MOB#', 'Mobile no.'],
+  ['#PID#', 'UH-ID'],
+  ['#BYDOC#', 'Consultant doctor'],
+  ['#COLLDATE#', 'Collection date'],
+  ['#DATETIME#', 'Reporting date'],
+  ['#TESTNO#', 'Specimen no.'],
+  ['#BARCODE#', 'Sample barcode'],
+  ['#REGDATE#', 'Registration date'],
+  ['#TESTNAME#', 'Test name'],
+  ['#REPORTNO#', 'Report no.'],
+  ['#ENQNO#', 'Enquiry no.'],
+  ['#INVOICENO#', 'Invoice no.'],
+  ['#ADDRESS#', 'Address'],
+  ['#INTERPRETATION#', 'Interpretation title'],
+  ['#COMMENTS#', 'Interpretation description'],
+  ['#REMARKS#', 'Remarks entered with the result'],
+  ['#VERIFIEDBY#', 'Verifying pathologist'],
+];
 
 const fmtSize = (bytes: number) =>
   bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -83,6 +111,8 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
   const [activeId, setActiveId] = useState('');
   const [search, setSearch] = useState('');
 
+  const [title, setTitle] = useState('');
+  const [savedTitle, setSavedTitle] = useState('');
   const [interpretation, setInterpretation] = useState('');
   const [savedInterpretation, setSavedInterpretation] = useState('');
   const [saving, setSaving] = useState(false);
@@ -90,6 +120,9 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
   const [files, setFiles] = useState<Attachment[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  const templateInput = useRef<HTMLInputElement>(null);
+  const [templateBusy, setTemplateBusy] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -108,7 +141,10 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
 
   // A different test starts from what that test has saved.
   useEffect(() => {
+    const heading = test?.interpretationTitle || '';
     const text = test?.interpretation || '';
+    setTitle(heading);
+    setSavedTitle(heading);
     setInterpretation(text);
     setSavedInterpretation(text);
   }, [test?.id]);
@@ -134,15 +170,18 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
 
   if (!isOpen) return null;
 
-  const dirty = interpretation !== savedInterpretation;
+  const dirty = interpretation !== savedInterpretation || title !== savedTitle;
 
   const saveInterpretation = async () => {
     if (!test) return;
     setSaving(true);
     try {
-      await testApi.update(test.id, { interpretation });
+      await testApi.update(test.id, { interpretationTitle: title, interpretation });
+      setSavedTitle(title);
       setSavedInterpretation(interpretation);
-      setTests((prev) => prev.map((t) => (t.id === test.id ? { ...t, interpretation } : t)));
+      setTests((prev) =>
+        prev.map((t) => (t.id === test.id ? { ...t, interpretationTitle: title, interpretation } : t))
+      );
       showToast(`Interpretation saved for ${test.testName}`, 'success');
       onSaved?.();
     } catch (err: any) {
@@ -204,6 +243,64 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
       showToast(`${file.fileName} removed`, 'success');
     } catch (err: any) {
       showToast(err?.message || 'Could not remove the file', 'error');
+    }
+  };
+
+  const setTemplateOnList = (reportTemplate: LabTest['reportTemplate']) =>
+    setTests((prev) => prev.map((t) => (t.id === test?.id ? { ...t, reportTemplate } : t)));
+
+  const uploadTemplate = async (file?: File | null) => {
+    if (!test || !file) return;
+    if (!/\.docx$/i.test(file.name)) {
+      showToast('Choose a Word .docx file - a .doc must be saved as .docx in Word first', 'error');
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      showToast(`${file.name} is over 5 MB`, 'error');
+      return;
+    }
+    setTemplateBusy(true);
+    try {
+      const saved = await testApi.uploadReportTemplate(test.id, { fileName: file.name, data: await readAsBase64(file) });
+      setTemplateOnList(saved);
+      showToast(`${test.testName} will now print in ${file.name}`, 'success');
+      onSaved?.();
+    } catch (err: any) {
+      showToast(err?.message || 'Could not upload the report format', 'error');
+    } finally {
+      setTemplateBusy(false);
+      if (templateInput.current) templateInput.current.value = '';
+    }
+  };
+
+  const downloadTemplate = async () => {
+    if (!test?.reportTemplate) return;
+    try {
+      const blob = await testApi.downloadReportTemplate(test.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = test.reportTemplate.fileName;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      showToast('Could not download the report format', 'error');
+    }
+  };
+
+  const removeTemplate = async () => {
+    if (!test?.reportTemplate) return;
+    if (!window.confirm(`Stop printing ${test.testName} from ${test.reportTemplate.fileName}? It goes back to the standard report.`)) return;
+    setTemplateBusy(true);
+    try {
+      await testApi.removeReportTemplate(test.id);
+      setTemplateOnList(null);
+      showToast('Report format removed', 'success');
+      onSaved?.();
+    } catch (err: any) {
+      showToast(err?.message || 'Could not remove the report format', 'error');
+    } finally {
+      setTemplateBusy(false);
     }
   };
 
@@ -271,13 +368,24 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
             <p className="py-10 text-center text-muted-foreground">Pick a test to continue.</p>
           ) : tab === 'interpretation' ? (
             <div className="space-y-2">
-              <label className="block font-semibold">Interpretation for {test.testName}</label>
+              <label className="block font-semibold">Interpretation Title</label>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={500}
+                placeholder="e.g. Negative for S. typhi infection."
+                className="h-9 w-full rounded-xl border bg-background px-3 text-sm outline-none focus:border-blue-500"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Printed under the <u>Interpretation</u> heading on {test.testName}&apos;s report, with a line beneath it.
+              </p>
+              <label className="block pt-2 font-semibold">Description / Comments</label>
               <textarea
                 value={interpretation}
                 onChange={(e) => setInterpretation(e.target.value)}
-                rows={14}
+                rows={12}
                 maxLength={20000}
-                placeholder="What the result means clinically, notes on ranges, causes of high / low values…"
+                placeholder="One point per line - each prints as a bullet under Comments on the report."
                 className="w-full rounded-xl border bg-background p-3 font-mono text-xs leading-relaxed outline-none focus:border-blue-500"
               />
               <div className="flex items-center justify-between">
@@ -289,7 +397,10 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
                     variant="outline"
                     size="sm"
                     disabled={!dirty || saving}
-                    onClick={() => setInterpretation(savedInterpretation)}
+                    onClick={() => {
+                      setTitle(savedTitle);
+                      setInterpretation(savedInterpretation);
+                    }}
                   >
                     Reset
                   </Button>
@@ -298,6 +409,83 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
                   </Button>
                 </div>
               </div>
+            </div>
+          ) : tab === 'format' ? (
+            <div className="space-y-4">
+              <p className="text-muted-foreground">
+                Upload a Word (.docx) file with only the part of {test.testName}&apos;s report that goes{' '}
+                <strong>below</strong> the patient&apos;s details - the heading, result table, interpretation and
+                comments. The patient block (Patient&apos;s Name, Age/Sex, Consultant Doctor, Mobile No., Collection
+                Date, Reporting Date, Specimen No., UH – ID) is added on top automatically and is the same on every
+                test. A file that already has <span className="font-mono">#PTNAME#</span> in it keeps its own.
+              </p>
+
+              {test.reportTemplate ? (
+                <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                  <FileType className="h-5 w-5 shrink-0 text-emerald-700" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{test.reportTemplate.fileName}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {test.reportTemplate.size ? `${fmtSize(test.reportTemplate.size)} · ` : ''}
+                      {fmtDate(test.reportTemplate.uploadedAt)}
+                      {test.reportTemplate.uploadedBy ? ` · ${test.reportTemplate.uploadedBy}` : ''}
+                    </p>
+                  </div>
+                  <button onClick={downloadTemplate} className="rounded p-1 hover:bg-accent" title="Download">
+                    <Download className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={removeTemplate}
+                    disabled={templateBusy}
+                    className="rounded p-1 text-red-500 hover:bg-red-50"
+                    title="Remove - back to the standard report"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <p className="rounded-xl border border-dashed px-3 py-2 text-muted-foreground">
+                  No Word format - {test.testName} prints in the standard report layout.
+                </p>
+              )}
+
+              <div>
+                <Button size="sm" disabled={templateBusy} onClick={() => templateInput.current?.click()}>
+                  <Upload className="mr-1 h-3.5 w-3.5" />
+                  {templateBusy ? 'Uploading…' : test.reportTemplate ? 'Replace Word File' : 'Upload Word File'}
+                </Button>
+                <input
+                  ref={templateInput}
+                  type="file"
+                  accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  className="hidden"
+                  onChange={(e) => uploadTemplate(e.target.files?.[0])}
+                />
+              </div>
+
+              <section>
+                <h3 className="mb-1.5 font-bold">Placeholders</h3>
+                <div className="grid grid-cols-1 gap-x-6 gap-y-1 rounded-xl border p-3 sm:grid-cols-2">
+                  {PLACEHOLDERS.map(([tag, meaning]) => (
+                    <div key={tag} className="flex gap-2">
+                      <span className="w-36 shrink-0 font-mono font-semibold">{tag}</span>
+                      <span className="text-muted-foreground">{meaning}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  A result goes in by the parameter&apos;s short name or full name, e.g.{' '}
+                  <span className="font-mono">
+                    {parameters
+                      .filter((p) => p.resultType !== 'Header')
+                      .slice(0, 4)
+                      .map((p) => `#${p.shortName || p.parameterName}#`)
+                      .join('  ') || '#HB#'}
+                  </span>
+                  . A placeholder that matches nothing is printed as typed, so a spelling mistake shows up on the
+                  first report you check.
+                </p>
+              </section>
             </div>
           ) : tab === 'files' ? (
             <div className="space-y-3">
@@ -427,8 +615,11 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
                     Edit
                   </button>
                 </div>
-                {savedInterpretation ? (
-                  <p className="whitespace-pre-wrap rounded-xl border p-3 leading-relaxed">{savedInterpretation}</p>
+                {savedTitle || savedInterpretation ? (
+                  <div className="space-y-2 rounded-xl border p-3 leading-relaxed">
+                    {savedTitle && <p className="border-b pb-1 text-sm font-semibold">{savedTitle}</p>}
+                    {savedInterpretation && <p className="whitespace-pre-wrap">{savedInterpretation}</p>}
+                  </div>
                 ) : (
                   <p className="text-muted-foreground">No interpretation added.</p>
                 )}

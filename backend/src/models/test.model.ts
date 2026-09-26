@@ -118,7 +118,27 @@ const testSchema = new Schema<ILabTestDocument>(
     turnaroundTime: { type: String, trim: true, default: '24 Hours' },
     // What the result means - reference notes the pathologist wants kept with
     // the test. Files that go with it are TestAttachment documents.
+    // The interpretation's headline ("Negative for S. typhi infection.") -
+    // printed on the report under an underlined rule, with `interpretation`
+    // below it as the comments.
+    interpretationTitle: { type: String, trim: true, default: '' },
     interpretation: { type: String, trim: true, default: '' },
+    // A Word file the patient's report for this test is printed from, its
+    // #PLACEHOLDERS# filled in. The bytes are a TestAttachment of kind
+    // 'report-template'; this is what the report needs to know without them.
+    reportTemplate: {
+      type: new Schema(
+        {
+          attachment: { type: Schema.Types.ObjectId, ref: 'TestAttachment', required: true },
+          fileName: { type: String, required: true },
+          size: { type: Number, default: 0 },
+          uploadedAt: { type: Date, default: Date.now },
+          uploadedBy: { type: String, default: '' },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
     parameters: [testParameterSchema],
     status: {
       type: String,

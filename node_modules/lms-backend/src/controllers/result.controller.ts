@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ResultService } from '../services/result.service';
 import { sendResponse } from '../utils/api-response.util';
 import { HTTP_STATUS } from '../constants/messages';
+import { DOCX_MIME } from '../utils/docx-report.util';
 import { JwtPayload } from '../types/auth.interface';
 
 export class ResultController {
@@ -151,6 +152,21 @@ export class ResultController {
       res.setHeader('Content-Disposition', `inline; filename="Lab_Report_${id}.pdf"`);
       res.setHeader('Content-Length', pdfBuffer.length);
       res.send(pdfBuffer);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /** One test's report in the Word format uploaded on that test. */
+  static downloadDocx = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const { buffer, fileName } = await ResultService.generateReportDocx(id);
+
+      res.setHeader('Content-Type', DOCX_MIME);
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+      res.setHeader('Content-Length', buffer.length);
+      res.send(buffer);
     } catch (error) {
       next(error);
     }

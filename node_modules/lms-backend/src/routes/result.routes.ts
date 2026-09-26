@@ -23,6 +23,8 @@ router.get('/:id', requirePermission(PERMISSIONS.RESULT_VIEW), ResultController.
 // The front desk hands the printed report to the patient, so any desk that can
 // see a bill may pull the released PDF.
 router.get('/:id/pdf', requirePermission(PERMISSIONS.RESULT_VIEW, PERMISSIONS.BILL_VIEW), ResultController.downloadPDF);
+// A test with its own Word format, filled in for this patient.
+router.get('/:id/docx', requirePermission(PERMISSIONS.RESULT_VIEW, PERMISSIONS.BILL_VIEW), ResultController.downloadDocx);
 
 router.post(
   '/draft',

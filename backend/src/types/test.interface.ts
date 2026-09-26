@@ -43,7 +43,15 @@ export interface ILabTestDocument extends Document {
   discountAllowed?: boolean;
   fastingRequired?: boolean;
   preparationRequired?: string;
+  interpretationTitle?: string;
   interpretation?: string;
+  reportTemplate?: {
+    attachment: Schema.Types.ObjectId;
+    fileName: string;
+    size?: number;
+    uploadedAt?: Date;
+    uploadedBy?: string;
+  } | null;
   turnaroundTime?: string;
   status: string;
   parameters: ITestParameter[];

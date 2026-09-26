@@ -8,12 +8,20 @@ import { Button } from '../../components/ui/button';
 import { ArrowLeft, Printer, Download, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { resultMarker } from '../../utils/result-flag';
 import { CENTRE, contactLine } from '../../config/centre';
+import { WordReportPreview } from '../../components/results/WordReportPreview';
 
 const dateTime = (value?: string | Date) =>
   value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
 
 const dateOnly = (value?: string | Date) =>
   value ? new Date(value).toLocaleDateString('en-IN', { dateStyle: 'medium' }) : '-';
+
+/** The interpretation's comments, one point per line, without any bullet typed in. */
+const commentLines = (text: string) =>
+  text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*[•\-*]\s*/, '').trim())
+    .filter(Boolean);
 
 /** A labelled line in one of the header blocks. Blank values print as a dash. */
 const Line: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
@@ -113,6 +121,12 @@ export const LabReportPage: React.FC = () => {
   const reportable = sheets;
 
   const primary: any = reportable[0] || opened;
+
+  // A test with a Word format uploaded on it prints from that file instead;
+  // the standard layout carries the rest.
+  const hasWordFormat = (sheet: any) => typeof sheet?.test === 'object' && !!sheet.test?.reportTemplate;
+  const wordSheets = reportable.filter(hasWordFormat);
+  const standard = reportable.filter((sheet) => !hasWordFormat(sheet));
   const patient: any = typeof primary.patient === 'object' ? primary.patient : {};
   const invoice: any = typeof primary.invoice === 'object' ? primary.invoice : {};
 
@@ -122,6 +136,9 @@ export const LabReportPage: React.FC = () => {
     (typeof invoice?.referringDoctor === 'object' ? invoice?.referringDoctor?.doctorName : '') ||
     invoice?.referringDoctorName ||
     'Self / Walk-in';
+
+  const headerSheet: any = standard[0] || primary;
+  const primarySample: any = typeof headerSheet.sample === 'object' ? headerSheet.sample : {};
 
   const address = [patient.address, patient.city, patient.state, patient.pinCode].filter(Boolean).join(', ');
 
@@ -133,14 +150,14 @@ export const LabReportPage: React.FC = () => {
     ['Email', CENTRE.email],
   ]);
 
-  const allCritical = reportable.flatMap((sheet) =>
+  const allCritical = standard.flatMap((sheet) =>
     parametersOf(sheet).filter((p: any) => p.flag === 'Critical')
   );
 
   // One pathologist for the whole visit is the usual case; where two signed
   // different tests, the sections carry their own line instead.
   const verifiers = Array.from(
-    new Set(reportable.map((s) => s.verifiedBy?.name).filter(Boolean) as string[])
+    new Set(standard.map((s) => s.verifiedBy?.name).filter(Boolean) as string[])
   );
 
   const handleDownloadPDF = () => window.open(resultApi.getPDFUrl(primary._id), '_blank');
@@ -226,6 +243,7 @@ export const LabReportPage: React.FC = () => {
           </div>
         </div>
 
+        {standard.length > 0 && (
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => window.print()}>
             <Printer className="mr-1 h-4 w-4" /> Print Report
@@ -234,8 +252,10 @@ export const LabReportPage: React.FC = () => {
             <Download className="mr-1 h-4 w-4" /> Download PDF
           </Button>
         </div>
+        )}
       </div>
 
+      {standard.length > 0 && (
       <Card className="report-sheet space-y-5 border-2 bg-card p-6 print:border-0 print:p-0 print:shadow-none">
         {/* Letterhead. Read from the same centre profile the bill prints, so
             the report a patient carries home names the centre that ran the
@@ -292,19 +312,25 @@ export const LabReportPage: React.FC = () => {
           <Line label="Mobile" value={patient.mobile} />
           <Line label="Registered On" value={dateTime(invoice.createdAt || primary.createdAt)} />
 
-          <Line label="Referred By" value={referredBy} />
+          <Line label="Consultant Doctor" value={referredBy} />
           <Line label="Reported On" value={dateTime(primary.updatedAt || primary.createdAt)} />
+
+          <Line
+            label="Specimen No."
+            value={<span className="font-mono">{primarySample.sampleId}</span>}
+          />
+          <Line label="Collection Date" value={primarySample.collectionDate && dateTime(primarySample.collectionDate)} />
 
           <Line
             label="Organization"
             value={typeof invoice.organization === 'object' ? invoice.organization?.organizationName : ''}
           />
-          <Line label="Tests on report" value={String(reportable.length)} />
+          <Line label="Tests on report" value={String(standard.length)} />
 
           <Line label="Address" value={address} />
           <Line
             label="Tests"
-            value={reportable
+            value={standard
               .map((s) => (typeof s.test === 'object' ? s.test?.testName : ''))
               .filter(Boolean)
               .join(', ')}
@@ -320,7 +346,7 @@ export const LabReportPage: React.FC = () => {
 
         {/* One section per test, grouped by department and in billing order
             within it - the server hands the visit over already laid out so. */}
-        {reportable.map((sheet: any, index: number) => {
+        {standard.map((sheet: any, index: number) => {
           const test: any = typeof sheet.test === 'object' ? sheet.test : {};
           const sample: any = typeof sheet.sample === 'object' ? sheet.sample : {};
           const department: any = typeof sheet.department === 'object' ? sheet.department : {};
@@ -328,7 +354,7 @@ export const LabReportPage: React.FC = () => {
           const measured = parameters.filter((p: any) => p.resultType !== 'Header');
           const abnormal = parameters.filter((p: any) => p.flag && p.flag !== 'Normal');
           const noValuesEntered = parameters.length > 0 && !hasValues(sheet);
-          const previous: any = index > 0 ? reportable[index - 1] : null;
+          const previous: any = index > 0 ? standard[index - 1] : null;
           const previousDepartment =
             previous && typeof previous.department === 'object' ? previous.department?.departmentName : undefined;
           const startsDepartment = department.departmentName && department.departmentName !== previousDepartment;
@@ -472,6 +498,31 @@ export const LabReportPage: React.FC = () => {
                 </p>
               )}
 
+              {/* The test's interpretation from the catalogue: a headline with a
+                  rule under it, then the comments one point per line. */}
+              {(test.interpretationTitle || test.interpretation) && (
+                <div className="space-y-3 text-xs">
+                  {test.interpretationTitle && (
+                    <div>
+                      <p className="font-bold underline">Interpretation</p>
+                      <p className="border-b border-foreground pb-1 text-base text-foreground">
+                        {test.interpretationTitle}
+                      </p>
+                    </div>
+                  )}
+                  {test.interpretation && (
+                    <div>
+                      <p className="font-bold underline">Comments:-</p>
+                      <ul className="mt-1 space-y-1 text-foreground">
+                        {commentLines(test.interpretation).map((line, i) => (
+                          <li key={i}>• {line}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {sheet.overallRemarks && (
                 <div className="rounded-xl border bg-muted/20 p-3 text-xs">
                   <p className="font-semibold uppercase text-muted-foreground">
@@ -522,7 +573,7 @@ export const LabReportPage: React.FC = () => {
                 <p className="font-bold text-foreground">{verifiers[0]}</p>
                 <p className="text-[11px] text-muted-foreground">Consultant Pathologist</p>
                 <p className="text-[11px] text-muted-foreground">
-                  Verified {dateTime(reportable.find((s) => s.verifiedBy?.name)?.verifiedBy?.date)}
+                  Verified {dateTime(standard.find((s) => s.verifiedBy?.name)?.verifiedBy?.date)}
                 </p>
               </>
             ) : verifiers.length > 1 ? (
@@ -539,6 +590,17 @@ export const LabReportPage: React.FC = () => {
           </div>
         </div>
       </Card>
+      )}
+
+      {/* Printed on their own from the Word file, not with the page above. */}
+      {wordSheets.map((sheet: any) => (
+        <Card key={sheet._id} className="border-2 bg-card p-4" data-print="hide">
+          <WordReportPreview
+            resultId={sheet._id}
+            testName={sheet.test?.testName || 'Test'}
+          />
+        </Card>
+      ))}
     </div>
   );
 };

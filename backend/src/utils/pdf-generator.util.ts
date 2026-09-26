@@ -115,7 +115,7 @@ export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer>
     doc.font('Helvetica').fontSize(9).fillColor('#4b5563');
     doc.text(`UHID: ${resultRecord.uhid || '-'}`, LEFT, doc.y, { width: 260 });
     doc.text(`${patient.age ?? '-'} Yrs / ${patient.gender || '-'}${patient.mobile ? ` / ${patient.mobile}` : ''}`, LEFT, doc.y, { width: 260 });
-    doc.text(`Referred By: ${referredBy}`, LEFT, doc.y, { width: 260 });
+    doc.text(`Consultant Doctor: ${referredBy}`, LEFT, doc.y, { width: 260 });
     if (invoice.invoiceNumber) {
       doc.text(`Invoice: ${invoice.invoiceNumber}`, LEFT, doc.y, { width: 260 });
     }
@@ -144,6 +144,13 @@ export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer>
     );
     if (invoice.createdAt) {
       doc.text(`Registered: ${stamp(invoice.createdAt)}`, 320, doc.y, { width: 250, align: 'right' });
+    }
+    const primarySample = typeof resultRecord.sample === 'object' ? resultRecord.sample || {} : {};
+    if (primarySample.sampleId) {
+      doc.text(`Specimen No: ${primarySample.sampleId}`, 320, doc.y, { width: 250, align: 'right' });
+    }
+    if (primarySample.collectionDate) {
+      doc.text(`Collection Date: ${stamp(primarySample.collectionDate)}`, 320, doc.y, { width: 250, align: 'right' });
     }
 
     // Both columns are written from the same starting Y, so continue below
@@ -292,6 +299,42 @@ export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer>
             width: RIGHT - LEFT,
           });
         doc.fontSize(9).fillColor('#111827');
+      }
+
+      // The test's interpretation from the catalogue: an underlined heading,
+      // the headline with a rule under it, then the comments as bullets.
+      const interpretationTitle = String(test.interpretationTitle || '').trim();
+      const comments = String(test.interpretation || '')
+        .split(/\r?\n/)
+        .map((line) => line.replace(/^\s*[•\-*]\s*/, '').trim())
+        .filter(Boolean);
+
+      if (interpretationTitle) {
+        if (doc.y > 680) doc.addPage();
+        doc.moveDown(0.8);
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#111827').text('Interpretation', LEFT, doc.y, {
+          underline: true,
+        });
+        doc.font('Helvetica').fontSize(12).fillColor('#111827').text(interpretationTitle, LEFT, doc.y, {
+          width: RIGHT - LEFT,
+        });
+        doc.moveDown(0.2);
+        rule(doc, '#111827');
+      }
+
+      if (comments.length) {
+        if (doc.y > 680) doc.addPage();
+        doc.moveDown(0.8);
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#111827').text('Comments:-', LEFT, doc.y, {
+          underline: true,
+        });
+        doc.moveDown(0.3);
+        doc.font('Helvetica').fontSize(8.5).fillColor('#111827');
+        comments.forEach((line) => {
+          if (doc.y > 740) doc.addPage();
+          doc.text(`• ${line}`, LEFT, doc.y, { width: RIGHT - LEFT });
+          doc.moveDown(0.15);
+        });
       }
 
       if (sheet.overallRemarks) {

@@ -11,6 +11,7 @@ import { HTTP_STATUS } from '../constants/messages';
 import { ApiError } from '../utils/api-error.util';
 import { JwtPayload } from '../types/auth.interface';
 import { parametersForTest } from '../constants/test-parameters';
+import { checkReportTemplate, DOCX_MIME } from '../utils/docx-report.util';
 
 /**
  * A TPA's test is usually one the centre already runs under its own name, so
@@ -316,7 +317,11 @@ export class TestController {
   };
   static listAttachments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const files = await TestAttachment.find({ test: paramOf(req.params.id) }).sort({ createdAt: -1 });
+      // The report template has a tab of its own and is not a reference file.
+      const files = await TestAttachment.find({
+        test: paramOf(req.params.id),
+        kind: { $ne: 'report-template' },
+      }).sort({ createdAt: -1 });
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Test files retrieved', data: files.map(attachmentView) });
     } catch (error) {
       next(error);
@@ -385,9 +390,99 @@ export class TestController {
       const file = await TestAttachment.findOneAndDelete({
         _id: paramOf(req.params.attachmentId),
         test: paramOf(req.params.id),
+        kind: { $ne: 'report-template' },
       });
       if (!file) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'File not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: `${file.fileName} removed`, data: { id: String(file._id) } });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * Sets the Word file this test's report is printed from, replacing any
+   * earlier one. Takes `{ fileName, data }` with the .docx as base64.
+   */
+  static uploadReportTemplate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const currentUser = (req as any).user as JwtPayload;
+      const test = await LabTest.findById(paramOf(req.params.id));
+      if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
+
+      const fileName = String(req.body?.fileName || '').trim().slice(0, 200);
+      const encoded = String(req.body?.data || '').replace(/^data:[^,]*,/, '');
+      if (!fileName || !encoded) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Choose a Word file to upload');
+      if (!/\.docx$/i.test(fileName)) {
+        throw new ApiError(
+          HTTP_STATUS.BAD_REQUEST,
+          'The report format must be a Word .docx file - open a .doc in Word and "Save As" .docx first'
+        );
+      }
+      const data = Buffer.from(encoded, 'base64');
+      if (data.length === 0) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'The file is empty');
+      if (data.length > MAX_ATTACHMENT_BYTES) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'A file can be at most 5 MB');
+      // Refused here, not on a patient's report later: a file that is not a
+      // .docx, or whose #PLACEHOLDERS# do not pair up.
+      checkReportTemplate(data);
+
+      const file = await TestAttachment.create({
+        test: test._id,
+        fileName,
+        mimeType: DOCX_MIME,
+        size: data.length,
+        data,
+        kind: 'report-template',
+        uploadedBy: { userId: currentUser?.userId as any, name: currentUser?.name },
+      });
+
+      const previous = (test as any).reportTemplate?.attachment;
+      (test as any).reportTemplate = {
+        attachment: file._id,
+        fileName,
+        size: data.length,
+        uploadedAt: new Date(),
+        uploadedBy: currentUser?.name || '',
+      };
+      await test.save();
+      if (previous) await TestAttachment.deleteOne({ _id: previous, kind: 'report-template' });
+
+      sendResponse({
+        res,
+        statusCode: HTTP_STATUS.CREATED,
+        message: 'Report format uploaded',
+        data: (test as any).reportTemplate,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  static downloadReportTemplate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const test = await LabTest.findById(paramOf(req.params.id)).select('reportTemplate');
+      const ref = (test as any)?.reportTemplate;
+      if (!ref) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'This test has no report format');
+      const file = await TestAttachment.findById(ref.attachment).select('+data');
+      if (!file) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'The report format file is missing');
+      res.setHeader('Content-Type', DOCX_MIME);
+      res.setHeader('Content-Length', String(file.size));
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+      res.end(file.data);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /** Back to the standard report layout for this test. */
+  static removeReportTemplate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const test = await LabTest.findById(paramOf(req.params.id));
+      if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
+      const ref = (test as any).reportTemplate;
+      (test as any).reportTemplate = null;
+      await test.save();
+      if (ref?.attachment) await TestAttachment.deleteOne({ _id: ref.attachment, kind: 'report-template' });
+      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Report format removed', data: null });
     } catch (error) {
       next(error);
     }

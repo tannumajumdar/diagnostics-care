@@ -28,6 +28,7 @@ import {
   FileText,
   Upload,
   ClipboardCheck,
+  FileType,
 } from 'lucide-react';
 
 export const TestsPage: React.FC = () => {
@@ -214,6 +215,10 @@ export const TestsPage: React.FC = () => {
           <Button variant="outline" onClick={() => setInfoModal({ tab: 'interpretation' })} className="gap-2">
             <FileText className="h-4 w-4 text-blue-600" />
             <span>Interpretation</span>
+          </Button>
+          <Button variant="outline" onClick={() => setInfoModal({ tab: 'format' })} className="gap-2">
+            <FileType className="h-4 w-4 text-blue-600" />
+            <span>Report Format</span>
           </Button>
           <Button variant="outline" onClick={() => setInfoModal({ tab: 'files' })} className="gap-2">
             <Upload className="h-4 w-4 text-blue-600" />
