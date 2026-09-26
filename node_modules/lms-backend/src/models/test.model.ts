@@ -15,10 +15,28 @@ const testParameterSchema = new Schema(
     method: { type: String, trim: true, default: '' },
     resultType: {
       type: String,
-      enum: ['Numeric', 'Text', 'Dropdown', 'Positive/Negative', 'Reactive/Non-Reactive', 'Normal/Abnormal'],
+      // 'Header' is a section title inside a panel (RBC INDICES in a CBC) - it
+      // carries no value, unit or range and only prints as a heading.
+      enum: ['Numeric', 'Text', 'Dropdown', 'Positive/Negative', 'Reactive/Non-Reactive', 'Normal/Abnormal', 'Header'],
       default: 'Numeric',
     },
     displayOrder: { type: Number, default: 1 },
+    // One row per band, the way the lab's desktop screen keeps them: the same
+    // parameter repeats for each sex and age window it has a range for, and
+    // the sheet picks the row that fits the patient. Rows saved before this
+    // carry the male/female/child strings above instead and still work.
+    paraFor: { type: String, enum: ['ALL', 'MALE', 'FEMALE'], default: 'ALL' },
+    minValue: { type: String, trim: true, default: '' },
+    maxValue: { type: String, trim: true, default: '' },
+    /** Above this the value is flagged High - filled from MAX when left blank. */
+    highRange: { type: String, trim: true, default: '' },
+    /** Below this the value is flagged Low - filled from MIN when left blank. */
+    lowRange: { type: String, trim: true, default: '' },
+    ageFromDays: { type: Number, default: 0, min: 0 },
+    /** 0 means no upper limit. */
+    ageToDays: { type: Number, default: 0, min: 0 },
+    /** Normal value for a line that is not a number - "Negative", "Clear". */
+    referenceText: { type: String, trim: true, default: '' },
   },
   { _id: false }
 );

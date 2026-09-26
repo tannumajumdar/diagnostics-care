@@ -3,6 +3,9 @@ export type ResultFlag = 'Normal' | 'Low' | 'High' | 'Critical';
 interface CriticalLimits {
   criticalLow?: string | number;
   criticalHigh?: string | number;
+  /** The master's HIGH / LOW RANGE - above / below them reads High / Low. */
+  highRange?: string | number;
+  lowRange?: string | number;
 }
 
 const toNumber = (value: unknown): number => parseFloat(String(value ?? ''));
@@ -28,6 +31,14 @@ export const calculateResultFlag = (
   const criticalHigh = toNumber(limits.criticalHigh);
   if (!isNaN(criticalLow) && val < criticalLow) return 'Critical';
   if (!isNaN(criticalHigh) && val > criticalHigh) return 'Critical';
+
+  const highAt = toNumber(limits.highRange);
+  const lowAt = toNumber(limits.lowRange);
+  if (!isNaN(highAt) || !isNaN(lowAt)) {
+    if (!isNaN(highAt) && val > highAt) return 'High';
+    if (!isNaN(lowAt) && val < lowAt) return 'Low';
+    return 'Normal';
+  }
 
   if (!referenceRange) return 'Normal';
 

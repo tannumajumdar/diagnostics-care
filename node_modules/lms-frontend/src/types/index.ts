@@ -15,7 +15,9 @@ export type ResultType =
   | 'Dropdown'
   | 'Positive/Negative'
   | 'Reactive/Non-Reactive'
-  | 'Normal/Abnormal';
+  | 'Normal/Abnormal'
+  // A section title inside a panel (RBC INDICES) - no value, unit or range.
+  | 'Header';
 export type TestType = 'Routine' | 'Special' | 'Urgent' | 'Profile';
 
 /** Run at the centre's own bench, or couriered out to another lab. */
@@ -229,6 +231,10 @@ export interface ParameterResult {
   remarks?: string;
   resultType: string;
   dropdownOptions?: string[];
+  criticalLow?: string;
+  criticalHigh?: string;
+  highRange?: string;
+  lowRange?: string;
 }
 
 export interface ResultVersion {
@@ -341,7 +347,23 @@ export interface TestParameter {
   dropdownOptions?: string[];
   decimalPrecision?: number;
   displayOrder: number;
+  // One row per sex / age band, as on the lab's desktop parameter screen. The
+  // same parameter repeats for each band; the sheet picks the one that fits.
+  paraFor?: ParaFor;
+  minValue?: string;
+  maxValue?: string;
+  /** At or above this the value flags High. */
+  highRange?: string;
+  /** At or below this the value flags Low. */
+  lowRange?: string;
+  ageFromDays?: number;
+  /** 0 means no upper limit. */
+  ageToDays?: number;
+  /** Normal value for a line that is not a number - "Negative", "Clear". */
+  referenceText?: string;
 }
+
+export type ParaFor = 'ALL' | 'MALE' | 'FEMALE';
 
 export interface LabTest {
   id: string;

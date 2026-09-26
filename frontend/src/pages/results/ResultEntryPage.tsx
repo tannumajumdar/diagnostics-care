@@ -21,14 +21,23 @@ const selectClass =
  * sees a value go red as it is typed instead of after the save round-trips.
  * The server still recalculates on save - this is a preview, not the record.
  */
-const previewFlag = (value: string, range?: string, criticalLow?: string, criticalHigh?: string) => {
+const previewFlag = (value: string, range?: string, p: any = {}) => {
   const val = parseFloat(value);
   if (isNaN(val)) return 'Normal';
 
-  const low = parseFloat(String(criticalLow ?? ''));
-  const high = parseFloat(String(criticalHigh ?? ''));
+  const low = parseFloat(String(p.criticalLow ?? ''));
+  const high = parseFloat(String(p.criticalHigh ?? ''));
   if (!isNaN(low) && val < low) return 'Critical';
   if (!isNaN(high) && val > high) return 'Critical';
+
+  // The master's HIGH / LOW RANGE, when set, decide it outright.
+  const highAt = parseFloat(String(p.highRange ?? ''));
+  const lowAt = parseFloat(String(p.lowRange ?? ''));
+  if (!isNaN(highAt) || !isNaN(lowAt)) {
+    if (!isNaN(highAt) && val > highAt) return 'High';
+    if (!isNaN(lowAt) && val < lowAt) return 'Low';
+    return 'Normal';
+  }
 
   if (!range) return 'Normal';
 
@@ -118,8 +127,11 @@ export const ResultEntryPage: React.FC = () => {
   const setValue = (sheetId: string, parameterName: string, val: string) =>
     setValues((prev) => ({ ...prev, [sheetId]: { ...(prev[sheetId] || {}), [parameterName]: val } }));
 
+  /** Header rows are section titles - nothing is typed into them. */
+  const entryRowsOf = (sheet: any) => parametersOf(sheet).filter((p: any) => p.resultType !== 'Header');
+
   const filledCount = (sheet: any) =>
-    parametersOf(sheet).filter((p: any) => String(valueOf(sheet, p)).trim() !== '').length;
+    entryRowsOf(sheet).filter((p: any) => String(valueOf(sheet, p)).trim() !== '').length;
 
   const payloadFor = (sheet: any): ParameterResult[] =>
     parametersOf(sheet).map((p: any) => ({ ...p, value: valueOf(sheet, p) }));
@@ -206,7 +218,7 @@ export const ResultEntryPage: React.FC = () => {
 
   const patient = typeof sheets[0].patient === 'object' ? sheets[0].patient : {};
   const totalFilled = sheets.reduce((sum, sheet) => sum + filledCount(sheet), 0);
-  const totalParameters = sheets.reduce((sum, sheet) => sum + parametersOf(sheet).length, 0);
+  const totalParameters = sheets.reduce((sum, sheet) => sum + entryRowsOf(sheet).length, 0);
   // An already-released report stays editable on purpose: a wrong or missing
   // value has to be correctable. Saving sends it back to Draft, so the
   // pathologist has to look at it again before it can be handed over.
@@ -269,7 +281,7 @@ export const ResultEntryPage: React.FC = () => {
                   <span className="font-mono">{sample.sampleId}</span>
                   <Badge variant={sheet.status === 'Approved' ? 'success' : 'amber'}>{sheet.status}</Badge>
                   <span>
-                    {filledCount(sheet)} of {parameters.length} filled
+                    {filledCount(sheet)} of {entryRowsOf(sheet).length} filled
                   </span>
                 </span>
               </CardTitle>
@@ -299,8 +311,18 @@ export const ResultEntryPage: React.FC = () => {
                     </thead>
                     <tbody className="divide-y">
                       {parameters.map((p: any, idx: number) => {
+                        if (p.resultType === 'Header') {
+                          return (
+                            <tr key={idx} className="bg-muted/40">
+                              <td colSpan={5} className="p-2 px-3 font-bold uppercase tracking-wide text-blue-700">
+                                {p.parameterName}
+                              </td>
+                            </tr>
+                          );
+                        }
+
                         const value = valueOf(sheet, p);
-                        const flag = previewFlag(value, p.referenceRange, p.criticalLow, p.criticalHigh);
+                        const flag = previewFlag(value, p.referenceRange, p);
                         const options =
                           p.resultType === 'Dropdown' ? p.dropdownOptions : OPTIONS_BY_TYPE[p.resultType];
 

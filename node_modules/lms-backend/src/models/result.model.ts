@@ -25,6 +25,9 @@ const parameterResultSchema = new Schema(
     // limits the sheet was built with, even if the master is edited later.
     criticalLow: { type: String, default: '' },
     criticalHigh: { type: String, default: '' },
+    // The master's HIGH / LOW RANGE values for the band this patient fell in.
+    highRange: { type: String, default: '' },
+    lowRange: { type: String, default: '' },
     displayOrder: { type: Number, default: 1 },
   },
   { _id: false }

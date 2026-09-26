@@ -19,7 +19,8 @@ export type TestResultType =
   | 'Dropdown'
   | 'Positive/Negative'
   | 'Reactive/Non-Reactive'
-  | 'Normal/Abnormal';
+  | 'Normal/Abnormal'
+  | 'Header';
 
 export interface ParameterTemplate {
   parameterName: string;

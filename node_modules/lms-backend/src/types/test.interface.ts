@@ -11,6 +11,14 @@ export interface ITestParameter {
   method?: string;
   resultType?: string;
   displayOrder?: number;
+  paraFor?: 'ALL' | 'MALE' | 'FEMALE';
+  minValue?: string;
+  maxValue?: string;
+  highRange?: string;
+  lowRange?: string;
+  ageFromDays?: number;
+  ageToDays?: number;
+  referenceText?: string;
 }
 
 export interface ILabTestDocument extends Document {

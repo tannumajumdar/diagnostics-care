@@ -14,6 +14,8 @@ export interface IParameterResult {
   dropdownOptions?: string[];
   criticalLow?: string;
   criticalHigh?: string;
+  highRange?: string;
+  lowRange?: string;
   displayOrder?: number;
 }
 

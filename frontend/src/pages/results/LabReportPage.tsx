@@ -273,6 +273,7 @@ export const LabReportPage: React.FC = () => {
           const sample: any = typeof sheet.sample === 'object' ? sheet.sample : {};
           const department: any = typeof sheet.department === 'object' ? sheet.department : {};
           const parameters = parametersOf(sheet);
+          const measured = parameters.filter((p: any) => p.resultType !== 'Header');
           const abnormal = parameters.filter((p: any) => p.flag && p.flag !== 'Normal');
           const noValuesEntered = parameters.length > 0 && !hasValues(sheet);
 
@@ -304,7 +305,7 @@ export const LabReportPage: React.FC = () => {
                   )}
                 </div>
                 <p className="text-[12px] text-muted-foreground">
-                  {parameters.length} parameter{parameters.length === 1 ? '' : 's'}
+                  {measured.length} parameter{measured.length === 1 ? '' : 's'}
                   {abnormal.length > 0 && (
                     <span className="ml-1 font-semibold text-rose-600">· {abnormal.length} outside range</span>
                   )}
@@ -352,6 +353,16 @@ export const LabReportPage: React.FC = () => {
                     </thead>
                     <tbody className="divide-y">
                       {parameters.map((p: any, idx: number) => {
+                        if (p.resultType === 'Header') {
+                          return (
+                            <tr key={idx} className="bg-muted/30">
+                              <td colSpan={4} className="p-2 px-3 font-bold uppercase tracking-wide">
+                                {p.parameterName}
+                              </td>
+                            </tr>
+                          );
+                        }
+
                         const isAbnormal = p.flag && p.flag !== 'Normal';
                         // The report marks an out-of-range value with an H or an
                         // L against the figure itself, the way a printed report

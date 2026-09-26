@@ -36,31 +36,96 @@ const rangeForPatient = (parameter: any, patient: any): string => {
   return parameter.maleReferenceRange || parameter.femaleReferenceRange || '';
 };
 
+/** The patient's age in days - off the date of birth when the desk took one. */
+const ageInDays = (patient: any): number => {
+  const born = patient?.dateOfBirth ? new Date(patient.dateOfBirth) : null;
+  if (born && !isNaN(born.getTime())) {
+    return Math.max(0, Math.floor((Date.now() - born.getTime()) / 86400000));
+  }
+  const years = Number(patient?.age);
+  return isNaN(years) ? 0 : Math.round(years * 365);
+};
+
+/** A row laid out the desktop way - its range is MIN / MAX, not the sex strings. */
+const isBandRow = (p: any) =>
+  !p.maleReferenceRange && !p.femaleReferenceRange && !p.childReferenceRange;
+
+const bandRange = (p: any): string => {
+  const min = String(p.minValue || '').trim();
+  const max = String(p.maxValue || '').trim();
+  if (min && max) return `${min} - ${max}`;
+  if (max) return `< ${max}`;
+  if (min) return `> ${min}`;
+  return String(p.referenceText || '').trim();
+};
+
+/**
+ * Of the rows the master holds for one parameter, the one this patient is read
+ * against: a row for their own sex beats an ALL row, and either has to cover
+ * their age. A patient no row covers falls back to the ALL row, then any row,
+ * so the line is never dropped from the sheet.
+ */
+const pickBand = (rows: any[], patient: any) => {
+  if (rows.length === 1) return rows[0];
+  const gender = String(patient?.gender || '');
+  const sex = gender.startsWith('Female') ? 'FEMALE' : gender.startsWith('Male') ? 'MALE' : '';
+  const days = ageInDays(patient);
+  const fitsAge = (r: any) => {
+    const from = Number(r.ageFromDays) || 0;
+    const to = Number(r.ageToDays) || 0;
+    return days >= from && (to === 0 || days <= to);
+  };
+  const forSex = (r: any) => (r.paraFor || 'ALL') === sex;
+  const forAll = (r: any) => (r.paraFor || 'ALL') === 'ALL';
+
+  return (
+    rows.find((r) => forSex(r) && fitsAge(r)) ||
+    rows.find((r) => forAll(r) && fitsAge(r)) ||
+    rows.find(forAll) ||
+    rows[0]
+  );
+};
+
 /**
  * The blank parameter sheet a sample opens on. Tests carry their own sheet from
  * the master; the ones created before the catalogue existed fall back to it, so
  * result entry is never an empty grid and no report prints an empty table.
+ *
+ * The master can hold several rows for one parameter (one per sex / age band),
+ * so rows are grouped by name and one line per parameter goes on the sheet.
  */
 const buildSheetForTest = (test: any, patient: any) => {
   const defined = Array.isArray(test?.parameters) && test.parameters.length ? test.parameters : null;
   const parameters = defined || parametersForTest(test?.testName || '', test?.testCode || '');
 
-  return [...parameters]
+  const groups = new Map<string, any[]>();
+  [...parameters]
     .sort((a: any, b: any) => (a.displayOrder || 0) - (b.displayOrder || 0))
-    .map((p: any, idx: number) => ({
+    .forEach((p: any) => {
+      const key = String(p.parameterName || '').trim().toLowerCase();
+      groups.set(key, [...(groups.get(key) || []), p]);
+    });
+
+  return Array.from(groups.values()).map((rows: any[], idx: number) => {
+    const p = pickBand(rows, patient);
+    const header = p.resultType === 'Header';
+    return {
       parameterName: p.parameterName,
       shortName: p.shortName || '',
       value: '',
-      unit: p.unit || '',
-      referenceRange: rangeForPatient(p, patient),
+      unit: header ? '' : p.unit || '',
+      referenceRange: header ? '' : isBandRow(p) ? bandRange(p) : rangeForPatient(p, patient),
       flag: 'Normal' as const,
       method: p.method || '',
       resultType: p.resultType || 'Numeric',
       dropdownOptions: p.dropdownOptions || [],
       criticalLow: p.criticalLow || '',
       criticalHigh: p.criticalHigh || '',
-      displayOrder: p.displayOrder || idx + 1,
-    }));
+      highRange: header ? '' : p.highRange || '',
+      lowRange: header ? '' : p.lowRange || '',
+      displayOrder: idx + 1,
+    };
+  });
 };
 
 /** True once the bench has typed something into at least one line. */
@@ -210,14 +275,22 @@ export class ResultService {
 
     // Recompute the flag from the value every time rather than trusting the one
     // the browser sent - a corrected value with a stale 'Normal' beside it is
-    // the kind of thing that gets missed on a printed report.
-    const calculatedResults = (data.results || []).map((r: any) => ({
-      ...r,
-      flag: calculateResultFlag(r.value, r.referenceRange, {
-        criticalLow: r.criticalLow,
-        criticalHigh: r.criticalHigh,
-      }),
-    }));
+    // the kind of thing that gets missed on a printed report. A header row is
+    // only a section title - whatever the browser sent, it holds no value and
+    // can never flag.
+    const calculatedResults = (data.results || []).map((r: any) =>
+      r.resultType === 'Header'
+        ? { ...r, value: '', flag: 'Normal' }
+        : {
+            ...r,
+            flag: calculateResultFlag(r.value, r.referenceRange, {
+              criticalLow: r.criticalLow,
+              criticalHigh: r.criticalHigh,
+              highRange: r.highRange,
+              lowRange: r.lowRange,
+            }),
+          }
+    );
 
     const activeUser = currentUser || data.user || {};
     const rawUserId = activeUser.userId || activeUser.id || activeUser._id;

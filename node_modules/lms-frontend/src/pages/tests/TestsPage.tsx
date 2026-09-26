@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { testApi } from '../../api/test.api';
 import { departmentApi } from '../../api/department.api';
-import { LabTest, Department, TestParameter } from '../../types';
+import { LabTest, Department } from '../../types';
 import { TestModal } from '../../components/masters/TestModal';
-import { TestParametersModal } from '../../components/masters/TestParametersModal';
+import { ParameterMasterModal } from '../../components/masters/ParameterMasterModal';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -19,7 +19,7 @@ import {
   Search,
   Edit2,
   Power,
-  ListPlus,
+  ListChecks,
   Trash2,
   ChevronLeft,
   ChevronRight,
@@ -111,11 +111,6 @@ export const TestsPage: React.FC = () => {
     setTestModalOpen(true);
   };
 
-  const handleEditParameters = (test: LabTest) => {
-    setSelectedTest(test);
-    setParamModalOpen(true);
-  };
-
   const handleToggleStatusClick = (test: LabTest) => {
     setConfirmDialog({ isOpen: true, test, action: 'status' });
   };
@@ -183,19 +178,6 @@ export const TestsPage: React.FC = () => {
     }
   };
 
-  const handleSaveParameters = async (parameters: TestParameter[]) => {
-    if (!selectedTest) return;
-    try {
-      await testApi.updateParameters(selectedTest.id, parameters);
-      showToast(`Parameters updated for ${selectedTest.testName}`, 'success');
-      setParamModalOpen(false);
-      refreshDeskCatalogue();
-      fetchTests();
-    } catch (error: any) {
-      showToast(error?.message || error?.response?.data?.message || 'Failed to update parameters', 'error');
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -208,10 +190,17 @@ export const TestsPage: React.FC = () => {
             Configure test catalog, sample vials, reference ranges, TAT, and parameter definitions.
           </p>
         </div>
-        <Button onClick={handleCreateNew} className="gap-2">
-          <Plus className="h-4 w-4" />
-          <span>Add New Test</span>
-        </Button>
+        <div className="flex gap-2">
+          {/* One window for every test's parameters - pick the test inside it. */}
+          <Button variant="outline" onClick={() => setParamModalOpen(true)} className="gap-2">
+            <ListChecks className="h-4 w-4 text-blue-600" />
+            <span>Edit Parameter</span>
+          </Button>
+          <Button onClick={handleCreateNew} className="gap-2">
+            <Plus className="h-4 w-4" />
+            <span>Add New Test</span>
+          </Button>
+        </div>
       </div>
 
       <Card className="p-4">
@@ -344,7 +333,15 @@ export const TestsPage: React.FC = () => {
                     </td>
                     <td className="p-3 text-muted-foreground">{test.turnaroundTime}</td>
                     <td className="p-3 font-semibold text-blue-600">
-                      {test.parameters?.length || 0} Params
+                      {/* A parameter with a row per age / sex band counts once. */}
+                      {
+                        new Set(
+                          (test.parameters || [])
+                            .filter((p) => p.resultType !== 'Header')
+                            .map((p) => String(p.parameterName || '').trim().toLowerCase())
+                        ).size
+                      }{' '}
+                      Params
                     </td>
                     <td className="p-3">
                       <Badge variant={test.status === 'Active' ? 'success' : 'destructive'}>
@@ -352,15 +349,6 @@ export const TestsPage: React.FC = () => {
                       </Badge>
                     </td>
                     <td className="p-3 text-right space-x-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => handleEditParameters(test)}
-                        title="Configure Test Parameters"
-                      >
-                        <ListPlus className="h-4 w-4 text-blue-600" />
-                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -437,11 +425,13 @@ export const TestsPage: React.FC = () => {
         departments={departments}
       />
 
-      <TestParametersModal
+      <ParameterMasterModal
         isOpen={paramModalOpen}
         onClose={() => setParamModalOpen(false)}
-        onSave={handleSaveParameters}
-        test={selectedTest}
+        onSaved={() => {
+          refreshDeskCatalogue();
+          fetchTests();
+        }}
       />
 
       <ConfirmDialog

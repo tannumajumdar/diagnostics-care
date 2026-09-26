@@ -222,6 +222,19 @@ export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer>
         }
 
         const rowY = doc.y;
+
+        // A section title inside the panel (RBC INDICES) - bold, across the
+        // row, with nothing in the value, unit or range columns.
+        if (res.resultType === 'Header') {
+          doc.font('Helvetica-Bold').fontSize(9).fillColor('#111827');
+          doc.text(String(res.parameterName || '').toUpperCase(), COLUMNS[0].x, rowY + 2, {
+            width: RIGHT - COLUMNS[0].x,
+          });
+          doc.font('Helvetica');
+          doc.y = rowY + 16;
+          return;
+        }
+
         const flag = res.flag || 'Normal';
         const abnormal = flag !== 'Normal';
         const marker = resultMarker(res);

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { LabTest, Department, TestParameter, ProcessingMode } from '../../types';
+import { LabTest, Department, ProcessingMode } from '../../types';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { X } from 'lucide-react';
 
 interface TestModalProps {
   isOpen: boolean;
@@ -11,18 +11,6 @@ interface TestModalProps {
   test?: LabTest | null;
   departments: Department[];
 }
-
-const blankParameter = (order: number): TestParameter => ({
-  parameterName: '',
-  shortName: '',
-  unit: '',
-  maleReferenceRange: '',
-  femaleReferenceRange: '',
-  childReferenceRange: '',
-  method: '',
-  resultType: 'Numeric',
-  displayOrder: order,
-});
 
 export const TestModal: React.FC<TestModalProps> = ({
   isOpen,
@@ -40,7 +28,6 @@ export const TestModal: React.FC<TestModalProps> = ({
   const [processingMode, setProcessingMode] = useState<ProcessingMode>('In-house');
   const [outsourceLab, setOutsourceLab] = useState('');
   const [outsourceCost, setOutsourceCost] = useState(0);
-  const [parameters, setParameters] = useState<TestParameter[]>([]);
 
   useEffect(() => {
     if (test) {
@@ -55,7 +42,6 @@ export const TestModal: React.FC<TestModalProps> = ({
       setProcessingMode(test.processingMode === 'Outsource' ? 'Outsource' : 'In-house');
       setOutsourceLab(test.outsourceLab || '');
       setOutsourceCost(Number(test.outsourceCost) || 0);
-      setParameters(Array.isArray(test.parameters) ? test.parameters.map((p) => ({ ...p })) : []);
     } else {
       setTestName('');
       setTestCode('');
@@ -65,25 +51,10 @@ export const TestModal: React.FC<TestModalProps> = ({
       setProcessingMode('In-house');
       setOutsourceLab('');
       setOutsourceCost(0);
-      setParameters([]);
     }
   }, [test, isOpen, departments]);
 
   if (!isOpen) return null;
-
-  const addParameter = () => {
-    setParameters((prev) => [...prev, blankParameter(prev.length + 1)]);
-  };
-
-  const removeParameter = (index: number) => {
-    setParameters((prev) =>
-      prev.filter((_, idx) => idx !== index).map((p, idx) => ({ ...p, displayOrder: idx + 1 }))
-    );
-  };
-
-  const changeParameter = (index: number, field: keyof TestParameter, value: any) => {
-    setParameters((prev) => prev.map((p, idx) => (idx === index ? { ...p, [field]: value } : p)));
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,11 +69,6 @@ export const TestModal: React.FC<TestModalProps> = ({
       // back cannot leave a stale lab name printing on the sample slip.
       outsourceLab: processingMode === 'Outsource' ? outsourceLab.trim() : '',
       outsourceCost: processingMode === 'Outsource' ? Number(outsourceCost) || 0 : 0,
-      // Rows left completely blank are ones someone added and then thought
-      // better of - they would print as an empty line on the report.
-      parameters: parameters
-        .filter((p) => String(p.parameterName || '').trim())
-        .map((p, idx) => ({ ...p, displayOrder: idx + 1 })),
     });
   };
 
@@ -241,118 +207,14 @@ export const TestModal: React.FC<TestModalProps> = ({
             </div>
           )}
 
-          <div className="space-y-3 pt-2 border-t">
-            <div className="flex items-center justify-between pt-2">
-              <div>
-                <span className="font-semibold block">Test Parameters ({parameters.length})</span>
-                <span className="text-[11px] text-muted-foreground">
-                  {parameters.length === 0 && !test
-                    ? 'Leave this empty and a standard sheet is built from the test name - editable any time.'
-                    : 'What result entry asks for, and what the report prints.'}
-                </span>
-              </div>
-              <Button type="button" variant="outline" size="sm" onClick={addParameter}>
-                <Plus className="h-4 w-4 mr-1" /> Add Parameter
-              </Button>
-            </div>
-
-            {parameters.map((param, idx) => (
-              <div key={idx} className="p-3 border rounded-xl bg-muted/20 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold font-mono text-blue-600">Parameter #{idx + 1}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeParameter(idx)}
-                    className="text-red-500 hover:text-red-700 p-1"
-                    title="Remove parameter"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                  <div>
-                    <label className="text-[11px] font-semibold text-muted-foreground">Parameter Name *</label>
-                    <Input
-                      value={param.parameterName}
-                      onChange={(e) => changeParameter(idx, 'parameterName', e.target.value)}
-                      placeholder="e.g. Hemoglobin"
-                      required
-                      className="h-8 text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-muted-foreground">Result Type</label>
-                    <select
-                      value={param.resultType}
-                      onChange={(e) => changeParameter(idx, 'resultType', e.target.value)}
-                      className="w-full h-8 rounded-lg border bg-background px-2 text-xs"
-                    >
-                      <option value="Numeric">Numeric</option>
-                      <option value="Text">Text</option>
-                      <option value="Dropdown">Dropdown</option>
-                      <option value="Positive/Negative">Positive/Negative</option>
-                      <option value="Reactive/Non-Reactive">Reactive/Non-Reactive</option>
-                      <option value="Normal/Abnormal">Normal/Abnormal</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-muted-foreground">Unit</label>
-                    <Input
-                      value={param.unit || ''}
-                      onChange={(e) => changeParameter(idx, 'unit', e.target.value)}
-                      placeholder="e.g. g/dL"
-                      className="h-8 text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-muted-foreground">Method</label>
-                    <Input
-                      value={param.method || ''}
-                      onChange={(e) => changeParameter(idx, 'method', e.target.value)}
-                      placeholder="Methodology"
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div>
-                    <label className="text-[11px] font-semibold text-muted-foreground">Male Reference Range</label>
-                    <Input
-                      value={param.maleReferenceRange || ''}
-                      onChange={(e) => changeParameter(idx, 'maleReferenceRange', e.target.value)}
-                      placeholder="e.g. 13.5 - 17.5"
-                      className="h-8 text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-muted-foreground">Female Reference Range</label>
-                    <Input
-                      value={param.femaleReferenceRange || ''}
-                      onChange={(e) => changeParameter(idx, 'femaleReferenceRange', e.target.value)}
-                      placeholder="e.g. 12.0 - 15.5"
-                      className="h-8 text-xs"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-muted-foreground">Child Reference Range</label>
-                    <Input
-                      value={param.childReferenceRange || ''}
-                      onChange={(e) => changeParameter(idx, 'childReferenceRange', e.target.value)}
-                      placeholder="e.g. 11.0 - 14.0"
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+          {/* Parameters have their own window (Edit Parameter at the top of the test list),
+              laid out like the lab's desktop screen with one row per band. A
+              new test left without them gets a standard sheet from its name. */}
+          <p className="rounded-xl border bg-muted/20 p-3 text-[11px] text-muted-foreground">
+            {test
+              ? 'Parameters and their ranges are edited from Edit Parameter at the top of the test list.'
+              : 'A standard parameter sheet is built from the test name - edit it afterwards from Edit Parameter.'}
+          </p>
 
           <div className="flex justify-end gap-2 pt-2 border-t">
             <Button type="button" variant="outline" onClick={onClose}>
