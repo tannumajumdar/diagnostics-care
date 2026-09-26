@@ -505,7 +505,12 @@ export const DoctorsPage: React.FC = () => {
                     placeholder="Name, mobile, hospital, area…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        runSearch();
+                      }
+                    }}
                   />
                 </div>
               </div>

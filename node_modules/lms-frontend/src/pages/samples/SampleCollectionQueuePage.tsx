@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sampleApi } from '../../api/sample.api';
 import { asList } from '../../utils/api-list';
@@ -8,9 +8,13 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/ca
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { TestTube, CheckCircle2 } from 'lucide-react';
+import { toLocalInput, localInputToIso } from '../../utils/collection-time';
 
 export const SampleCollectionQueuePage: React.FC = () => {
   const queryClient = useQueryClient();
+  // Draw time per sample, blank until the phlebotomist changes it - blank
+  // means "now" at the moment they press the button.
+  const [drawnAt, setDrawnAt] = useState<Record<string, string>>({});
 
   const { data, isLoading } = useQuery({
     queryKey: ['samples-collection'],
@@ -22,14 +26,19 @@ export const SampleCollectionQueuePage: React.FC = () => {
   const queue = asList<SampleRecord>(data, 'samples');
 
   const collectMutation = useMutation({
-    mutationFn: (sampleId: string) => sampleApi.updateStatus(sampleId, 'Collected'),
+    mutationFn: (sampleId: string) =>
+      sampleApi.updateStatus(sampleId, {
+        status: 'Collected',
+        collectedAt: localInputToIso(drawnAt[sampleId] || toLocalInput()),
+      }),
     onSuccess: () => {
       // A drawn specimen leaves this queue and lands on the bench's, so
       // every lab queue is re-read rather than just the one on screen.
       LAB_QUERY_KEYS.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
       alert('Sample marked as Collected!');
     },
-    onError: (err: any) => alert(err?.response?.data?.message || 'Failed to update sample status'),
+    onError: (err: any) =>
+      alert(err?.response?.data?.message || err?.message || 'Failed to update sample status'),
   });
 
   return (
@@ -56,19 +65,20 @@ export const SampleCollectionQueuePage: React.FC = () => {
                 <th className="p-3">Patient & UHID</th>
                 <th className="p-3">Test & Container</th>
                 <th className="p-3">Status</th>
+                <th className="p-3">Collection Time</th>
                 <th className="p-3 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y border-border">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={6} className="p-8 text-center text-muted-foreground">
                     Loading collection queue...
                   </td>
                 </tr>
               ) : queue.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={6} className="p-8 text-center text-muted-foreground">
                     No samples pending collection.
                   </td>
                 </tr>
@@ -92,6 +102,16 @@ export const SampleCollectionQueuePage: React.FC = () => {
                       </td>
                       <td className="p-3">
                         <Badge variant="amber">{s.status}</Badge>
+                      </td>
+                      <td className="p-3">
+                        <input
+                          type="datetime-local"
+                          className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs outline-none focus:border-blue-500"
+                          value={drawnAt[s._id] ?? toLocalInput()}
+                          max={toLocalInput()}
+                          onChange={(e) => setDrawnAt((prev) => ({ ...prev, [s._id]: e.target.value }))}
+                          aria-label="Collection time"
+                        />
                       </td>
                       <td className="p-3 text-right">
                         <Button

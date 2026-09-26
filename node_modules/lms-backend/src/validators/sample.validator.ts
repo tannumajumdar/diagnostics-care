@@ -15,6 +15,8 @@ export const updateSampleStatusSchema = z.object({
   rejectionReason: z.string().optional(),
   remarks: z.string().optional(),
   collector: z.string().optional(),
+  /** When the draw actually happened, if it is being recorded after the fact. */
+  collectedAt: z.string().optional(),
 });
 
 export const rejectSampleSchema = z.object({

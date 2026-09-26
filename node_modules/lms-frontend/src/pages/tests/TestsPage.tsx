@@ -6,6 +6,7 @@ import { organizationApi } from '../../api/organization.api';
 import { LabTest, Department, Organization } from '../../types';
 import { TestModal } from '../../components/masters/TestModal';
 import { ParameterMasterModal } from '../../components/masters/ParameterMasterModal';
+import { TestInfoModal, TestInfoTab } from '../../components/masters/TestInfoModal';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -24,6 +25,9 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  FileText,
+  Upload,
+  ClipboardCheck,
 } from 'lucide-react';
 
 export const TestsPage: React.FC = () => {
@@ -58,6 +62,8 @@ export const TestsPage: React.FC = () => {
   const [testModalOpen, setTestModalOpen] = useState<boolean>(false);
   const [paramModalOpen, setParamModalOpen] = useState<boolean>(false);
   const [selectedTest, setSelectedTest] = useState<LabTest | null>(null);
+  // Interpretation / files / review - one window, opened on the tab asked for.
+  const [infoModal, setInfoModal] = useState<{ tab: TestInfoTab; testId?: string } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     test: LabTest | null;
@@ -204,6 +210,18 @@ export const TestsPage: React.FC = () => {
           <Button variant="outline" onClick={() => setParamModalOpen(true)} className="gap-2">
             <ListChecks className="h-4 w-4 text-blue-600" />
             <span>Edit Parameter</span>
+          </Button>
+          <Button variant="outline" onClick={() => setInfoModal({ tab: 'interpretation' })} className="gap-2">
+            <FileText className="h-4 w-4 text-blue-600" />
+            <span>Interpretation</span>
+          </Button>
+          <Button variant="outline" onClick={() => setInfoModal({ tab: 'files' })} className="gap-2">
+            <Upload className="h-4 w-4 text-blue-600" />
+            <span>File Upload</span>
+          </Button>
+          <Button variant="outline" onClick={() => setInfoModal({ tab: 'review' })} className="gap-2">
+            <ClipboardCheck className="h-4 w-4 text-blue-600" />
+            <span>Review</span>
           </Button>
           <Button onClick={handleCreateNew} className="gap-2">
             <Plus className="h-4 w-4" />
@@ -384,6 +402,15 @@ export const TestsPage: React.FC = () => {
                         variant="ghost"
                         size="sm"
                         className="h-8 w-8 p-0"
+                        onClick={() => setInfoModal({ tab: 'review', testId: test.id })}
+                        title="Review, interpretation & files"
+                      >
+                        <ClipboardCheck className="h-4 w-4 text-blue-600" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
                         onClick={() => handleEdit(test)}
                         title="Edit Test Details"
                       >
@@ -455,6 +482,7 @@ export const TestsPage: React.FC = () => {
         test={selectedTest}
         departments={departments}
         organizations={organizations}
+        onOrganizationCreated={(org) => setOrganizations((prev) => [...prev, org])}
       />
 
       <ParameterMasterModal
@@ -464,6 +492,14 @@ export const TestsPage: React.FC = () => {
           refreshDeskCatalogue();
           fetchTests();
         }}
+      />
+
+      <TestInfoModal
+        isOpen={!!infoModal}
+        onClose={() => setInfoModal(null)}
+        tab={infoModal?.tab ?? 'review'}
+        testId={infoModal?.testId}
+        onSaved={fetchTests}
       />
 
       <ConfirmDialog

@@ -43,6 +43,7 @@ export interface ILabTestDocument extends Document {
   discountAllowed?: boolean;
   fastingRequired?: boolean;
   preparationRequired?: string;
+  interpretation?: string;
   turnaroundTime?: string;
   status: string;
   parameters: ITestParameter[];

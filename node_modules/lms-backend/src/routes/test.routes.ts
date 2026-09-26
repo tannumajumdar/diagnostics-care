@@ -27,6 +27,20 @@ router.put(
 router.patch('/:id/status', requirePermission(PERMISSIONS.TEST_MANAGE), TestController.toggleStatus);
 router.delete('/:id', requirePermission(PERMISSIONS.TEST_MANAGE), TestController.remove);
 router.put('/:id/parameters', requirePermission(PERMISSIONS.TEST_MANAGE), TestController.updateParameters);
+
+// Reference files kept with a test - method sheets, interpretation charts.
+router.get('/:id/attachments', requirePermission(PERMISSIONS.MASTER_VIEW), TestController.listAttachments);
+router.get(
+  '/:id/attachments/:attachmentId',
+  requirePermission(PERMISSIONS.MASTER_VIEW),
+  TestController.downloadAttachment
+);
+router.post('/:id/attachments', requirePermission(PERMISSIONS.TEST_MANAGE), TestController.uploadAttachment);
+router.delete(
+  '/:id/attachments/:attachmentId',
+  requirePermission(PERMISSIONS.TEST_MANAGE),
+  TestController.removeAttachment
+);
 router.put(
   '/:id/rates',
   requirePermission(PERMISSIONS.RATE_MANAGE),

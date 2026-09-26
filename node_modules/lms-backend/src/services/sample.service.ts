@@ -24,7 +24,11 @@ export class SampleService {
         { enquiryNo: { $regex: params.search, $options: 'i' } },
       ];
     }
-    if (params.status) query.status = params.status;
+    // A comma-separated list lets a queue read several stages in one call.
+    if (params.status) {
+      const statuses = params.status.split(',').map((v) => v.trim()).filter(Boolean);
+      query.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
+    }
     if (params.department) query.department = params.department;
 
     const [samples, total] = await Promise.all([
@@ -86,6 +90,8 @@ export class SampleService {
       rejectionReason?: string;
       remarks?: string;
       collector?: string;
+      /** When the draw happened. Defaults to now; only read on the move to Collected. */
+      collectedAt?: string;
       /** Set only by the result-verification path, which owns completion. */
       viaResultApproval?: boolean;
       user?: any;
@@ -122,6 +128,23 @@ export class SampleService {
       );
     }
 
+    // The phlebotomist often marks a batch collected a while after drawing it,
+    // so the time on the tube is taken from them rather than from the click.
+    let collectedAt: Date | undefined;
+    if (to === SAMPLE_STATUS.COLLECTED && payload.collectedAt) {
+      collectedAt = new Date(payload.collectedAt);
+      if (Number.isNaN(collectedAt.getTime())) {
+        throw new AppError('Collection time is not a valid date', 400);
+      }
+      // A few minutes of slack for a desk clock that runs ahead of the server.
+      if (collectedAt.getTime() > Date.now() + 5 * 60 * 1000) {
+        throw new AppError('Collection time cannot be in the future', 400);
+      }
+      if (collectedAt.getTime() < new Date((sample as any).createdAt).getTime() - 60 * 1000) {
+        throw new AppError(`Collection time cannot be before ${sample.sampleId} was ordered`, 400);
+      }
+    }
+
     sample.status = to as any;
     if (payload.rejectionReason) sample.rejectionReason = payload.rejectionReason;
     if (payload.remarks) sample.remarks = payload.remarks;
@@ -132,7 +155,10 @@ export class SampleService {
     if (stampField && !(sample as any)[stampField]) {
       (sample as any)[stampField] = new Date();
     }
-    if (to === SAMPLE_STATUS.COLLECTED && !sample.collectionTime) {
+    if (collectedAt) {
+      sample.collectionDate = collectedAt;
+      sample.collectionTime = collectedAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    } else if (to === SAMPLE_STATUS.COLLECTED && !sample.collectionTime) {
       sample.collectionTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     }
 

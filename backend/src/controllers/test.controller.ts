@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { LabTest } from '../models/test.model';
 import { RateHistory } from '../models/rateHistory.model';
+import { TestAttachment } from '../models/testAttachment.model';
 import { Invoice } from '../models/invoice.model';
 import { Sample } from '../models/sample.model';
 import { Result } from '../models/result.model';
@@ -23,6 +24,33 @@ const parametersFrom = async (sourceId: string) => {
 };
 
 /** '' and 'none' from the form both mean the centre's own catalogue. */
+/** Reference files a test may carry - documents and images, nothing executable. */
+const ATTACHMENT_TYPES: Record<string, string> = {
+  'application/pdf': 'PDF',
+  'image/png': 'PNG',
+  'image/jpeg': 'JPEG',
+  'image/webp': 'WEBP',
+  'application/msword': 'DOC',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+  'application/vnd.ms-excel': 'XLS',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
+  'text/plain': 'TXT',
+  'text/csv': 'CSV',
+};
+/** Kept under the 10 MB JSON body limit once base64 adds its third. */
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
+const paramOf = (v: string | string[]) => (Array.isArray(v) ? v[0] : v);
+
+const attachmentView = (a: any) => ({
+  id: String(a._id),
+  fileName: a.fileName,
+  mimeType: a.mimeType,
+  size: a.size,
+  uploadedBy: a.uploadedBy?.name || '',
+  createdAt: a.createdAt,
+});
+
 const normaliseTpa = (body: any) => {
   if (body.tpa === undefined) return;
   if (!body.tpa || body.tpa === 'none') body.tpa = null;
@@ -260,6 +288,7 @@ export class TestController {
 
       // Nothing ever priced against it, so the tariff trail goes with it.
       await RateHistory.deleteMany({ test: test._id });
+      await TestAttachment.deleteMany({ test: test._id });
       await test.deleteOne();
 
       sendResponse({
@@ -281,6 +310,84 @@ export class TestController {
       test.status = test.status === 'Active' ? 'Inactive' : 'Active';
       await test.save();
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Status updated', data: test });
+    } catch (error) {
+      next(error);
+    }
+  };
+  static listAttachments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const files = await TestAttachment.find({ test: paramOf(req.params.id) }).sort({ createdAt: -1 });
+      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Test files retrieved', data: files.map(attachmentView) });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /** Takes `{ fileName, mimeType, data }` with the file as base64. */
+  static uploadAttachment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const id = paramOf(req.params.id);
+      const currentUser = (req as any).user as JwtPayload;
+      const test = await LabTest.findById(id).select('_id');
+      if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
+
+      const fileName = String(req.body?.fileName || '').trim().slice(0, 200);
+      const mimeType = String(req.body?.mimeType || '');
+      const encoded = String(req.body?.data || '').replace(/^data:[^,]*,/, '');
+      if (!fileName || !encoded) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Choose a file to upload');
+      if (!ATTACHMENT_TYPES[mimeType]) {
+        throw new ApiError(
+          HTTP_STATUS.BAD_REQUEST,
+          `Only ${Object.values(ATTACHMENT_TYPES).join(', ')} files can be attached`
+        );
+      }
+      const data = Buffer.from(encoded, 'base64');
+      if (data.length === 0) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'The file is empty');
+      if (data.length > MAX_ATTACHMENT_BYTES) {
+        throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'A file can be at most 5 MB');
+      }
+
+      const file = await TestAttachment.create({
+        test: test._id,
+        fileName,
+        mimeType,
+        size: data.length,
+        data,
+        uploadedBy: { userId: currentUser?.userId as any, name: currentUser?.name },
+      });
+      sendResponse({ res, statusCode: HTTP_STATUS.CREATED, message: 'File uploaded', data: attachmentView(file) });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  static downloadAttachment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const file = await TestAttachment.findOne({
+        _id: paramOf(req.params.attachmentId),
+        test: paramOf(req.params.id),
+      }).select('+data');
+      if (!file) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'File not found');
+      res.setHeader('Content-Type', file.mimeType);
+      res.setHeader('Content-Length', String(file.size));
+      res.setHeader(
+        'Content-Disposition',
+        `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`
+      );
+      res.end(file.data);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  static removeAttachment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const file = await TestAttachment.findOneAndDelete({
+        _id: paramOf(req.params.attachmentId),
+        test: paramOf(req.params.id),
+      });
+      if (!file) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'File not found');
+      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: `${file.fileName} removed`, data: { id: String(file._id) } });
     } catch (error) {
       next(error);
     }

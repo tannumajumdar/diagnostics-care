@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { LabTest, Department, ProcessingMode, Organization } from '../../types';
 import { testApi } from '../../api/test.api';
+import { organizationApi } from '../../api/organization.api';
 import { asList } from '../../utils/api-list';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { X, Download, Sparkles } from 'lucide-react';
+import { X, Download, Sparkles, Plus } from 'lucide-react';
 
 interface TestModalProps {
   isOpen: boolean;
@@ -14,6 +15,8 @@ interface TestModalProps {
   departments: Department[];
   /** Corporate / insurance TPAs a test can be booked under. */
   organizations?: Organization[];
+  /** Called with a TPA added from inside the modal, so the page's list picks it up. */
+  onOrganizationCreated?: (org: Organization) => void;
 }
 
 /** "Lipid Profile", "LIPID-PROFILE" and "lipid profile " are one test. */
@@ -39,6 +42,7 @@ export const TestModal: React.FC<TestModalProps> = ({
   test,
   departments,
   organizations = [],
+  onOrganizationCreated,
 }) => {
   const [testName, setTestName] = useState('');
   const [testCode, setTestCode] = useState('');
@@ -55,6 +59,12 @@ export const TestModal: React.FC<TestModalProps> = ({
   const [importFrom, setImportFrom] = useState('');
   const [importSearch, setImportSearch] = useState('');
   const [catalogue, setCatalogue] = useState<LabTest[]>([]);
+  // A TPA that is not on the list yet is added here without leaving the test.
+  const [addingTpa, setAddingTpa] = useState(false);
+  const [newTpa, setNewTpa] = useState({ organizationName: '', contactPerson: '', mobile: '' });
+  const [savingTpa, setSavingTpa] = useState(false);
+  const [tpaError, setTpaError] = useState('');
+  const [addedTpas, setAddedTpas] = useState<Organization[]>([]);
 
   // Every test the centre has, so a TPA's test can pick up the sheet of the
   // same investigation instead of it being typed line by line again.
@@ -93,7 +103,38 @@ export const TestModal: React.FC<TestModalProps> = ({
     }
     setImportFrom('');
     setImportSearch('');
+    setAddingTpa(false);
+    setTpaError('');
   }, [test, isOpen, departments]);
+
+  // The page's list plus anything added here that it has not picked up yet.
+  const tpaOptions = useMemo(
+    () => [...organizations, ...addedTpas.filter((a) => !organizations.some((o) => o.id === a.id))],
+    [organizations, addedTpas]
+  );
+
+  const saveTpa = async () => {
+    const organizationName = newTpa.organizationName.trim();
+    const contactPerson = newTpa.contactPerson.trim();
+    const mobile = newTpa.mobile.trim();
+    if (organizationName.length < 2) return setTpaError('Enter the TPA name.');
+    if (contactPerson.length < 2) return setTpaError('Enter a contact person.');
+    if (!/^\d{10,}$/.test(mobile)) return setTpaError('Enter a 10-digit mobile number.');
+    setSavingTpa(true);
+    setTpaError('');
+    try {
+      const org: Organization = await organizationApi.create({ organizationName, contactPerson, mobile });
+      setAddedTpas((prev) => [...prev, org]);
+      onOrganizationCreated?.(org);
+      setTpa(org.id);
+      setAddingTpa(false);
+      setNewTpa({ organizationName: '', contactPerson: '', mobile: '' });
+    } catch (error: any) {
+      setTpaError(error?.response?.data?.message || error?.message || 'Could not add the TPA.');
+    } finally {
+      setSavingTpa(false);
+    }
+  };
 
   // Tests that can lend their sheet: anything but this one, with lines on it.
   const sources = useMemo(
@@ -213,14 +254,29 @@ export const TestModal: React.FC<TestModalProps> = ({
               and tariff - left blank it is the centre's own catalogue. */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="font-semibold block mb-1">TPA / Organization</label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="font-semibold">TPA / Organization</label>
+                {!addingTpa && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddingTpa(true);
+                      setTpaError('');
+                    }}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:underline"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Add TPA
+                  </button>
+                )}
+              </div>
               <select
                 value={tpa}
                 onChange={(e) => setTpa(e.target.value)}
                 className="w-full h-10 rounded-xl border px-3 text-xs bg-background"
               >
                 <option value="">None - own catalogue</option>
-                {organizations.map((o) => (
+                {tpaOptions.map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.organizationName}
                   </option>
@@ -232,6 +288,48 @@ export const TestModal: React.FC<TestModalProps> = ({
                   : 'Pick a TPA when this test comes from a corporate / insurance tie-up.'}
               </span>
             </div>
+
+            {addingTpa && (
+              // Enter walks these three fields only; on the last it saves the TPA, not the whole test.
+              <div data-enter-scope className="space-y-2 rounded-xl border border-blue-200 bg-blue-50/50 p-3">
+                <div className="font-semibold">New TPA</div>
+                <Input
+                  value={newTpa.organizationName}
+                  onChange={(e) => setNewTpa({ ...newTpa, organizationName: e.target.value })}
+                  placeholder="TPA / organization name *"
+                  autoFocus
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    value={newTpa.contactPerson}
+                    onChange={(e) => setNewTpa({ ...newTpa, contactPerson: e.target.value })}
+                    placeholder="Contact person *"
+                  />
+                  <Input
+                    value={newTpa.mobile}
+                    onChange={(e) => setNewTpa({ ...newTpa, mobile: e.target.value.replace(/\D/g, '') })}
+                    placeholder="Mobile *"
+                    inputMode="numeric"
+                    maxLength={15}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (!savingTpa) saveTpa();
+                      }
+                    }}
+                  />
+                </div>
+                {tpaError && <p className="text-[11px] font-semibold text-red-600">{tpaError}</p>}
+                <div className="flex justify-end gap-2">
+                  <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setAddingTpa(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="button" size="sm" className="h-7" disabled={savingTpa} onClick={saveTpa}>
+                    {savingTpa ? 'Saving...' : 'Save TPA'}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* The referring doctor's own copy is a separate bill at a separate

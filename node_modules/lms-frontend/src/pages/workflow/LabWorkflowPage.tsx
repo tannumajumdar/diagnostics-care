@@ -8,6 +8,7 @@ import { asList } from '../../utils/api-list';
 import { LAB_QUERY_KEYS } from '../../utils/query-options';
 import { STAGES, REJECTION_REASONS, canAdvance, type StageMeta } from '../../config/workflow';
 import { Button } from '../../components/ui/button';
+import { toLocalInput, localInputToIso, collectedLabel } from '../../utils/collection-time';
 import { Workflow, Search, X, AlertTriangle, RotateCcw, Clock, ArrowRight, History } from 'lucide-react';
 
 const inputClass =
@@ -69,6 +70,8 @@ export const LabWorkflowPage: React.FC = () => {
   const [reason, setReason] = useState(REJECTION_REASONS[0]);
   const [reasonNote, setReasonNote] = useState('');
   const [timelineFor, setTimelineFor] = useState<string | null>(null);
+  // Draw time per visit on the To Collect lane; unset means "now".
+  const [drawnAt, setDrawnAt] = useState<Record<string, string>>({});
 
   const { data: stats } = useQuery({ queryKey: ['sample-stats'], queryFn: () => sampleApi.getStats() });
 
@@ -118,7 +121,12 @@ export const LabWorkflowPage: React.FC = () => {
       // One after another, so a sample the backend refuses stops the run with
       // its own reason rather than a batch of half-applied writes.
       for (const sample of visit.samples) {
-        await sampleApi.updateStatus(sample.id, { status: meta.next });
+        await sampleApi.updateStatus(sample.id, {
+          status: meta.next,
+          ...(meta.next === 'Collected'
+            ? { collectedAt: localInputToIso(drawnAt[visit.key] || toLocalInput()) }
+            : {}),
+        });
         moved += 1;
       }
       showToast(
@@ -186,7 +194,12 @@ export const LabWorkflowPage: React.FC = () => {
               placeholder="Sample ID, barcode, UHID…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  runSearch();
+                }
+              }}
             />
           </div>
           <Button onClick={runSearch} className="h-9 bg-blue-600 hover:bg-blue-700">
@@ -287,6 +300,9 @@ export const LabWorkflowPage: React.FC = () => {
                                     </span>
                                   )}
                                 </p>
+                                {meta.stage !== 'Pending Collection' && collectedLabel(s) && (
+                                  <p className="text-[10px] text-slate-500">Collected {collectedLabel(s)}</p>
+                                )}
                               </div>
                               <button
                                 onClick={() => setTimelineFor(s.id)}
@@ -319,6 +335,22 @@ export const LabWorkflowPage: React.FC = () => {
                           >
                             {tat.text}
                           </p>
+                        )}
+
+                        {meta.next === 'Collected' && (
+                          <label className="mt-2 block">
+                            <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                              Collection time
+                            </span>
+                            <input
+                              type="datetime-local"
+                              className={`${inputClass} h-7 px-2 text-[11px]`}
+                              value={drawnAt[visit.key] ?? toLocalInput()}
+                              max={toLocalInput()}
+                              disabled={!allowed || busyId === visit.key}
+                              onChange={(e) => setDrawnAt((prev) => ({ ...prev, [visit.key]: e.target.value }))}
+                            />
+                          </label>
                         )}
 
                         {(meta.next || meta.entryRoute) && (

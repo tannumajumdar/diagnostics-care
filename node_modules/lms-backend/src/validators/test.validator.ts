@@ -31,6 +31,8 @@ export const createTestSchema = z.object({
   discountAllowed: z.boolean().optional(),
   fastingRequired: z.boolean().optional(),
   preparationRequired: z.string().optional(),
+  /** Printed under the result - what the value means clinically. */
+  interpretation: z.string().max(20000, 'Interpretation is too long').optional(),
   parameters: z.array(z.any()).optional(),
   status: z.string().optional(),
 });

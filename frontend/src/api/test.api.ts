@@ -8,4 +8,13 @@ export const testApi = {
   toggleStatus: async (id: string): Promise<any> => api.patch(`/tests/${id}/status`),
   remove: async (id: string): Promise<any> => api.delete(`/tests/${id}`),
   updateParameters: async (id: string, parameters: any): Promise<any> => api.put(`/tests/${id}/parameters`, { parameters }),
+  getById: async (id: string): Promise<any> => api.get(`/tests/${id}`),
+  listAttachments: async (id: string): Promise<any> => api.get(`/tests/${id}/attachments`),
+  uploadAttachment: async (id: string, file: { fileName: string; mimeType: string; data: string }): Promise<any> =>
+    api.post(`/tests/${id}/attachments`, file),
+  /** The file itself, as a Blob. */
+  downloadAttachment: async (id: string, attachmentId: string): Promise<Blob> =>
+    api.get(`/tests/${id}/attachments/${attachmentId}`, { responseType: 'blob' }),
+  removeAttachment: async (id: string, attachmentId: string): Promise<any> =>
+    api.delete(`/tests/${id}/attachments/${attachmentId}`),
 };

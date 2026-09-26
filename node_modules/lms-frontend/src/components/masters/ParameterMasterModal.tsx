@@ -738,7 +738,10 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
                                     setInlineField(key, numeric ? e.target.value.replace(/\D/g, '') : e.target.value)
                                   }
                                   onKeyDown={(e) => {
-                                    if (e.key === 'Enter') saveInline();
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      saveInline();
+                                    }
                                     if (e.key === 'Escape') setInline(null);
                                   }}
                                   disabled={off}

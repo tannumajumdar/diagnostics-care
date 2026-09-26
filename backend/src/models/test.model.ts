@@ -116,6 +116,9 @@ const testSchema = new Schema<ILabTestDocument>(
     fastingRequired: { type: Boolean, default: false },
     preparationRequired: { type: String, trim: true, default: '' },
     turnaroundTime: { type: String, trim: true, default: '24 Hours' },
+    // What the result means - reference notes the pathologist wants kept with
+    // the test. Files that go with it are TestAttachment documents.
+    interpretation: { type: String, trim: true, default: '' },
     parameters: [testParameterSchema],
     status: {
       type: String,

@@ -395,6 +395,8 @@ export interface LabTest {
   discountAllowed: boolean;
   fastingRequired: boolean;
   preparationRequired?: string;
+  /** What the result means - kept with the test in the catalogue. */
+  interpretation?: string;
   turnaroundTime: string;
   description?: string;
   instructions?: string;

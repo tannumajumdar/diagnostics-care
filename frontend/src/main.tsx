@@ -5,6 +5,9 @@ import App from './App';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ToastProvider } from './context/ToastContext';
 import './index.css';
+import { installEnterNavigation } from './utils/enter-navigation';
+
+installEnterNavigation();
 
 const queryClient = new QueryClient({
   defaultOptions: {
