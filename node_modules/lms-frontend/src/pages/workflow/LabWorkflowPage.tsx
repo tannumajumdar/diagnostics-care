@@ -25,6 +25,37 @@ const tatLabel = (expectedAt?: string, done?: boolean) => {
   return diff < 0 ? { text: `${text} overdue`, overdue: true } : { text: `${text} left`, overdue: false };
 };
 
+const patientOf = (s: any) => (typeof s?.patient === 'object' && s.patient ? s.patient : {});
+const idOf = (v: any) => String(typeof v === 'object' && v ? v._id ?? v.id ?? '' : v ?? '');
+
+type Visit = { key: string; patient: any; uhid?: string; enquiryNo?: string; samples: any[] };
+
+/**
+ * One card per bill, not one per vial. A patient billed for four tests leaves
+ * four samples, and showing them as four loose cards made the bench think
+ * there were four patients - so a lane groups them back under the bill they
+ * were ordered on, in the order the first of each bill appeared.
+ */
+const groupByVisit = (samples: any[]): Visit[] => {
+  const visits = new Map<string, Visit>();
+  samples.forEach((s) => {
+    const key = idOf(s.invoice) || s.enquiryNo || `sample-${s.id}`;
+    const visit = visits.get(key);
+    if (visit) visit.samples.push(s);
+    else visits.set(key, { key, patient: patientOf(s), uhid: s.uhid, enquiryNo: s.enquiryNo, samples: [s] });
+  });
+  return Array.from(visits.values());
+};
+
+/** The tightest turnaround on the visit - the one the bench has to beat. */
+const visitTat = (visit: Visit, done: boolean) => {
+  const due = visit.samples
+    .map((s) => s.expectedAt)
+    .filter(Boolean)
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+  return tatLabel(due, done);
+};
+
 export const LabWorkflowPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -45,7 +76,9 @@ export const LabWorkflowPage: React.FC = () => {
   const laneQueries = useQueries({
     queries: STAGES.map((meta) => ({
       queryKey: ['workflow', meta.stage, applied],
-      queryFn: () => sampleApi.getAll({ status: meta.stage, search: applied || undefined, limit: 25 }),
+      // Room for a few dozen visits: a lane cut off mid-bill would show a
+      // patient with only some of their tests.
+      queryFn: () => sampleApi.getAll({ status: meta.stage, search: applied || undefined, limit: 100 }),
     })),
   });
   const lanes = STAGES.map((meta, i) => ({ meta, query: laneQueries[i] }));
@@ -68,22 +101,36 @@ export const LabWorkflowPage: React.FC = () => {
     LAB_QUERY_KEYS.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
   };
 
-  const advance = async (sample: any, meta: StageMeta) => {
+  /**
+   * Moves every sample on the bill in this lane together - they were drawn in
+   * one sitting and travel as one. Results entry already shows the whole visit
+   * on one screen, so opening it from any of the samples is enough.
+   */
+  const advance = async (visit: Visit, meta: StageMeta) => {
     if (meta.entryRoute) {
-      navigate(`/results/entry/${sample.id}`);
+      navigate(`/results/entry/${visit.samples[0].id}`);
       return;
     }
     if (!meta.next) return;
-    setBusyId(sample.id);
+    setBusyId(visit.key);
+    let moved = 0;
     try {
-      await sampleApi.updateStatus(sample.id, { status: meta.next });
-      showToast(`${sample.sampleId} → ${meta.next}`, 'success');
-      refresh();
+      // One after another, so a sample the backend refuses stops the run with
+      // its own reason rather than a batch of half-applied writes.
+      for (const sample of visit.samples) {
+        await sampleApi.updateStatus(sample.id, { status: meta.next });
+        moved += 1;
+      }
+      showToast(
+        `${visit.patient.patientName || visit.samples[0].sampleId}: ${moved} test${moved === 1 ? '' : 's'} → ${meta.next}`,
+        'success'
+      );
     } catch (err: any) {
       // The backend state machine is the authority; surface its reason verbatim.
       showToast(err?.message || 'Could not advance sample', 'error');
     } finally {
       setBusyId(null);
+      refresh();
     }
   };
 
@@ -173,6 +220,7 @@ export const LabWorkflowPage: React.FC = () => {
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
         {lanes.map(({ meta, query }) => {
           const samples = asList<any>(query.data, 'samples');
+          const visits = groupByVisit(samples);
           const total = query.data?.meta?.total ?? samples.length;
           const Icon = meta.icon;
           const allowed = canAdvance(meta.stage, user?.role);
@@ -185,8 +233,11 @@ export const LabWorkflowPage: React.FC = () => {
                     <Icon className="h-3.5 w-3.5 text-slate-600" />
                     <h2 className="text-xs font-semibold text-slate-900">{meta.short}</h2>
                   </div>
-                  <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700">
-                    {total}
+                  <span
+                    className="rounded-full bg-white/80 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700"
+                    title={`${visits.length} patient visit(s), ${total} test(s)`}
+                  >
+                    {visits.length} · {total} tests
                   </span>
                 </div>
                 <p className="mt-1 text-[11px] leading-snug text-slate-600">{meta.detail}</p>
@@ -199,36 +250,66 @@ export const LabWorkflowPage: React.FC = () => {
                 ) : samples.length === 0 ? (
                   <p className="py-6 text-center text-[12px] text-slate-400">Nothing here.</p>
                 ) : (
-                  samples.map((s: any) => {
-                    const tat = tatLabel(s.expectedAt, meta.stage === 'Completed');
+                  visits.map((visit) => {
+                    const tat = visitTat(visit, meta.stage === 'Completed');
+                    const count = visit.samples.length;
                     return (
                       <article
-                        key={s.id}
+                        key={visit.key}
                         className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:border-slate-300"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="truncate text-xs font-semibold text-slate-900">{s.testName}</p>
-                            <p className="truncate text-[11px] text-slate-500">
-                              {typeof s.patient === 'object' ? s.patient?.patientName ?? '—' : '—'}
+                            <p className="truncate text-sm font-bold text-slate-900">
+                              {visit.patient.patientName ?? '—'}
+                            </p>
+                            <p className="truncate font-mono text-[11px] text-slate-500">
+                              {[visit.uhid, visit.enquiryNo].filter(Boolean).join(' · ') || '—'}
                             </p>
                           </div>
-                          <button
-                            onClick={() => setTimelineFor(s.id)}
-                            className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                            aria-label="View timeline"
-                          >
-                            <History className="h-3.5 w-3.5" />
-                          </button>
+                          {count > 1 && (
+                            <span className="shrink-0 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                              {count} tests
+                            </span>
+                          )}
                         </div>
 
-                        <p className="mt-1 font-mono text-[11px] text-slate-400">{s.sampleId}</p>
-
-                        {(s.recollectionCount ?? 0) > 0 && (
-                          <span className="mt-1 inline-block rounded bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700">
-                            Repeat draw ×{s.recollectionCount}
-                          </span>
-                        )}
+                        <ul className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+                          {visit.samples.map((s: any) => (
+                            <li key={s.id} className="flex items-center gap-1">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-medium text-slate-800">{s.testName}</p>
+                                <p className="font-mono text-[10px] text-slate-400">
+                                  {s.sampleId}
+                                  {(s.recollectionCount ?? 0) > 0 && (
+                                    <span className="ml-1 rounded bg-orange-50 px-1 font-sans font-semibold text-orange-700">
+                                      Repeat ×{s.recollectionCount}
+                                    </span>
+                                  )}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => setTimelineFor(s.id)}
+                                className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                                aria-label="View timeline"
+                                title="Timeline"
+                              >
+                                <History className="h-3.5 w-3.5" />
+                              </button>
+                              {(meta.next || meta.entryRoute) && (
+                                <button
+                                  onClick={() => setRejectFor(s)}
+                                  disabled={!allowed || busyId === visit.key || busyId === s.id}
+                                  className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                                  aria-label="Reject sample"
+                                  title="Reject this sample"
+                                >
+                                  <AlertTriangle className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
 
                         {tat && (
                           <p
@@ -241,27 +322,19 @@ export const LabWorkflowPage: React.FC = () => {
                         )}
 
                         {(meta.next || meta.entryRoute) && (
-                          <div className="mt-2 flex gap-1">
-                            <Button
-                              size="sm"
-                              className="h-7 flex-1 gap-1 bg-slate-900 px-2 text-[11px] hover:bg-slate-800"
-                              disabled={!allowed || busyId === s.id}
-                              onClick={() => advance(s, meta)}
-                              title={allowed ? meta.action : `${meta.owner} performs this step`}
-                            >
-                              <span className="truncate">{meta.action}</span>
-                              <ArrowRight className="h-3 w-3 shrink-0" />
-                            </Button>
-                            <button
-                              onClick={() => setRejectFor(s)}
-                              disabled={!allowed || busyId === s.id}
-                              className="rounded-lg border border-slate-200 px-1.5 text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
-                              aria-label="Reject sample"
-                              title="Reject sample"
-                            >
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          <Button
+                            size="sm"
+                            className="mt-2 h-7 w-full gap-1 bg-slate-900 px-2 text-[11px] hover:bg-slate-800"
+                            disabled={!allowed || busyId === visit.key}
+                            onClick={() => advance(visit, meta)}
+                            title={allowed ? meta.action : `${meta.owner} performs this step`}
+                          >
+                            <span className="truncate">
+                              {meta.action}
+                              {count > 1 && !meta.entryRoute ? ` (all ${count})` : ''}
+                            </span>
+                            <ArrowRight className="h-3 w-3 shrink-0" />
+                          </Button>
                         )}
                       </article>
                     );
@@ -288,6 +361,7 @@ export const LabWorkflowPage: React.FC = () => {
               <li key={s.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-xs">
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-slate-900">
+                    <span className="mr-2 font-bold">{patientOf(s).patientName ?? '—'}</span>
                     {s.testName}
                     <span className="ml-2 font-mono text-[11px] text-slate-400">{s.sampleId}</span>
                   </p>
@@ -321,6 +395,7 @@ export const LabWorkflowPage: React.FC = () => {
             </div>
             <div className="space-y-3 px-4 py-4">
               <p className="text-xs text-slate-500">
+                <span className="font-bold text-slate-900">{patientOf(rejectFor).patientName ?? '—'}</span> ·{' '}
                 {rejectFor.testName} · <span className="font-mono">{rejectFor.sampleId}</span>
               </p>
               <div>
@@ -381,9 +456,7 @@ export const LabWorkflowPage: React.FC = () => {
                     {timeline.sample?.sampleId} · {timeline.sample?.barcode}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
-                    {typeof timeline.sample?.patient === 'object'
-                      ? timeline.sample.patient?.patientName
-                      : ''}{' '}
+                    <span className="font-bold text-slate-900">{patientOf(timeline.sample).patientName}</span>{' '}
                     · {timeline.sample?.uhid}
                   </p>
                 </div>
