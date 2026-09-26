@@ -25,6 +25,9 @@ export const createTestSchema = z.object({
   processingMode: z.enum(['In-house', 'Outsource']).optional(),
   outsourceLab: z.string().optional(),
   outsourceCost: z.number().min(0).optional(),
+  tpa: z.string().nullable().optional(),
+  /** An existing test whose parameter sheet is copied onto this one. */
+  importParametersFrom: z.string().optional(),
   discountAllowed: z.boolean().optional(),
   fastingRequired: z.boolean().optional(),
   preparationRequired: z.string().optional(),

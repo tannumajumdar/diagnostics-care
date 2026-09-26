@@ -388,6 +388,8 @@ export interface LabTest {
   processingMode?: ProcessingMode;
   outsourceLab?: string;
   outsourceCost?: number;
+  /** The corporate / insurance TPA this test belongs to - null is the centre's own catalogue. */
+  tpa?: { id: string; organizationName: string } | string | null;
   discountAllowed: boolean;
   fastingRequired: boolean;
   preparationRequired?: string;

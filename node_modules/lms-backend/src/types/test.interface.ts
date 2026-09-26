@@ -38,6 +38,8 @@ export interface ILabTestDocument extends Document {
   processingMode?: 'In-house' | 'Outsource';
   outsourceLab?: string;
   outsourceCost?: number;
+  /** The TPA this test belongs to - null for the centre's own catalogue. */
+  tpa?: Schema.Types.ObjectId | null;
   discountAllowed?: boolean;
   fastingRequired?: boolean;
   preparationRequired?: string;

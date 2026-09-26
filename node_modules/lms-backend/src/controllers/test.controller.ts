@@ -11,10 +11,27 @@ import { ApiError } from '../utils/api-error.util';
 import { JwtPayload } from '../types/auth.interface';
 import { parametersForTest } from '../constants/test-parameters';
 
+/**
+ * A TPA's test is usually one the centre already runs under its own name, so
+ * its parameter sheet is copied from that test instead of being typed again.
+ * Returns the copied lines, or throws when the source test is gone.
+ */
+const parametersFrom = async (sourceId: string) => {
+  const source = await LabTest.findById(sourceId).lean();
+  if (!source) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'The test to import parameters from was not found');
+  return (source.parameters || []).map((p: any) => ({ ...p }));
+};
+
+/** '' and 'none' from the form both mean the centre's own catalogue. */
+const normaliseTpa = (body: any) => {
+  if (body.tpa === undefined) return;
+  if (!body.tpa || body.tpa === 'none') body.tpa = null;
+};
+
 export class TestController {
   static getAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { search, department, status, page = 1, limit = 10 } = req.query;
+      const { search, department, status, tpa, page = 1, limit = 10 } = req.query;
       const filter: any = {};
       if (search) {
         filter.$or = [
@@ -24,10 +41,16 @@ export class TestController {
       }
       if (department) filter.department = department;
       if (status) filter.status = status;
+      // 'own' is the centre's catalogue alone; an organisation id is that TPA's tests.
+      if (tpa === 'own') filter.tpa = null;
+      else if (tpa) filter.tpa = tpa;
 
       const skip = (Number(page) - 1) * Number(limit);
       const [tests, total] = await Promise.all([
-        LabTest.find(filter).populate('department').sort({ testName: 1 }).skip(skip).limit(Number(limit)),
+        LabTest.find(filter)
+          .populate('department')
+          .populate('tpa', 'organizationName')
+          .sort({ testName: 1 }).skip(skip).limit(Number(limit)),
         LabTest.countDocuments(filter),
       ]);
 
@@ -46,7 +69,7 @@ export class TestController {
   static getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const test = await LabTest.findById(id).populate('department');
+      const test = await LabTest.findById(id).populate('department').populate('tpa', 'organizationName');
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Test details retrieved', data: test });
     } catch (error) {
@@ -61,6 +84,10 @@ export class TestController {
       // screen rarely stops to type twelve lines, so seed them from the test's
       // own name and let anyone edit them afterwards.
       const body = { ...req.body };
+      normaliseTpa(body);
+      const { importParametersFrom } = body;
+      delete body.importParametersFrom;
+      if (importParametersFrom) body.parameters = await parametersFrom(importParametersFrom);
       if (!Array.isArray(body.parameters) || body.parameters.length === 0) {
         body.parameters = parametersForTest(body.testName, body.testCode);
       }
@@ -105,13 +132,26 @@ export class TestController {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const body = { ...req.body };
+      normaliseTpa(body);
+      // Editing a TPA's copy of a test can pull the sheet over again from
+      // the centre's own test - it replaces the lines, it does not merge them.
+      const { importParametersFrom } = body;
+      delete body.importParametersFrom;
+      if (importParametersFrom) {
+        if (String(importParametersFrom) === String(id)) {
+          throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'A test cannot import parameters from itself');
+        }
+        body.parameters = await parametersFrom(importParametersFrom);
+      }
       // Switching a test back to the bench clears where it used to be sent,
       // so a stale lab name cannot keep printing on the sample slip.
       if (body.processingMode === 'In-house') {
         body.outsourceLab = '';
         body.outsourceCost = 0;
       }
-      const test = await LabTest.findByIdAndUpdate(id, body, { new: true });
+      const test = await LabTest.findByIdAndUpdate(id, body, { new: true })
+        .populate('department')
+        .populate('tpa', 'organizationName');
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Lab test updated', data: test });
     } catch (error) {

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { testApi } from '../../api/test.api';
 import { departmentApi } from '../../api/department.api';
-import { LabTest, Department } from '../../types';
+import { organizationApi } from '../../api/organization.api';
+import { LabTest, Department, Organization } from '../../types';
 import { TestModal } from '../../components/masters/TestModal';
 import { ParameterMasterModal } from '../../components/masters/ParameterMasterModal';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
@@ -40,12 +41,15 @@ export const TestsPage: React.FC = () => {
 
   const [tests, setTests] = useState<LabTest[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [departmentFilter, setDepartmentFilter] = useState<string>('');
   const [testTypeFilter, setTestTypeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  // '' every test, 'own' the centre's catalogue alone, or one TPA's tests.
+  const [tpaFilter, setTpaFilter] = useState<string>('');
   const [page, setPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalTests, setTotalTests] = useState<number>(0);
@@ -72,6 +76,7 @@ export const TestsPage: React.FC = () => {
         department: departmentFilter || undefined,
         testType: testTypeFilter || undefined,
         status: statusFilter || undefined,
+        tpa: tpaFilter || undefined,
         page,
         limit: 10,
       });
@@ -95,11 +100,15 @@ export const TestsPage: React.FC = () => {
       }
     };
     fetchDepts();
+    organizationApi
+      .getAll({ limit: 500, status: 'Active' })
+      .then((res) => setOrganizations(asList<Organization>(res, 'organizations')))
+      .catch(() => setOrganizations([]));
   }, []);
 
   useEffect(() => {
     fetchTests();
-  }, [searchTerm, departmentFilter, testTypeFilter, statusFilter, page]);
+  }, [searchTerm, departmentFilter, testTypeFilter, statusFilter, tpaFilter, page]);
 
   const handleCreateNew = () => {
     setSelectedTest(null);
@@ -262,6 +271,23 @@ export const TestsPage: React.FC = () => {
               <option value="Active">Active</option>
               <option value="Inactive">Inactive</option>
             </select>
+
+            <select
+              className="h-10 rounded-md border border-input bg-background px-3 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+              value={tpaFilter}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                setTpaFilter(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">All Tests</option>
+              <option value="own">Own Catalogue</option>
+              {organizations.map((o) => (
+                <option key={o.id} value={o.id}>
+                  TPA: {o.organizationName}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </Card>
@@ -305,6 +331,11 @@ export const TestsPage: React.FC = () => {
                     <td className="p-3">
                       <div className="font-bold text-foreground">{test.testName}</div>
                       <div className="font-mono text-[11px] text-blue-600 font-semibold">{test.testCode}</div>
+                      {test.tpa && typeof test.tpa === 'object' && (
+                        <Badge variant="amber" className="mt-0.5">
+                          TPA: {test.tpa.organizationName}
+                        </Badge>
+                      )}
                     </td>
                     <td className="p-3 text-muted-foreground">
                       {typeof test.department === 'object' ? test.department.departmentName : 'N/A'}
@@ -423,6 +454,7 @@ export const TestsPage: React.FC = () => {
         onSubmit={handleModalSubmit}
         test={selectedTest}
         departments={departments}
+        organizations={organizations}
       />
 
       <ParameterMasterModal

@@ -4,7 +4,7 @@ import { LabTest, TestParameter, ResultType, ParaFor } from '../../types';
 import { testApi } from '../../api/test.api';
 import { asList } from '../../utils/api-list';
 import { useToast } from '../../context/ToastContext';
-import { X, Pencil, Minus, Search, Check, ArrowLeft } from 'lucide-react';
+import { X, Pencil, Minus, Search, Check, ArrowLeft, Download } from 'lucide-react';
 
 interface ParameterMasterModalProps {
   isOpen: boolean;
@@ -198,6 +198,9 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
   const [ageTo, setAgeTo] = useState<AgeInput>(fullLifeAge());
   // EDT edits the line in place in the grid; FNT still uses the strip above.
   const [inline, setInline] = useState<{ testId: string; index: number; row: TestParameter } | null>(null);
+  // The test whose sheet is copied onto the selected one - a TPA's copy of a
+  // test the centre already runs takes its lines from there.
+  const [importFrom, setImportFrom] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -210,6 +213,7 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
     setInline(null);
     setShowMore(false);
     setMinimised(false);
+    setImportFrom('');
     setLoadingTests(true);
     testApi
       .getAll({ page: 1, limit: 2000 })
@@ -313,6 +317,34 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
     }
   };
 
+  /**
+   * Copies every line of another test onto the selected one. A test that
+   * already has lines is replaced, not merged - a half-merged sheet would
+   * print both labs' bands side by side - so that is confirmed first.
+   */
+  const handleImport = async () => {
+    const target = tests.find((t) => t.id === testId);
+    const source = tests.find((t) => t.id === importFrom);
+    if (!target || !source) return;
+    const sourceRows = rowsByTest[source.id] || [];
+    if (!sourceRows.length) {
+      showToast(`${source.testName} has no parameters to import`, 'error');
+      return;
+    }
+    const current = rowsByTest[target.id] || [];
+    if (
+      current.length &&
+      !window.confirm(
+        `${target.testName} already has ${current.length} line(s). Replace them with the ${sourceRows.length} from ${source.testName}?`
+      )
+    )
+      return;
+    if (await saveTest(target.id, sourceRows.map((r) => ({ ...r })))) {
+      showToast(`Imported ${sourceRows.length} line(s) from ${source.testName}`, 'success');
+      setImportFrom('');
+    }
+  };
+
   const handleEdit = (id: string, index: number, more = false) => {
     setInline(null);
     const row = rowsByTest[id][index];
@@ -386,6 +418,13 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
       if (editing?.testId === id) resetForm();
     }
   };
+
+  // Tests that can lend their sheet to the selected one - the same name first.
+  const testKey = (name?: string) => String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const targetKey = testKey(tests.find((t) => t.id === testId)?.testName);
+  const importChoices = tests
+    .filter((t) => t.id !== testId && (rowsByTest[t.id] || []).length > 0)
+    .sort((a, b) => Number(testKey(b.testName) === targetKey) - Number(testKey(a.testName) === targetKey));
 
   const formIsHeader = form.resultType === 'Header';
   const activeTestId = editing?.testId || testId;
@@ -551,6 +590,33 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
                   RESET
                 </button>
               </div>
+
+              {/* Same test already in the catalogue under another name or
+                  TPA - pull its whole sheet across instead of typing it. */}
+              {testId && !editing && !showMore && (
+                <div className="mt-2 flex items-end gap-1.5 border-t border-slate-700 pt-2">
+                  <div className="min-w-0 flex-1">
+                    <label className={LABEL}>Import Parameters From</label>
+                    <select value={importFrom} onChange={(e) => setImportFrom(e.target.value)} className={BOX}>
+                      <option value="">- Select a test to copy its parameters -</option>
+                      {importChoices.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.testName} ({t.testCode}) - {(rowsByTest[t.id] || []).length} lines
+                            {t.tpa && typeof t.tpa === 'object' ? ` - TPA: ${t.tpa.organizationName}` : ''}
+                          </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleImport}
+                    disabled={busy || !importFrom}
+                    className={`${STRIP_BUTTON} flex items-center gap-1 border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700`}
+                  >
+                    <Download className="h-3.5 w-3.5" /> IMPORT
+                  </button>
+                </div>
+              )}
 
               {showMore && (
                 <div className="mt-2 grid grid-cols-[minmax(0,0.6fr)_minmax(0,1.6fr)_repeat(5,minmax(0,1fr))] items-end gap-x-1.5 border-t border-slate-700 pt-2">

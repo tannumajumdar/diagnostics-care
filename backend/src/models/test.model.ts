@@ -103,6 +103,15 @@ const testSchema = new Schema<ILabTestDocument>(
     outsourceLab: { type: String, trim: true, default: '' },
     /** What that lab charges the centre, for the margin on the accounts side. */
     outsourceCost: { type: Number, default: 0, min: 0 },
+    // A test booked for one corporate / insurance TPA only - the same
+    // investigation under that TPA's own name and code. Null is the centre's
+    // own catalogue, which every patient can be billed for.
+    tpa: {
+      type: Schema.Types.ObjectId,
+      ref: 'Organization',
+      default: null,
+      index: true,
+    },
     discountAllowed: { type: Boolean, default: true },
     fastingRequired: { type: Boolean, default: false },
     preparationRequired: { type: String, trim: true, default: '' },
