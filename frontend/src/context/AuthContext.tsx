@@ -49,6 +49,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, []);
 
+  // The Admin can change what a role may do while staff are signed in. Coming
+  // back to the tab re-reads the profile, so the menu and buttons follow the
+  // new permissions without a sign-out. A failed refresh is left alone - the
+  // API still refuses whatever the role no longer has.
+  useEffect(() => {
+    const refresh = async () => {
+      if (!localStorage.getItem('token')) return;
+      try {
+        const userData = await authApi.getProfile();
+        const profile = userData?.data || userData;
+        if (profile) {
+          setUser(profile);
+          localStorage.setItem('user', JSON.stringify(profile));
+        }
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
+
   const login = async (emailOrPayload: any, password?: string) => {
     const payload = typeof emailOrPayload === 'string' ? { email: emailOrPayload, password } : emailOrPayload;
     const response: any = await authApi.login(payload);

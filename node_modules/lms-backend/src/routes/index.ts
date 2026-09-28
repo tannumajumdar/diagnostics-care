@@ -17,6 +17,7 @@ import accountsRoutes from './accounts.routes';
 import refundPolicyRoutes from './refundPolicy.routes';
 import reportsRoutes from './reports.routes';
 import auditRoutes from './audit.routes';
+import rolePermissionRoutes from './rolePermission.routes';
 
 const router = Router();
 
@@ -48,5 +49,7 @@ router.use('/accounts', accountsRoutes);
 router.use('/refund-policy', refundPolicyRoutes);
 router.use('/reports', reportsRoutes);
 router.use('/audit-logs', auditRoutes);
+// Which role may do what, as the Admin set it.
+router.use('/role-permissions', rolePermissionRoutes);
 
 export default router;

@@ -89,7 +89,12 @@ const RECEPTIONIST_PERMISSIONS: Permission[] = [
 
 const ADMIN_PERMISSIONS: Permission[] = Object.values(P);
 
-export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
+/**
+ * The shipped matrix. The Admin can change any role's reach from the Roles &
+ * Permissions screen; what they save is kept in the database and loaded over
+ * these at startup, and "Reset to default" goes back to this list.
+ */
+export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
   [ROLES.ADMIN]: ADMIN_PERMISSIONS,
 
   [ROLES.RECEPTIONIST]: RECEPTIONIST_PERMISSIONS,
@@ -146,6 +151,88 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     P.REPORT_VIEW,
   ],
 };
+
+/** The role the matrix cannot be changed for, so the centre can never lock itself out. */
+export const LOCKED_ROLE = ROLES.ADMIN;
+
+const ALL_PERMISSIONS = Object.values(P) as Permission[];
+
+export const isPermission = (value: string): value is Permission =>
+  (ALL_PERMISSIONS as string[]).includes(value);
+
+/**
+ * The live matrix every guard reads. Starts as the defaults and is replaced
+ * role by role with what the Admin saved (see RolePermissionService).
+ */
+export const ROLE_PERMISSIONS: Record<string, Permission[]> = Object.fromEntries(
+  Object.entries(DEFAULT_ROLE_PERMISSIONS).map(([role, list]) => [role, [...list]])
+);
+
+export const setRolePermissions = (role: string, permissions: string[]): void => {
+  if (role === LOCKED_ROLE) return;
+  ROLE_PERMISSIONS[role] = Array.from(new Set(permissions.filter(isPermission)));
+};
+
+export const resetRolePermissions = (role: string): void => {
+  if (role === LOCKED_ROLE) return;
+  ROLE_PERMISSIONS[role] = [...(DEFAULT_ROLE_PERMISSIONS[role] || [])];
+};
+
+/**
+ * What each permission means, in the words the Admin reads on the screen,
+ * grouped the way the sidebar is.
+ */
+export const PERMISSION_CATALOG: Array<{ group: string; key: Permission; label: string; description: string }> = [
+  { group: 'Front desk', key: P.PATIENT_VIEW, label: 'View patients', description: 'Open the patient list and profiles' },
+  { group: 'Front desk', key: P.PATIENT_CREATE, label: 'Register patients', description: 'Add a new patient' },
+  { group: 'Front desk', key: P.PATIENT_EDIT, label: 'Edit patients', description: 'Change a patient’s details' },
+  { group: 'Front desk', key: P.PATIENT_HISTORY, label: 'Patient history', description: 'See past visits, bills and reports' },
+  { group: 'Front desk', key: P.APPOINTMENT_VIEW, label: 'View appointments', description: 'Appointments and home collection' },
+  { group: 'Front desk', key: P.APPOINTMENT_MANAGE, label: 'Manage appointments', description: 'Book, reschedule and cancel' },
+
+  { group: 'Billing', key: P.BILL_VIEW, label: 'View bills', description: 'Bill list, booked tests, ledger and collections' },
+  { group: 'Billing', key: P.BILL_CREATE, label: 'Create & revise bills', description: 'New visit, new bill, add tests to a bill' },
+  { group: 'Billing', key: P.BILL_COLLECT_PAYMENT, label: 'Collect payment', description: 'Take money against a bill' },
+  {
+    group: 'Billing',
+    key: P.BILL_DISCOUNT_OVERRIDE,
+    label: 'Discount above limit',
+    description: 'Give more discount than the staff ceiling',
+  },
+  { group: 'Billing', key: P.BILL_CANCEL, label: 'Cancel bills', description: 'Cancel a whole bill' },
+
+  { group: 'Money out', key: P.PAYOUT_VIEW, label: 'View payouts', description: 'See cash paid out' },
+  { group: 'Money out', key: P.PAYOUT_CREATE, label: 'Record payouts', description: 'Ambulance, courier, doctor cut, etc.' },
+  { group: 'Money out', key: P.PAYOUT_APPROVE, label: 'Approve payouts', description: 'Approve pending payouts' },
+  { group: 'Money out', key: P.PAYOUT_DELETE, label: 'Delete payouts', description: 'Remove a payout entry' },
+  { group: 'Money out', key: P.REFUND_VIEW, label: 'View refunds', description: 'Accounts & Refunds screen' },
+  { group: 'Money out', key: P.REFUND_ISSUE, label: 'Cancel test & refund', description: 'Cancel tests and issue refunds' },
+  {
+    group: 'Money out',
+    key: P.REFUND_POLICY_MANAGE,
+    label: 'Refund policy',
+    description: 'Edit the refund policy and override it on a refund',
+  },
+
+  { group: 'Laboratory', key: P.SAMPLE_VIEW, label: 'View samples', description: 'Lab workflow and sample directory' },
+  { group: 'Laboratory', key: P.SAMPLE_COLLECT, label: 'Collect samples', description: 'Mark a sample collected' },
+  { group: 'Laboratory', key: P.SAMPLE_PROCESS, label: 'Process samples', description: 'Receive and run samples on the bench' },
+  { group: 'Laboratory', key: P.SAMPLE_REJECT, label: 'Reject samples', description: 'Reject a sample and ask for a redraw' },
+  { group: 'Laboratory', key: P.RESULT_VIEW, label: 'View results', description: 'See entered results' },
+  { group: 'Laboratory', key: P.RESULT_ENTER, label: 'Enter results', description: 'Result entry' },
+  { group: 'Laboratory', key: P.RESULT_VERIFY, label: 'Verify & release', description: 'Verify results and release reports' },
+
+  { group: 'Masters', key: P.MASTER_VIEW, label: 'View masters', description: 'Read tests, rates, doctors (needed for billing)' },
+  { group: 'Masters', key: P.DOCTOR_MANAGE, label: 'Manage doctors', description: 'Add and edit doctors' },
+  { group: 'Masters', key: P.TEST_MANAGE, label: 'Manage tests', description: 'Test catalog and packages' },
+  { group: 'Masters', key: P.RATE_MANAGE, label: 'Manage rates', description: 'Rate master' },
+  { group: 'Masters', key: P.DEPARTMENT_MANAGE, label: 'Manage departments', description: 'Add and edit departments' },
+  { group: 'Masters', key: P.ORGANIZATION_MANAGE, label: 'Manage organizations', description: 'TPA / corporate organizations' },
+
+  { group: 'Administration', key: P.STAFF_MANAGE, label: 'Staff & permissions', description: 'Staff accounts and this screen' },
+  { group: 'Administration', key: P.REPORT_VIEW, label: 'Analytics reports', description: 'Reports and doctor commission' },
+  { group: 'Administration', key: P.AUDIT_VIEW, label: 'Audit log', description: 'Who did what, and when' },
+];
 
 export const permissionsForRole = (role?: string): Permission[] =>
   (role && ROLE_PERMISSIONS[role]) || [];

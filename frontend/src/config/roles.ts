@@ -23,6 +23,7 @@ import {
   Undo2,
   BookOpen,
   FileText,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -181,7 +182,10 @@ export interface PermissionHolder {
 /** The signed-in user's granted list, falling back to the role matrix. */
 export const permissionsFor = (user?: PermissionHolder | null): string[] => {
   if (!user) return [];
-  if (Array.isArray(user.permissions) && user.permissions.length) return user.permissions;
+  // The server's list is used even when empty - the Admin may have taken
+  // everything away from a role, and falling back to the defaults here would
+  // put back buttons the API now refuses.
+  if (Array.isArray(user.permissions)) return user.permissions;
   return ROLE_PERMISSIONS[user.role as Role] ?? [];
 };
 
@@ -364,6 +368,13 @@ export const NAV_ITEMS: NavItem[] = [
     permissions: [P.ORGANIZATION_MANAGE],
   },
   { label: 'Staff & Roles', path: '/staff', icon: UserCog, group: 'Masters', permissions: [P.STAFF_MANAGE] },
+  {
+    label: 'Role Permissions',
+    path: '/role-permissions',
+    icon: ShieldCheck,
+    group: 'Masters',
+    permissions: [P.STAFF_MANAGE],
+  },
   {
     label: 'Refund Policy',
     path: '/refund-policy',

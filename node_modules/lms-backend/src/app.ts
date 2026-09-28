@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { connectDB } from './config/database';
+import { RolePermissionService } from './services/rolePermission.service';
 import { errorHandler } from './middleware/errorHandler';
 import routes from './routes';
 
@@ -60,7 +61,14 @@ app.use(errorHandler);
 
 // Start Server after connecting to MongoDB
 if (process.env.NODE_ENV !== 'test') {
-  connectDB().then(() => {
+  connectDB().then(async () => {
+    // The Admin's saved role permissions replace the shipped defaults before
+    // the first request is served.
+    try {
+      await RolePermissionService.loadIntoMemory();
+    } catch (error) {
+      console.error('[LMS Server] Could not load saved role permissions, using defaults', error);
+    }
     app.listen(PORT, () => {
       console.log(`[LMS Server] Operational on port ${PORT}`);
     });
