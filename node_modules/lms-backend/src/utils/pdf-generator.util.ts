@@ -159,7 +159,14 @@ export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer>
 
     doc.moveDown(1);
     rule(doc);
-    doc.moveDown(0.8);
+    doc.moveDown(0.5);
+
+    // A PDF is only ever made of a report the pathologist has approved - the
+    // saved, unsigned copy is a provisional report and stays on screen.
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#065f46')
+      .text('FINAL REPORT', LEFT, doc.y, { width: RIGHT - LEFT, align: 'center', characterSpacing: 2 });
+    doc.font('Helvetica').fillColor('#111827');
+    doc.moveDown(0.6);
 
     // One section per test, arrived at already grouped by department and in
     // billing order within it. Everything the counter needs to tell two draws

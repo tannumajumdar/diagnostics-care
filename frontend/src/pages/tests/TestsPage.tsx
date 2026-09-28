@@ -28,7 +28,6 @@ import {
   FileText,
   Upload,
   ClipboardCheck,
-  FileType,
 } from 'lucide-react';
 
 export const TestsPage: React.FC = () => {
@@ -61,7 +60,8 @@ export const TestsPage: React.FC = () => {
 
   // Modal States
   const [testModalOpen, setTestModalOpen] = useState<boolean>(false);
-  const [paramModalOpen, setParamModalOpen] = useState<boolean>(false);
+  // The test whose parameter sheet is open, or null when the window is shut.
+  const [paramTestId, setParamTestId] = useState<string | null>(null);
   const [selectedTest, setSelectedTest] = useState<LabTest | null>(null);
   // Interpretation / files / review - one window, opened on the tab asked for.
   const [infoModal, setInfoModal] = useState<{ tab: TestInfoTab; testId?: string } | null>(null);
@@ -207,27 +207,6 @@ export const TestsPage: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          {/* One window for every test's parameters - pick the test inside it. */}
-          <Button variant="outline" onClick={() => setParamModalOpen(true)} className="gap-2">
-            <ListChecks className="h-4 w-4 text-blue-600" />
-            <span>Edit Parameter</span>
-          </Button>
-          <Button variant="outline" onClick={() => setInfoModal({ tab: 'interpretation' })} className="gap-2">
-            <FileText className="h-4 w-4 text-blue-600" />
-            <span>Interpretation</span>
-          </Button>
-          <Button variant="outline" onClick={() => setInfoModal({ tab: 'format' })} className="gap-2">
-            <FileType className="h-4 w-4 text-blue-600" />
-            <span>Report Format</span>
-          </Button>
-          <Button variant="outline" onClick={() => setInfoModal({ tab: 'files' })} className="gap-2">
-            <Upload className="h-4 w-4 text-blue-600" />
-            <span>File Upload</span>
-          </Button>
-          <Button variant="outline" onClick={() => setInfoModal({ tab: 'review' })} className="gap-2">
-            <ClipboardCheck className="h-4 w-4 text-blue-600" />
-            <span>Review</span>
-          </Button>
           <Button onClick={handleCreateNew} className="gap-2">
             <Plus className="h-4 w-4" />
             <span>Add New Test</span>
@@ -402,47 +381,35 @@ export const TestsPage: React.FC = () => {
                         {test.status}
                       </Badge>
                     </td>
-                    <td className="p-3 text-right space-x-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => setInfoModal({ tab: 'review', testId: test.id })}
-                        title="Review, interpretation & files"
-                      >
-                        <ClipboardCheck className="h-4 w-4 text-blue-600" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => handleEdit(test)}
-                        title="Edit Test Details"
-                      >
-                        <Edit2 className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => handleToggleStatusClick(test)}
-                        title="Toggle Status"
-                      >
-                        <Power
-                          className={`h-4 w-4 ${
-                            test.status === 'Active' ? 'text-emerald-600' : 'text-slate-400'
-                          }`}
-                        />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => handleDeleteClick(test)}
-                        title="Delete Test"
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500 hover:text-red-700" />
-                      </Button>
+                    <td className="p-3">
+                      <div className="flex items-center justify-end gap-0.5">
+                        {[
+                          { title: 'Edit Parameter', icon: ListChecks, color: 'text-blue-600', onClick: () => setParamTestId(test.id) },
+                          { title: 'Interpretation', icon: FileText, color: 'text-indigo-600', onClick: () => setInfoModal({ tab: 'interpretation', testId: test.id }) },
+                          { title: 'File Upload', icon: Upload, color: 'text-sky-600', onClick: () => setInfoModal({ tab: 'files', testId: test.id }) },
+                          { title: 'Review', icon: ClipboardCheck, color: 'text-violet-600', onClick: () => setInfoModal({ tab: 'review', testId: test.id }) },
+                          { title: 'Edit Test Details', icon: Edit2, color: 'text-slate-600', onClick: () => handleEdit(test) },
+                          {
+                            title: test.status === 'Active' ? 'Deactivate' : 'Activate',
+                            icon: Power,
+                            color: test.status === 'Active' ? 'text-emerald-600' : 'text-slate-400',
+                            onClick: () => handleToggleStatusClick(test),
+                          },
+                          { title: 'Delete Test', icon: Trash2, color: 'text-red-500', onClick: () => handleDeleteClick(test) },
+                        ].map(({ title, icon: Icon, color, onClick }) => (
+                          <Button
+                            key={title}
+                            variant="ghost"
+                            size="sm"
+                            className="h-9 w-9 p-0"
+                            onClick={onClick}
+                            title={title}
+                            aria-label={title}
+                          >
+                            <Icon className={`h-5 w-5 ${color}`} />
+                          </Button>
+                        ))}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -491,8 +458,9 @@ export const TestsPage: React.FC = () => {
       />
 
       <ParameterMasterModal
-        isOpen={paramModalOpen}
-        onClose={() => setParamModalOpen(false)}
+        isOpen={paramTestId !== null}
+        initialTestId={paramTestId || undefined}
+        onClose={() => setParamTestId(null)}
         onSaved={() => {
           refreshDeskCatalogue();
           fetchTests();

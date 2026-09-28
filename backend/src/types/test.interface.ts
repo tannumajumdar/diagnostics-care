@@ -19,6 +19,8 @@ export interface ITestParameter {
   ageFromDays?: number;
   ageToDays?: number;
   referenceText?: string;
+  /** Calculated from the test's other lines - see utils/formula.util. */
+  formula?: string;
 }
 
 export interface ILabTestDocument extends Document {

@@ -37,6 +37,11 @@ const testParameterSchema = new Schema(
     ageToDays: { type: Number, default: 0, min: 0 },
     /** Normal value for a line that is not a number - "Negative", "Clear". */
     referenceText: { type: String, trim: true, default: '' },
+    /**
+     * A calculated line - "#TC# - #HDL# - (#TG# / 5)". Worked out from the
+     * other lines of the same test on the result screen and again on save.
+     */
+    formula: { type: String, trim: true, default: '' },
   },
   { _id: false }
 );

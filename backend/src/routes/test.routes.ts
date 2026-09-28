@@ -41,6 +41,12 @@ router.delete(
   requirePermission(PERMISSIONS.TEST_MANAGE),
   TestController.removeAttachment
 );
+// An uploaded Word file becomes the one the test's report is printed from.
+router.put(
+  '/:id/attachments/:attachmentId/report',
+  requirePermission(PERMISSIONS.TEST_MANAGE),
+  TestController.useAttachmentAsReport
+);
 // The Word file this test's report is printed from.
 router.get('/:id/report-template', requirePermission(PERMISSIONS.MASTER_VIEW), TestController.downloadReportTemplate);
 router.put('/:id/report-template', requirePermission(PERMISSIONS.TEST_MANAGE), TestController.uploadReportTemplate);

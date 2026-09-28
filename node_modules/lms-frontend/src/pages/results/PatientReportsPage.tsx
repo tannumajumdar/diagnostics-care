@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { resultApi } from '../../api/result.api';
+import { resultApi, saveReportPdf } from '../../api/result.api';
+import { useToast } from '../../context/ToastContext';
 import { asList } from '../../utils/api-list';
 import { resultMarker } from '../../utils/result-flag';
 import { Card } from '../../components/ui/card';
@@ -19,6 +20,7 @@ import {
   ChevronUp,
   AlertTriangle,
   X,
+  Download,
 } from 'lucide-react';
 
 const STATUSES = ['Draft', 'Submitted', 'Approved', 'Rejected', 'Final'];
@@ -56,6 +58,9 @@ export const PatientReportsPage: React.FC = () => {
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const { showToast } = useToast();
+  // The visit whose PDF is being fetched.
+  const [savingKey, setSavingKey] = useState<string | null>(null);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['patient-reports', searchTerm, status, from, to, page],
@@ -236,18 +241,43 @@ export const PatientReportsPage: React.FC = () => {
                           .join(', ')}
                       </span>
                     )}
-                    <Button
-                      size="sm"
-                      disabled={!readiness.isReady || !tests[0]}
-                      title={
-                        readiness.isReady
-                          ? 'Open the patient report'
-                          : 'The report is generated once every test on the visit is released'
-                      }
-                      onClick={() => navigate(`/results/report/${tests[0]._id}`)}
-                    >
-                      <Eye className="mr-1 h-4 w-4" /> Patient Report
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!readiness.isReady || !tests[0] || savingKey === visit._id}
+                        title={
+                          readiness.isReady
+                            ? 'Save the patient report as a PDF file'
+                            : 'The report is generated once every test on the visit is released'
+                        }
+                        onClick={async () => {
+                          setSavingKey(visit._id);
+                          try {
+                            const fileName = await saveReportPdf(tests[0]._id, patient.patientName, tests[0].resultId);
+                            showToast(`Report saved as ${fileName}`, 'success');
+                          } catch (err: any) {
+                            showToast(err?.message || 'Could not save the report', 'error');
+                          } finally {
+                            setSavingKey(null);
+                          }
+                        }}
+                      >
+                        <Download className="mr-1 h-4 w-4" /> {savingKey === visit._id ? 'Saving…' : 'Save PDF'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={!readiness.isReady || !tests[0]}
+                        title={
+                          readiness.isReady
+                            ? 'Open the patient report'
+                            : 'The report is generated once every test on the visit is released'
+                        }
+                        onClick={() => navigate(`/results/report/${tests[0]._id}`)}
+                      >
+                        <Eye className="mr-1 h-4 w-4" /> Patient Report
+                      </Button>
+                    </div>
                   </div>
                 )}
 

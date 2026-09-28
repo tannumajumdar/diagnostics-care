@@ -48,6 +48,19 @@ const groupByVisit = (samples: any[]): Visit[] => {
   return Array.from(visits.values());
 };
 
+/**
+ * Where one test of the visit stands, as the processing queue shows it: red
+ * until it is on the bench, amber while it runs, green once it is done.
+ */
+const processState = (status: string) =>
+  status === 'Completed'
+    ? { label: 'Done', className: 'border-emerald-200 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' }
+    : status === 'Processing'
+    ? { label: 'In process', className: 'border-amber-200 bg-amber-50 text-amber-800', dot: 'bg-amber-500' }
+    : status === 'Pending Collection'
+    ? { label: 'Not collected', className: 'border-rose-200 bg-rose-50 text-rose-700', dot: 'bg-rose-500' }
+    : { label: 'Process pending', className: 'border-rose-200 bg-rose-50 text-rose-700', dot: 'bg-rose-500' };
+
 /** The tightest turnaround on the visit - the one the bench has to beat. */
 const visitTat = (visit: Visit, done: boolean) => {
   const due = visit.samples
@@ -86,6 +99,15 @@ export const LabWorkflowPage: React.FC = () => {
   });
   const lanes = STAGES.map((meta, i) => ({ meta, query: laneQueries[i] }));
 
+  // Every test of a visit across all the lanes, so a card can say which of the
+  // patient's other tests are still pending and which are already done.
+  const visitTests = new Map<string, any[]>();
+  laneQueries.forEach((q) =>
+    groupByVisit(asList<any>(q.data, 'samples')).forEach((v) =>
+      visitTests.set(v.key, [...(visitTests.get(v.key) || []), ...v.samples])
+    )
+  );
+
   const { data: rejectedData } = useQuery({
     queryKey: ['workflow', 'Rejected', applied],
     queryFn: () => sampleApi.getAll({ status: 'Rejected', search: applied || undefined, limit: 25 }),
@@ -118,7 +140,7 @@ export const LabWorkflowPage: React.FC = () => {
       return;
     }
     if (!meta.next) return;
-    const busyKey = samples.length === 1 && visit.samples.length > 1 ? samples[0].id : visit.key;
+    const busyKey = samples.length === 1 ? samples[0].id : visit.key;
     setBusyId(busyKey);
     let moved = 0;
     try {
@@ -190,6 +212,17 @@ export const LabWorkflowPage: React.FC = () => {
           <p className="mt-1 text-xs text-slate-500">
             Every specimen from the draw to the released report. A sample can only move one step at a time.
           </p>
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+            {[
+              ['bg-rose-500', 'Pending'],
+              ['bg-amber-500', 'In process'],
+              ['bg-emerald-500', 'Done'],
+            ].map(([dot, label]) => (
+              <span key={label} className="flex items-center gap-1">
+                <span className={`h-2.5 w-2.5 rounded-full ${dot}`} /> {label}
+              </span>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-end gap-2">
@@ -272,6 +305,10 @@ export const LabWorkflowPage: React.FC = () => {
                   visits.map((visit) => {
                     const tat = visitTat(visit, meta.stage === 'Completed');
                     const count = visit.samples.length;
+                    const here = new Set(visit.samples.map((s: any) => s.id));
+                    const elsewhere = (visitTests.get(visit.key) || []).filter((s: any) => !here.has(s.id));
+                    const allTests = count + elsewhere.length;
+                    const doneCount = (visitTests.get(visit.key) || []).filter((s: any) => s.status === 'Completed').length;
                     return (
                       <article
                         key={visit.key}
@@ -286,9 +323,12 @@ export const LabWorkflowPage: React.FC = () => {
                               {[visit.uhid, visit.enquiryNo].filter(Boolean).join(' · ') || '—'}
                             </p>
                           </div>
-                          {count > 1 && (
-                            <span className="shrink-0 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
-                              {count} tests
+                          {allTests > 1 && (
+                            <span
+                              className="shrink-0 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700"
+                              title={`${doneCount} of ${allTests} tests on this visit done`}
+                            >
+                              {doneCount}/{allTests} done
                             </span>
                           )}
                         </div>
@@ -297,7 +337,17 @@ export const LabWorkflowPage: React.FC = () => {
                           {visit.samples.map((s: any) => (
                             <li key={s.id} className="flex items-center gap-1">
                               <div className="min-w-0 flex-1">
-                                <p className="truncate text-xs font-medium text-slate-800">{s.testName}</p>
+                                <p className="flex items-center gap-1.5 text-xs font-medium text-slate-800">
+                                  <span className={`h-2 w-2 shrink-0 rounded-full ${processState(s.status).dot}`} />
+                                  <span className="truncate">{s.testName}</span>
+                                  <span
+                                    className={`ml-auto shrink-0 rounded border px-1 text-[9px] font-semibold uppercase ${
+                                      processState(s.status).className
+                                    }`}
+                                  >
+                                    {processState(s.status).label}
+                                  </span>
+                                </p>
                                 <p className="font-mono text-[10px] text-slate-400">
                                   {s.sampleId}
                                   {(s.recollectionCount ?? 0) > 0 && (
@@ -318,14 +368,16 @@ export const LabWorkflowPage: React.FC = () => {
                               >
                                 <History className="h-3.5 w-3.5" />
                               </button>
-                              {meta.next && count > 1 && (
+                              {/* Each test moves on from its own row - no separate visit-wide button. */}
+                              {(meta.next || meta.entryRoute) && (
                                 <button
                                   onClick={() => advance(visit, meta, [s])}
-                                  disabled={!allowed || busyId === visit.key || busyId === s.id}
-                                  className="shrink-0 rounded-md border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 transition hover:border-slate-900 hover:bg-slate-900 hover:text-white disabled:opacity-40"
+                                  disabled={!allowed || busyId === s.id}
+                                  className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-slate-900 px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-slate-700 disabled:opacity-40"
                                   title={allowed ? `${meta.action}: ${s.testName}` : `${meta.owner} performs this step`}
                                 >
-                                  {busyId === s.id ? '…' : meta.stepLabel ?? meta.action}
+                                  {busyId === s.id ? '…' : meta.entryRoute ? 'Results' : meta.stepLabel ?? meta.action}
+                                  <ArrowRight className="h-3 w-3" />
                                 </button>
                               )}
                               {(meta.next || meta.entryRoute) && (
@@ -343,6 +395,26 @@ export const LabWorkflowPage: React.FC = () => {
                           ))}
                         </ul>
 
+                        {/* The visit's other tests, sitting in other lanes. */}
+                        {elsewhere.length > 0 && (
+                          <ul className="mt-1.5 space-y-0.5 border-t border-dashed border-slate-100 pt-1.5">
+                            {elsewhere.map((s: any) => {
+                              const state = processState(s.status);
+                              return (
+                                <li key={s.id} className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${state.dot}`} />
+                                  <span className="truncate">{s.testName}</span>
+                                  <span
+                                    className={`ml-auto shrink-0 rounded border px-1 text-[9px] font-semibold uppercase ${state.className}`}
+                                  >
+                                    {state.label}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+
                         {tat && (
                           <p
                             className={`mt-1 text-[11px] font-medium ${
@@ -356,37 +428,19 @@ export const LabWorkflowPage: React.FC = () => {
                         {meta.next === 'Collected' && (
                           <label className="mt-2 block">
                             <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                              Collection time
+                              Collection time (used when you press Collect)
                             </span>
                             <input
                               type="datetime-local"
                               className={`${inputClass} h-7 px-2 text-[11px]`}
                               value={drawnAt[visit.key] ?? toLocalInput()}
                               max={toLocalInput()}
-                              disabled={!allowed || busyId === visit.key}
+                              disabled={!allowed}
                               onChange={(e) => setDrawnAt((prev) => ({ ...prev, [visit.key]: e.target.value }))}
                             />
                           </label>
                         )}
 
-                        {(meta.next || meta.entryRoute) && (
-                          <Button
-                            size="sm"
-                            variant={count > 1 && !meta.entryRoute ? 'outline' : undefined}
-                            className={`mt-2 h-7 w-full gap-1 px-2 text-[11px] ${
-                              count > 1 && !meta.entryRoute ? '' : 'bg-slate-900 hover:bg-slate-800'
-                            }`}
-                            disabled={!allowed || busyId === visit.key}
-                            onClick={() => advance(visit, meta)}
-                            title={allowed ? meta.action : `${meta.owner} performs this step`}
-                          >
-                            <span className="truncate">
-                              {meta.action}
-                              {count > 1 && !meta.entryRoute ? ` (all ${count})` : ''}
-                            </span>
-                            <ArrowRight className="h-3 w-3 shrink-0" />
-                          </Button>
-                        )}
                       </article>
                     );
                   })

@@ -21,6 +21,9 @@ export const testApi = {
   downloadReportTemplate: async (id: string): Promise<Blob> =>
     api.get(`/tests/${id}/report-template`, { responseType: 'blob' }),
   removeReportTemplate: async (id: string): Promise<any> => api.delete(`/tests/${id}/report-template`),
+  /** Print this test's report from one of its uploaded Word files. */
+  useAttachmentAsReport: async (id: string, attachmentId: string): Promise<any> =>
+    api.put(`/tests/${id}/attachments/${attachmentId}/report`),
   removeAttachment: async (id: string, attachmentId: string): Promise<any> =>
     api.delete(`/tests/${id}/attachments/${attachmentId}`),
 };

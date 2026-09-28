@@ -32,6 +32,10 @@ const parameterResultSchema = new Schema(
     highRange: { type: String, default: '' },
     lowRange: { type: String, default: '' },
     displayOrder: { type: Number, default: 1 },
+    // A calculated line, copied off the master, and whether the bench typed
+    // over the calculated value - a re-save then keeps what they typed.
+    formula: { type: String, default: '' },
+    formulaOverride: { type: Boolean, default: false },
   },
   { _id: false }
 );

@@ -11,7 +11,8 @@ import { HTTP_STATUS } from '../constants/messages';
 import { ApiError } from '../utils/api-error.util';
 import { JwtPayload } from '../types/auth.interface';
 import { parametersForTest } from '../constants/test-parameters';
-import { checkReportTemplate, DOCX_MIME } from '../utils/docx-report.util';
+import { checkReportTemplate, isReportFormat, DOCX_MIME } from '../utils/docx-report.util';
+import { formulaKey, formulaProblem } from '../utils/formula.util';
 
 /**
  * A TPA's test is usually one the centre already runs under its own name, so
@@ -41,16 +42,73 @@ const ATTACHMENT_TYPES: Record<string, string> = {
 /** Kept under the 10 MB JSON body limit once base64 adds its third. */
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
+/** Browsers on Windows send '' for .doc/.csv, or call a .csv an Excel file - the extension decides. */
+const TYPE_BY_EXTENSION: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  txt: 'text/plain',
+  csv: 'text/csv',
+};
+
 const paramOf = (v: string | string[]) => (Array.isArray(v) ? v[0] : v);
 
-const attachmentView = (a: any) => ({
+/** `reportId` is the attachment the test's report is printed from, if any. */
+const attachmentView = (a: any, reportId?: any) => ({
   id: String(a._id),
   fileName: a.fileName,
   mimeType: a.mimeType,
   size: a.size,
   uploadedBy: a.uploadedBy?.name || '',
   createdAt: a.createdAt,
+  isReport: Boolean(reportId) && String(reportId) === String(a._id),
 });
+
+/**
+ * Makes a stored file the one the test's report is printed from. A Word file
+ * uploaded through the old report-format screen is not a listed file, so it
+ * goes once it is replaced.
+ */
+const useAsReport = async (test: any, file: any, userName?: string) => {
+  const previous = test.reportTemplate?.attachment;
+  test.reportTemplate = {
+    attachment: file._id,
+    fileName: file.fileName,
+    size: file.size,
+    uploadedAt: new Date(),
+    uploadedBy: userName || '',
+  };
+  await test.save();
+  if (previous && String(previous) !== String(file._id)) {
+    await TestAttachment.deleteOne({ _id: previous, kind: 'report-template' });
+  }
+};
+
+/**
+ * Refuses a parameter sheet whose formulas could never be worked out - a typo
+ * in a name, a bracket left open - when it is saved, not on a patient's report.
+ */
+const checkFormulas = (parameters: any) => {
+  if (!Array.isArray(parameters)) return;
+  const known = new Set<string>();
+  for (const p of parameters) {
+    if (p?.resultType === 'Header') continue;
+    if (p?.shortName) known.add(formulaKey(p.shortName));
+    if (p?.parameterName) known.add(formulaKey(p.parameterName));
+  }
+  for (const p of parameters) {
+    const formula = String(p?.formula || '').trim();
+    if (!formula || p?.resultType === 'Header') continue;
+    const problem = formulaProblem(formula, known, formulaKey(p.shortName || p.parameterName));
+    if (problem) throw new ApiError(HTTP_STATUS.BAD_REQUEST, `${p.parameterName}: ${problem}`);
+  }
+};
 
 const normaliseTpa = (body: any) => {
   if (body.tpa === undefined) return;
@@ -114,6 +172,7 @@ export class TestController {
       // own name and let anyone edit them afterwards.
       const body = { ...req.body };
       normaliseTpa(body);
+      checkFormulas(body.parameters);
       const { importParametersFrom } = body;
       delete body.importParametersFrom;
       if (importParametersFrom) body.parameters = await parametersFrom(importParametersFrom);
@@ -162,6 +221,7 @@ export class TestController {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const body = { ...req.body };
       normaliseTpa(body);
+      checkFormulas(body.parameters);
       // Editing a TPA's copy of a test can pull the sheet over again from
       // the centre's own test - it replaces the lines, it does not merge them.
       const { importParametersFrom } = body;
@@ -241,6 +301,7 @@ export class TestController {
       const test = await LabTest.findById(id);
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
 
+      checkFormulas(req.body.parameters);
       test.parameters = req.body.parameters;
       await test.save();
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Test parameters updated', data: test });
@@ -317,12 +378,16 @@ export class TestController {
   };
   static listAttachments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      // The report template has a tab of its own and is not a reference file.
-      const files = await TestAttachment.find({
-        test: paramOf(req.params.id),
-        kind: { $ne: 'report-template' },
-      }).sort({ createdAt: -1 });
-      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Test files retrieved', data: files.map(attachmentView) });
+      const id = paramOf(req.params.id);
+      const test = await LabTest.findById(id).select('reportTemplate');
+      const files = await TestAttachment.find({ test: id, kind: { $ne: 'report-template' } }).sort({ createdAt: -1 });
+      const reportId = (test as any)?.reportTemplate?.attachment;
+      sendResponse({
+        res,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Test files retrieved',
+        data: files.map((f) => attachmentView(f, reportId)),
+      });
     } catch (error) {
       next(error);
     }
@@ -333,11 +398,12 @@ export class TestController {
     try {
       const id = paramOf(req.params.id);
       const currentUser = (req as any).user as JwtPayload;
-      const test = await LabTest.findById(id).select('_id');
+      const test = await LabTest.findById(id);
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
 
       const fileName = String(req.body?.fileName || '').trim().slice(0, 200);
-      const mimeType = String(req.body?.mimeType || '');
+      const extension = fileName.split('.').pop()?.toLowerCase() || '';
+      const mimeType = TYPE_BY_EXTENSION[extension] || String(req.body?.mimeType || '');
       const encoded = String(req.body?.data || '').replace(/^data:[^,]*,/, '');
       if (!fileName || !encoded) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Choose a file to upload');
       if (!ATTACHMENT_TYPES[mimeType]) {
@@ -360,7 +426,26 @@ export class TestController {
         data,
         uploadedBy: { userId: currentUser?.userId as any, name: currentUser?.name },
       });
-      sendResponse({ res, statusCode: HTTP_STATUS.CREATED, message: 'File uploaded', data: attachmentView(file) });
+
+      // A Word file laid out with #PTNAME# and the like is the test's report
+      // format: the patient's report is printed from it with their details and
+      // results filled in.
+      let asReport = false;
+      if (mimeType === DOCX_MIME && isReportFormat(data)) {
+        try {
+          checkReportTemplate(data);
+          await useAsReport(test, file, currentUser?.name);
+          asReport = true;
+        } catch {
+          // A file whose placeholders do not pair up stays a plain reference file.
+        }
+      }
+      sendResponse({
+        res,
+        statusCode: HTTP_STATUS.CREATED,
+        message: asReport ? `File uploaded - ${test.testName} reports will now print in ${fileName}` : 'File uploaded',
+        data: attachmentView(file, asReport ? file._id : (test as any).reportTemplate?.attachment),
+      });
     } catch (error) {
       next(error);
     }
@@ -393,7 +478,40 @@ export class TestController {
         kind: { $ne: 'report-template' },
       });
       if (!file) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'File not found');
+      // Removing the file the report printed from puts the test back on the standard report.
+      await LabTest.updateOne(
+        { _id: file.test, 'reportTemplate.attachment': file._id },
+        { $set: { reportTemplate: null } }
+      );
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: `${file.fileName} removed`, data: { id: String(file._id) } });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /** Prints this test's report from one of its uploaded Word files. */
+  static useAttachmentAsReport = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const currentUser = (req as any).user as JwtPayload;
+      const test = await LabTest.findById(paramOf(req.params.id));
+      if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
+      const file = await TestAttachment.findOne({
+        _id: paramOf(req.params.attachmentId),
+        test: test._id,
+        kind: { $ne: 'report-template' },
+      }).select('+data');
+      if (!file) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'File not found');
+      if (file.mimeType !== DOCX_MIME) {
+        throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Only a Word .docx file can be used as the report');
+      }
+      checkReportTemplate(file.data);
+      await useAsReport(test, file, currentUser?.name);
+      sendResponse({
+        res,
+        statusCode: HTTP_STATUS.OK,
+        message: `${test.testName} reports will now print in ${file.fileName}`,
+        data: (test as any).reportTemplate,
+      });
     } catch (error) {
       next(error);
     }

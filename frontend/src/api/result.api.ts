@@ -31,6 +31,30 @@ export const resultApi = {
   downloadReport: async (id: string): Promise<any> => api.get(`/results/${id}/pdf`, { responseType: 'blob' }),
   /** One test's report in the Word format uploaded on that test, as a Blob. */
   downloadDocx: async (id: string): Promise<Blob> => api.get(`/results/${id}/docx`, { responseType: 'blob' }),
-  getPDFUrl: (id: string): string => `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/results/${id}/pdf`,
+};
+
+/**
+ * Saves the visit's report as a PDF file. Fetched with the login token like
+ * every other call - opening the bare URL in a new tab carried no token, so
+ * the server refused it and nothing was ever saved.
+ */
+export const saveReportPdf = async (resultId: string, patientName?: string, reportNo?: string) => {
+  let blob: Blob;
+  try {
+    blob = await resultApi.downloadReport(resultId);
+  } catch (error) {
+    throw new Error(await readBlobError(error));
+  }
+  const safe = (s?: string) => String(s || '').trim().replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '');
+  const fileName = [safe(patientName) || 'Patient', safe(reportNo) || 'Report'].join('_') + '.pdf';
+  const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return fileName;
 };
 

@@ -8,9 +8,12 @@ import { generateDiagnosticReportPDF } from '../utils/pdf-generator.util';
 import { fillReportTemplate } from '../utils/docx-report.util';
 import { TestAttachment } from '../models/testAttachment.model';
 import { calculateResultFlag } from '../utils/flag-calculator.util';
+import { calculateSheet } from '../utils/formula.util';
+import { LabTest } from '../models/test.model';
 import { parametersForTest } from '../constants/test-parameters';
 import { SampleService } from './sample.service';
 import { SAMPLE_STATUS } from '../constants/workflow';
+import { ROLES } from '../constants/roles';
 
 /**
  * Picks the range that actually applies to the person on the report. A child's
@@ -89,6 +92,42 @@ const pickBand = (rows: any[], patient: any) => {
   );
 };
 
+/** The formula of a parameter - any of its band rows may carry it. */
+const formulaOfBand = (rows: any[]) => String(rows.find((r) => String(r?.formula || '').trim())?.formula || '').trim();
+
+/**
+ * The master's formulas for a test, by parameter name. Taken from the master
+ * rather than from what the browser sent, so a sheet created before the
+ * formula was added is calculated too, and no client can change the sum.
+ */
+const formulasForTest = (test: any): Map<string, string> => {
+  const groups = new Map<string, any[]>();
+  for (const p of test?.parameters || []) {
+    const key = String(p?.parameterName || '').trim().toLowerCase();
+    groups.set(key, [...(groups.get(key) || []), p]);
+  }
+  const out = new Map<string, string>();
+  groups.forEach((rows, key) => {
+    const formula = formulaOfBand(rows);
+    if (formula) out.set(key, formula);
+  });
+  return out;
+};
+
+/**
+ * A parameter's short name off whichever band row carries one. The bands of
+ * one parameter do not always all have it, and a formula written with #HB#
+ * must still find Haemoglobin on a patient whose band row left it blank.
+ */
+const shortNamesForTest = (test: any): Map<string, string> => {
+  const out = new Map<string, string>();
+  for (const p of test?.parameters || []) {
+    const key = String(p?.parameterName || '').trim().toLowerCase();
+    if (!out.get(key) && String(p?.shortName || '').trim()) out.set(key, String(p.shortName).trim());
+  }
+  return out;
+};
+
 /**
  * The blank parameter sheet a sample opens on. Tests carry their own sheet from
  * the master; the ones created before the catalogue existed fall back to it, so
@@ -114,7 +153,7 @@ const buildSheetForTest = (test: any, patient: any) => {
     const header = p.resultType === 'Header';
     return {
       parameterName: p.parameterName,
-      shortName: p.shortName || '',
+      shortName: p.shortName || rows.find((r: any) => String(r?.shortName || '').trim())?.shortName || '',
       value: '',
       unit: header ? '' : p.unit || '',
       referenceRange: header ? '' : isBandRow(p) ? bandRange(p) : rangeForPatient(p, patient),
@@ -127,6 +166,7 @@ const buildSheetForTest = (test: any, patient: any) => {
       highRange: header ? '' : p.highRange || '',
       lowRange: header ? '' : p.lowRange || '',
       displayOrder: idx + 1,
+      formula: header ? '' : formulaOfBand(rows),
     };
   });
 };
@@ -471,6 +511,20 @@ export class ResultService {
     const sampleObj = await Sample.findById(data.sampleId);
     if (!sampleObj) throw new ApiError(404, 'Sample not found');
 
+    // A report the pathologist has approved is locked. Only a pathologist or an
+    // admin may open it again - a correction still has to be signed off anew.
+    const editor = currentUser || data.user || {};
+    if (
+      resultRecord &&
+      RELEASED.includes(resultRecord.status) &&
+      ![ROLES.ADMIN, ROLES.PATHOLOGIST].includes(editor.role)
+    ) {
+      throw new ApiError(
+        403,
+        `${resultRecord.resultId} is approved and locked. Only a pathologist or an admin can change it.`
+      );
+    }
+
     // Recompute the flag from the value every time rather than trusting the one
     // the browser sent - a corrected value with a stale 'Normal' beside it is
     // the kind of thing that gets missed on a printed report. A header row is
@@ -478,7 +532,34 @@ export class ResultService {
     // can never flag. The one exception is a flag the bench picked by hand:
     // that is a deliberate call on the value, so it is kept as sent.
     const MANUAL_FLAGS = ['Normal', 'Low', 'High', 'Critical'];
-    const calculatedResults = (data.results || []).map((r: any) =>
+
+    // Calculated lines are worked out again here from the values sent, so the
+    // report never carries an LDL that does not match its TC, HDL and TG. A
+    // line the bench deliberately typed over is kept as typed.
+    const [testDoc, patientDoc] = await Promise.all([
+      LabTest.findById(sampleObj.test).select('parameters testName testCode').lean(),
+      Patient.findById(sampleObj.patient).select('age gender').lean(),
+    ]);
+    // A test with no sheet of its own is run off the built-in catalogue, as the sheet itself is.
+    const master = (testDoc as any)?.parameters?.length
+      ? testDoc
+      : { parameters: parametersForTest((testDoc as any)?.testName || '', (testDoc as any)?.testCode || '') };
+    const formulas = formulasForTest(master);
+    const shortNames = shortNamesForTest(master);
+    const nameOf = (r: any) => String(r?.parameterName || '').trim().toLowerCase();
+    const formulaOf = (r: any) => formulas.get(nameOf(r)) || '';
+    const sent = (data.results || []).map((r: any) => ({
+      ...r,
+      shortName: String(r?.shortName || '').trim() || shortNames.get(nameOf(r)) || '',
+      formula: formulaOf(r),
+      formulaOverride: Boolean(formulaOf(r) && r.formulaOverride && String(r.value ?? '').trim() !== ''),
+    }));
+    const worked = calculateSheet(sent, formulaOf, patientDoc || {}, (r: any) => Boolean(r.formulaOverride));
+    worked.forEach((value, index) => {
+      sent[index] = { ...sent[index], value };
+    });
+
+    const calculatedResults = sent.map((r: any) =>
       r.resultType === 'Header'
         ? { ...r, value: '', flag: 'Normal', flagManual: false }
         : r.flagManual && String(r.value ?? '').trim() !== '' && MANUAL_FLAGS.includes(r.flag)

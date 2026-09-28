@@ -14,7 +14,8 @@
     "seed:staff": "npx ts-node --transpile-only src/scripts/seed-staff.ts",
     "seed:checkup": "npx ts-node --transpile-only src/scripts/seed-full-body-checkup.ts",
     "list:patients": "npx ts-node --transpile-only src/scripts/list-patient-ids.ts",
-    "backfill:enquiry": "npx ts-node --transpile-only src/scripts/backfill-enquiry-numbers.ts"
+    "backfill:enquiry": "npx ts-node --transpile-only src/scripts/backfill-enquiry-numbers.ts",
+    "backfill:formulas": "npx ts-node --transpile-only src/scripts/backfill-formulas.ts"
   },
   "dependencies": {
     "@types/helmet": "^0.0.48",

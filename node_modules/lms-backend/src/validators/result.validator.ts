@@ -10,6 +10,7 @@ export const submitResultSchema = z.object({
       referenceRange: z.string().optional(),
       flag: z.enum(['Normal', 'Low', 'High', 'Critical']).optional(),
       flagManual: z.boolean().optional(),
+      formulaOverride: z.boolean().optional(),
     })
   ),
 });

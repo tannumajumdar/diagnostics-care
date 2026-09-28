@@ -130,11 +130,164 @@ const HEADER_XML =
   '<w:spacing w:before="0" w:after="0"/></w:pPr></w:p>' +
   '<w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr></w:p>';
 
-/** A file that already lays out the patient's details itself keeps its own. */
-const hasOwnHeader = (documentXml: string) =>
-  /#\s*PTNAME\s*#/i.test(documentXml.replace(/<[^>]+>/g, ''));
+const textOf = (xml: string) => xml.replace(/<[^>]+>/g, '');
 
-const compile = (template: Buffer, values: Record<string, string> = {}) => {
+/** A file that already lays out the patient's details itself keeps its own. */
+const hasOwnHeader = (documentXml: string) => /#\s*PTNAME\s*#/i.test(textOf(documentXml));
+
+/** The patient-block placeholders - where a file's own header is recognised. */
+const HEADER_TAGS = new Set(HEADER_ROWS.flatMap(([, left, , right]) => [keyOf(left), keyOf(right)]));
+
+/**
+ * Whether a Word file is meant to be a report format rather than a plain
+ * reference document: it carries at least one #PLACEHOLDER# the report fills.
+ */
+export const isReportFormat = (template: Buffer): boolean => {
+  try {
+    const xml = new PizZip(template).file('word/document.xml')?.asText() || '';
+    const tags: string[] = textOf(xml).match(/#[^#\r\n]{1,40}#/g) || [];
+    return tags.map((t) => keyOf(t.slice(1, -1))).some((k) => HEADER_TAGS.has(k) || k === 'RESULTS');
+  } catch {
+    return false;
+  }
+};
+
+const escapeXml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const RESULT_COLUMNS: [string, number][] = [
+  ['Test Parameter', 1900],
+  ['Result', 1000],
+  ['Unit', 900],
+  ['Biological Ref. Range', 1200],
+];
+
+const tableCell = (text: string, pct: number, opts: { bold?: boolean; span?: number } = {}) =>
+  `<w:tc><w:tcPr><w:tcW w:w="${pct}" w:type="pct"/>${opts.span ? `<w:gridSpan w:val="${opts.span}"/>` : ''}</w:tcPr>` +
+  '<w:p><w:pPr><w:spacing w:before="20" w:after="20" w:line="240" w:lineRule="auto"/></w:pPr>' +
+  '<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>' +
+  `${opts.bold ? '<w:b/><w:bCs/>' : ''}<w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>` +
+  `<w:t xml:space="preserve">${text}</w:t></w:r></w:p></w:tc>`;
+
+/**
+ * The sheet's parameters as a Word table - what #RESULTS# stands for. Every
+ * value goes in as a placeholder of its own, so the patient's text is escaped
+ * by the template engine and a "#" typed in a result cannot break the file.
+ */
+const resultsTable = (rows: any[], values: Record<string, string>) => {
+  let n = 0;
+  const slot = (value: any) => {
+    const key = `__R${n++}`;
+    values[key] = String(value ?? '');
+    return `#${key}#`;
+  };
+  const body = rows
+    .map((p) =>
+      p?.resultType === 'Header'
+        ? `<w:tr>${tableCell(slot(String(p.parameterName || '').toUpperCase()), 5000, { bold: true, span: 4 })}</w:tr>`
+        : '<w:tr>' +
+          tableCell(slot(p.parameterName), RESULT_COLUMNS[0][1]) +
+          tableCell(slot(p.value), RESULT_COLUMNS[1][1], {
+            bold: Boolean(p.flag && p.flag !== 'Normal'),
+          }) +
+          tableCell(slot(p.unit), RESULT_COLUMNS[2][1]) +
+          tableCell(slot(p.referenceRange), RESULT_COLUMNS[3][1]) +
+          '</w:tr>'
+    )
+    .join('');
+  return (
+    '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/>' +
+    `<w:tblBorders><w:top ${NONE}/><w:left ${NONE}/><w:bottom ${NONE}/><w:right ${NONE}/>` +
+    `<w:insideH ${NONE}/><w:insideV ${NONE}/></w:tblBorders><w:tblLayout w:type="fixed"/><w:tblLook w:val="0000"/></w:tblPr>` +
+    '<w:tblGrid><w:gridCol w:w="3800"/><w:gridCol w:w="2000"/><w:gridCol w:w="1800"/><w:gridCol w:w="2400"/></w:tblGrid>' +
+    '<w:tr><w:trPr><w:tblHeader/></w:trPr>' +
+    RESULT_COLUMNS.map(([label, pct]) => tableCell(escapeXml(label), pct, { bold: true })).join('') +
+    '</w:tr>' +
+    body +
+    '</w:tbl><w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr></w:p>'
+  );
+};
+
+/**
+ * The body's top-level blocks (paragraphs, tables, content controls), so a
+ * table can be put between two of them and never inside a cell.
+ */
+const topLevelBlocks = (bodyXml: string) => {
+  const blocks: string[] = [];
+  const re = /<(\/?)w:(tbl|sdt|p)(?=[\s>/])[^>]*?(\/?)>/g;
+  let depth = 0;
+  let start = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(bodyXml))) {
+    const [, closing, , selfClosing] = m;
+    if (selfClosing) {
+      if (depth === 0) {
+        blocks.push(bodyXml.slice(start, re.lastIndex));
+        start = re.lastIndex;
+      }
+      continue;
+    }
+    if (!closing) {
+      if (depth === 0 && m.index > start) {
+        blocks.push(bodyXml.slice(start, m.index));
+        start = m.index;
+      }
+      depth += 1;
+    } else {
+      depth -= 1;
+      if (depth === 0) {
+        blocks.push(bodyXml.slice(start, re.lastIndex));
+        start = re.lastIndex;
+      }
+    }
+  }
+  blocks.push(bodyXml.slice(start));
+  return blocks;
+};
+
+/**
+ * Puts the patient's results into the file: where #RESULTS# is typed, or -
+ * when the file names none of the test's parameters itself - right under the
+ * patient block, so an uploaded report never comes out without its values.
+ */
+const placeResults = (documentXml: string, rows: any[], values: Record<string, string>) => {
+  const text = textOf(documentXml);
+  const placed = /#\s*RESULTS\s*#/i.test(text);
+  const parameterKeys = rows
+    .filter((p) => p?.resultType !== 'Header')
+    .flatMap((p) => [p?.shortName, p?.parameterName])
+    .filter(Boolean)
+    .map(keyOf);
+  const tags = (text.match(/#[^#\r\n]{1,60}#/g) || []).map((t) => keyOf(t.slice(1, -1)));
+  const namesParameters = tags.some((t) => parameterKeys.includes(t));
+  if (!placed && namesParameters) return documentXml;
+
+  const open = documentXml.match(/<w:body(\s[^>]*)?>/);
+  const closeAt = documentXml.lastIndexOf('<w:sectPr');
+  const bodyEnd = closeAt > 0 ? closeAt : documentXml.lastIndexOf('</w:body>');
+  if (!open || bodyEnd < 0) return documentXml;
+  const bodyStart = (open.index || 0) + open[0].length;
+  const blocks = topLevelBlocks(documentXml.slice(bodyStart, bodyEnd));
+  const table = resultsTable(rows, values);
+
+  if (placed) {
+    // The paragraph holding #RESULTS# becomes the table.
+    const at = blocks.findIndex((b) => /#\s*RESULTS\s*#/i.test(textOf(b)));
+    if (at >= 0 && /^<w:p[\s>]/.test(blocks[at])) blocks[at] = table;
+    else if (at >= 0) blocks.splice(at + 1, 0, table);
+  } else {
+    // Below the last block that carries a patient-block placeholder.
+    let after = -1;
+    blocks.forEach((b, i) => {
+      const inBlock = (textOf(b).match(/#[^#\r\n]{1,40}#/g) || []).map((t) => keyOf(t.slice(1, -1)));
+      if (inBlock.some((t) => HEADER_TAGS.has(t))) after = i;
+    });
+    blocks.splice(after + 1, 0, table);
+  }
+  return documentXml.slice(0, bodyStart) + blocks.join('') + documentXml.slice(bodyEnd);
+};
+
+const compile = (template: Buffer, values: Record<string, string> = {}, rows?: any[]) => {
   let zip: PizZip;
   try {
     zip = new PizZip(template);
@@ -146,10 +299,12 @@ const compile = (template: Buffer, values: Record<string, string> = {}) => {
     throw new ApiError(400, 'This is not a Word document - save the report format as a .docx file');
   }
 
-  const documentXml = documentFile.asText();
+  let documentXml = documentFile.asText();
   if (!hasOwnHeader(documentXml)) {
-    zip.file('word/document.xml', documentXml.replace(/<w:body(\s[^>]*)?>/, (open) => open + HEADER_XML));
+    documentXml = documentXml.replace(/<w:body(\s[^>]*)?>/, (open) => open + HEADER_XML);
   }
+  if (rows) documentXml = placeResults(documentXml, rows, values);
+  zip.file('word/document.xml', documentXml);
 
   try {
     return new Docxtemplater(zip, {
@@ -186,7 +341,8 @@ export const checkReportTemplate = (template: Buffer) => {
 
 /** The test's Word file with this sheet's patient and results filled in. */
 export const fillReportTemplate = (template: Buffer, sheet: any): Buffer => {
-  const doc = compile(template, reportValues(sheet));
+  const rows = [...(sheet?.results || [])].sort((a: any, b: any) => (a?.displayOrder || 0) - (b?.displayOrder || 0));
+  const doc = compile(template, reportValues(sheet), rows);
   try {
     doc.render({});
   } catch (error: any) {

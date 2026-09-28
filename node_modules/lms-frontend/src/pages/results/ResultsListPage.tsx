@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { resultApi } from '../../api/result.api';
+import { resultApi, saveReportPdf } from '../../api/result.api';
+import { useToast } from '../../context/ToastContext';
 import { ResultRecord } from '../../types';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -13,6 +14,9 @@ export const ResultsListPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
+  const { showToast } = useToast();
+  // The row whose PDF is being fetched.
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['results', searchTerm, page],
@@ -107,14 +111,24 @@ export const ResultsListPage: React.FC = () => {
                         <Button variant="outline" size="sm" onClick={() => navigate(`/results/report/${r._id}`)}>
                           <Eye className="h-4 w-4 mr-1" /> Report View
                         </Button>
-                        <a
-                          href={resultApi.getPDFUrl(r._id)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 px-3 border border-input bg-background hover:bg-accent transition-colors"
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={savingId === r._id}
+                          onClick={async () => {
+                            setSavingId(r._id);
+                            try {
+                              const patient: any = typeof r.patient === 'object' ? r.patient : {};
+                              await saveReportPdf(r._id, patient?.patientName, (r as any).resultId);
+                            } catch (err: any) {
+                              showToast(err?.message || 'Could not save the report', 'error');
+                            } finally {
+                              setSavingId(null);
+                            }
+                          }}
                         >
-                          <Download className="h-4 w-4 mr-1 text-emerald-600" /> PDF
-                        </a>
+                          <Download className="h-4 w-4 mr-1 text-emerald-600" /> {savingId === r._id ? 'Saving…' : 'Save PDF'}
+                        </Button>
                       </td>
                     </tr>
                   );

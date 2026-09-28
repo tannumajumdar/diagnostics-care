@@ -5,9 +5,9 @@ import { asList } from '../../utils/api-list';
 import { useToast } from '../../context/ToastContext';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { X, FileText, Upload, ClipboardCheck, Download, Trash2, Eye, FileType } from 'lucide-react';
+import { X, FileText, Upload, ClipboardCheck, Download, Trash2, Eye } from 'lucide-react';
 
-export type TestInfoTab = 'interpretation' | 'format' | 'files' | 'review';
+export type TestInfoTab = 'interpretation' | 'files' | 'review';
 
 interface TestInfoModalProps {
   isOpen: boolean;
@@ -26,11 +26,12 @@ interface Attachment {
   size: number;
   uploadedBy?: string;
   createdAt?: string;
+  /** The patient's report for this test is printed from this Word file. */
+  isReport?: boolean;
 }
 
 const TABS: { key: TestInfoTab; label: string; icon: React.ElementType }[] = [
   { key: 'interpretation', label: 'Interpretation', icon: FileText },
-  { key: 'format', label: 'Report Format', icon: FileType },
   { key: 'files', label: 'File Upload', icon: Upload },
   { key: 'review', label: 'Review', icon: ClipboardCheck },
 ];
@@ -38,33 +39,27 @@ const TABS: { key: TestInfoTab; label: string; icon: React.ElementType }[] = [
 /** Matches the backend's list, so a file is refused here rather than after uploading. */
 const ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv';
 const MAX_BYTES = 5 * 1024 * 1024;
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 /**
- * What a Word report format can carry. Typed into the .docx between two #
- * signs; case and spaces inside do not matter.
+ * Type by extension. Windows browsers often send an empty type for .doc/.csv,
+ * or call a .csv "application/vnd.ms-excel", and the server refused those.
  */
-const PLACEHOLDERS: [string, string][] = [
-  ['#PTNAME#', "Patient's name"],
-  ['#AGE/SEX#', 'Age / Sex (32 Yrs / Male)'],
-  ['#AGE#  #SEX#', 'Age, sex separately'],
-  ['#MOB#', 'Mobile no.'],
-  ['#PID#', 'UH-ID'],
-  ['#BYDOC#', 'Consultant doctor'],
-  ['#COLLDATE#', 'Collection date'],
-  ['#DATETIME#', 'Reporting date'],
-  ['#TESTNO#', 'Specimen no.'],
-  ['#BARCODE#', 'Sample barcode'],
-  ['#REGDATE#', 'Registration date'],
-  ['#TESTNAME#', 'Test name'],
-  ['#REPORTNO#', 'Report no.'],
-  ['#ENQNO#', 'Enquiry no.'],
-  ['#INVOICENO#', 'Invoice no.'],
-  ['#ADDRESS#', 'Address'],
-  ['#INTERPRETATION#', 'Interpretation title'],
-  ['#COMMENTS#', 'Interpretation description'],
-  ['#REMARKS#', 'Remarks entered with the result'],
-  ['#VERIFIEDBY#', 'Verifying pathologist'],
-];
+const MIME_BY_EXT: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  txt: 'text/plain',
+  csv: 'text/csv',
+};
+
+const mimeOf = (file: File) => MIME_BY_EXT[file.name.split('.').pop()?.toLowerCase() || ''] || '';
 
 const fmtSize = (bytes: number) =>
   bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -120,9 +115,6 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
   const [files, setFiles] = useState<Attachment[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [uploading, setUploading] = useState(false);
-
-  const templateInput = useRef<HTMLInputElement>(null);
-  const [templateBusy, setTemplateBusy] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -193,44 +185,63 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
 
   const upload = async (list: FileList | null) => {
     if (!test || !list?.length) return;
+    // Copied before the input is cleared - the FileList is live.
+    const picked = Array.from(list);
     setUploading(true);
-    try {
-      for (const file of Array.from(list)) {
-        if (file.size > MAX_BYTES) {
-          showToast(`${file.name} is over 5 MB`, 'error');
-          continue;
-        }
-        const data = await readAsBase64(file);
-        const saved: Attachment = await testApi.uploadAttachment(test.id, {
-          fileName: file.name,
-          mimeType: file.type,
-          data,
-        });
-        setFiles((prev) => [saved, ...prev]);
+    let done = 0;
+    // One bad file no longer stops the rest of the batch.
+    for (const file of picked) {
+      const mimeType = mimeOf(file);
+      if (!mimeType) {
+        showToast(`${file.name}: only PDF, image, Word, Excel, TXT or CSV files can be attached`, 'error');
+        continue;
       }
-    } catch (err: any) {
-      showToast(err?.message || 'Upload failed', 'error');
-    } finally {
-      setUploading(false);
-      if (fileInput.current) fileInput.current.value = '';
+      if (file.size === 0) {
+        showToast(`${file.name} is empty`, 'error');
+        continue;
+      }
+      if (file.size > MAX_BYTES) {
+        showToast(`${file.name} is over 5 MB`, 'error');
+        continue;
+      }
+      try {
+        const data = await readAsBase64(file);
+        const saved: Attachment = await testApi.uploadAttachment(test.id, { fileName: file.name, mimeType, data });
+        // Only one file can be the report - a new report format takes over.
+        setFiles((prev) => [saved, ...prev.map((f) => (saved.isReport ? { ...f, isReport: false } : f))]);
+        if (saved.isReport) {
+          showToast(`${test.testName} reports will now print in ${saved.fileName}`, 'success');
+          onSaved?.();
+        }
+        done += 1;
+      } catch (err: any) {
+        showToast(`${file.name}: ${err?.message || 'upload failed'}`, 'error');
+      }
     }
+    if (done) showToast(done === 1 ? 'File uploaded' : `${done} files uploaded`, 'success');
+    setUploading(false);
+    if (fileInput.current) fileInput.current.value = '';
   };
 
   const openFile = async (file: Attachment, download: boolean) => {
     if (!test) return;
+    // Opened while the click still counts, or the browser blocks it as a popup
+    // once the download has finished.
+    const tab = download ? null : window.open('', '_blank');
     try {
       const blob = await testApi.downloadAttachment(test.id, file.id);
-      const url = URL.createObjectURL(blob);
-      if (download) {
+      const url = URL.createObjectURL(new Blob([blob], { type: file.mimeType || blob.type }));
+      if (tab) {
+        tab.location.href = url;
+      } else {
         const a = document.createElement('a');
         a.href = url;
         a.download = file.fileName;
         a.click();
-      } else {
-        window.open(url, '_blank', 'noopener');
       }
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch {
+      tab?.close();
       showToast('Could not open the file', 'error');
     }
   };
@@ -246,61 +257,22 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
     }
   };
 
-  const setTemplateOnList = (reportTemplate: LabTest['reportTemplate']) =>
-    setTests((prev) => prev.map((t) => (t.id === test?.id ? { ...t, reportTemplate } : t)));
-
-  const uploadTemplate = async (file?: File | null) => {
-    if (!test || !file) return;
-    if (!/\.docx$/i.test(file.name)) {
-      showToast('Choose a Word .docx file - a .doc must be saved as .docx in Word first', 'error');
-      return;
-    }
-    if (file.size > MAX_BYTES) {
-      showToast(`${file.name} is over 5 MB`, 'error');
-      return;
-    }
-    setTemplateBusy(true);
+  /** Prints the test's report from this Word file, or back to the standard report. */
+  const toggleReport = async (file: Attachment) => {
+    if (!test) return;
     try {
-      const saved = await testApi.uploadReportTemplate(test.id, { fileName: file.name, data: await readAsBase64(file) });
-      setTemplateOnList(saved);
-      showToast(`${test.testName} will now print in ${file.name}`, 'success');
+      if (file.isReport) {
+        if (!window.confirm(`Stop printing ${test.testName} from ${file.fileName}? It goes back to the standard report.`)) return;
+        await testApi.removeReportTemplate(test.id);
+        showToast(`${test.testName} is back on the standard report`, 'success');
+      } else {
+        await testApi.useAttachmentAsReport(test.id, file.id);
+        showToast(`${test.testName} reports will now print in ${file.fileName}`, 'success');
+      }
+      setFiles((prev) => prev.map((f) => ({ ...f, isReport: file.isReport ? false : f.id === file.id })));
       onSaved?.();
     } catch (err: any) {
-      showToast(err?.message || 'Could not upload the report format', 'error');
-    } finally {
-      setTemplateBusy(false);
-      if (templateInput.current) templateInput.current.value = '';
-    }
-  };
-
-  const downloadTemplate = async () => {
-    if (!test?.reportTemplate) return;
-    try {
-      const blob = await testApi.downloadReportTemplate(test.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = test.reportTemplate.fileName;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch {
-      showToast('Could not download the report format', 'error');
-    }
-  };
-
-  const removeTemplate = async () => {
-    if (!test?.reportTemplate) return;
-    if (!window.confirm(`Stop printing ${test.testName} from ${test.reportTemplate.fileName}? It goes back to the standard report.`)) return;
-    setTemplateBusy(true);
-    try {
-      await testApi.removeReportTemplate(test.id);
-      setTemplateOnList(null);
-      showToast('Report format removed', 'success');
-      onSaved?.();
-    } catch (err: any) {
-      showToast(err?.message || 'Could not remove the report format', 'error');
-    } finally {
-      setTemplateBusy(false);
+      showToast(err?.message || 'Could not change the report format', 'error');
     }
   };
 
@@ -410,90 +382,13 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
                 </div>
               </div>
             </div>
-          ) : tab === 'format' ? (
-            <div className="space-y-4">
-              <p className="text-muted-foreground">
-                Upload a Word (.docx) file with only the part of {test.testName}&apos;s report that goes{' '}
-                <strong>below</strong> the patient&apos;s details - the heading, result table, interpretation and
-                comments. The patient block (Patient&apos;s Name, Age/Sex, Consultant Doctor, Mobile No., Collection
-                Date, Reporting Date, Specimen No., UH – ID) is added on top automatically and is the same on every
-                test. A file that already has <span className="font-mono">#PTNAME#</span> in it keeps its own.
-              </p>
-
-              {test.reportTemplate ? (
-                <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-                  <FileType className="h-5 w-5 shrink-0 text-emerald-700" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{test.reportTemplate.fileName}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {test.reportTemplate.size ? `${fmtSize(test.reportTemplate.size)} · ` : ''}
-                      {fmtDate(test.reportTemplate.uploadedAt)}
-                      {test.reportTemplate.uploadedBy ? ` · ${test.reportTemplate.uploadedBy}` : ''}
-                    </p>
-                  </div>
-                  <button onClick={downloadTemplate} className="rounded p-1 hover:bg-accent" title="Download">
-                    <Download className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={removeTemplate}
-                    disabled={templateBusy}
-                    className="rounded p-1 text-red-500 hover:bg-red-50"
-                    title="Remove - back to the standard report"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : (
-                <p className="rounded-xl border border-dashed px-3 py-2 text-muted-foreground">
-                  No Word format - {test.testName} prints in the standard report layout.
-                </p>
-              )}
-
-              <div>
-                <Button size="sm" disabled={templateBusy} onClick={() => templateInput.current?.click()}>
-                  <Upload className="mr-1 h-3.5 w-3.5" />
-                  {templateBusy ? 'Uploading…' : test.reportTemplate ? 'Replace Word File' : 'Upload Word File'}
-                </Button>
-                <input
-                  ref={templateInput}
-                  type="file"
-                  accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  className="hidden"
-                  onChange={(e) => uploadTemplate(e.target.files?.[0])}
-                />
-              </div>
-
-              <section>
-                <h3 className="mb-1.5 font-bold">Placeholders</h3>
-                <div className="grid grid-cols-1 gap-x-6 gap-y-1 rounded-xl border p-3 sm:grid-cols-2">
-                  {PLACEHOLDERS.map(([tag, meaning]) => (
-                    <div key={tag} className="flex gap-2">
-                      <span className="w-36 shrink-0 font-mono font-semibold">{tag}</span>
-                      <span className="text-muted-foreground">{meaning}</span>
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-2 text-[11px] text-muted-foreground">
-                  A result goes in by the parameter&apos;s short name or full name, e.g.{' '}
-                  <span className="font-mono">
-                    {parameters
-                      .filter((p) => p.resultType !== 'Header')
-                      .slice(0, 4)
-                      .map((p) => `#${p.shortName || p.parameterName}#`)
-                      .join('  ') || '#HB#'}
-                  </span>
-                  . A placeholder that matches nothing is printed as typed, so a spelling mistake shows up on the
-                  first report you check.
-                </p>
-              </section>
-            </div>
           ) : tab === 'files' ? (
             <div className="space-y-3">
               <div
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                   e.preventDefault();
-                  upload(e.dataTransfer.files);
+                  if (!uploading) upload(e.dataTransfer.files);
                 }}
                 className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 px-4 py-6 text-center"
               >
@@ -503,6 +398,13 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
                   {uploading ? 'Uploading…' : 'Choose Files'}
                 </Button>
                 <p className="text-[11px] text-muted-foreground">PDF, image, Word, Excel, TXT or CSV · up to 5 MB each</p>
+                <p className="max-w-xl text-[11px] text-muted-foreground">
+                  A Word (.docx) file with <span className="font-mono">#PTNAME#</span>, <span className="font-mono">#AGE/SEX#</span>{' '}
+                  and the like becomes {test.testName}&apos;s report: the patient&apos;s details go into those places and the
+                  results table goes where <span className="font-mono">#RESULTS#</span> is typed - or under the patient&apos;s
+                  details if it is not. A single result can also go in by its name, e.g.{' '}
+                  <span className="font-mono">#{parameters.find((p) => p.resultType !== 'Header')?.shortName || 'HB'}#</span>.
+                </p>
                 <input
                   ref={fileInput}
                   type="file"
@@ -523,12 +425,20 @@ export const TestInfoModal: React.FC<TestInfoModalProps> = ({ isOpen, onClose, t
                     <li key={f.id} className="flex items-center gap-3 px-3 py-2">
                       <FileText className="h-4 w-4 shrink-0 text-blue-600" />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-semibold">{f.fileName}</p>
+                        <p className="flex items-center gap-2 font-semibold">
+                          <span className="truncate">{f.fileName}</span>
+                          {f.isReport && <Badge className="shrink-0 bg-emerald-600 text-[10px]">Report format</Badge>}
+                        </p>
                         <p className="text-[11px] text-muted-foreground">
                           {fmtSize(f.size)} · {fmtDate(f.createdAt)}
                           {f.uploadedBy ? ` · ${f.uploadedBy}` : ''}
                         </p>
                       </div>
+                      {f.mimeType === DOCX && (
+                        <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => toggleReport(f)}>
+                          {f.isReport ? 'Stop using for report' : 'Use for report'}
+                        </Button>
+                      )}
                       <button onClick={() => openFile(f, false)} className="rounded p-1 hover:bg-accent" title="View">
                         <Eye className="h-4 w-4" />
                       </button>

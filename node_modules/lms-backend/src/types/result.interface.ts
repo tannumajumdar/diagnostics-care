@@ -19,6 +19,9 @@ export interface IParameterResult {
   highRange?: string;
   lowRange?: string;
   displayOrder?: number;
+  formula?: string;
+  /** The bench typed over the calculated value - it is kept as typed. */
+  formulaOverride?: boolean;
 }
 
 export interface IResultDocument extends Document {

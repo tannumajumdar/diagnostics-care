@@ -229,6 +229,10 @@ export interface ParameterResult {
   flag: ResultFlag;
   /** The bench set the flag by hand - the server keeps it instead of recalculating. */
   flagManual?: boolean;
+  /** A calculated line - worked out from the test's other lines. */
+  formula?: string;
+  /** The bench typed over the calculated value. */
+  formulaOverride?: boolean;
   method?: string;
   remarks?: string;
   resultType: string;
@@ -363,6 +367,8 @@ export interface TestParameter {
   ageToDays?: number;
   /** Normal value for a line that is not a number - "Negative", "Clear". */
   referenceText?: string;
+  /** "#TC# - #HDL# - (#TG# / 5)" - the line is calculated, not typed. */
+  formula?: string;
 }
 
 export type ParaFor = 'ALL' | 'MALE' | 'FEMALE';

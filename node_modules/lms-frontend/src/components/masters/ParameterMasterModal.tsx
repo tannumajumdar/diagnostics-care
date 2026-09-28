@@ -11,6 +11,8 @@ interface ParameterMasterModalProps {
   onClose: () => void;
   /** After a test's parameters are saved - lets the test list refresh its counts. */
   onSaved?: () => void;
+  /** Opens straight on this test's sheet; left out, the test is picked inside. */
+  initialTestId?: string;
 }
 
 const RESULT_TYPES: ResultType[] = [
@@ -46,6 +48,7 @@ const blankRow = (): TestParameter => ({
   ageFromDays: 0,
   ageToDays: FULL_LIFE_DAYS,
   referenceText: '',
+  formula: '',
   criticalLow: '',
   criticalHigh: '',
   maleReferenceRange: '',
@@ -179,7 +182,7 @@ interface Editing {
  * desktop screen, ADD / UPDATE / DLT write straight away - there is no
  * separate save step to forget.
  */
-export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOpen, onClose, onSaved }) => {
+export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOpen, onClose, onSaved, initialTestId }) => {
   const { showToast } = useToast();
 
   const [tests, setTests] = useState<LabTest[]>([]);
@@ -204,7 +207,7 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
 
   useEffect(() => {
     if (!isOpen) return;
-    setTestId('');
+    setTestId(initialTestId || '');
     setSearch('');
     setForm(blankRow());
     setAgeFrom(blankAge());
@@ -228,7 +231,7 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
       })
       .catch(() => showToast('Failed to load the test list', 'error'))
       .finally(() => setLoadingTests(false));
-  }, [isOpen]);
+  }, [isOpen, initialTestId]);
 
   if (!isOpen) return null;
 
@@ -289,6 +292,7 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
       displayOrder: Number(form.displayOrder) || sibling?.displayOrder || nextOrder,
       unit: blank(form.unit) && sibling ? sibling.unit : form.unit,
       method: blank(form.method) && sibling ? sibling.method : form.method,
+      formula: blank(form.formula) && sibling ? sibling.formula : String(form.formula || '').trim(),
       resultType: form.resultType === 'Numeric' && sibling ? sibling.resultType : form.resultType,
     };
     row = withRangeLimits(row);
@@ -306,9 +310,12 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
     }
 
     const next = editing ? rows.map((r, idx) => (idx === editing.index ? row : r)) : [...rows, row];
-    // Every band of one parameter shares its ORDER, so the sheet keeps them together.
+    // Every band of one parameter shares its ORDER and its formula, so the
+    // sheet keeps them together and the value is worked out the same way.
     const saved = sortRows(
-      next.map((r) => (nameKey(r) === name.toLowerCase() ? { ...r, displayOrder: row.displayOrder } : r))
+      next.map((r) =>
+        nameKey(r) === name.toLowerCase() ? { ...r, displayOrder: row.displayOrder, formula: row.formula || '' } : r
+      )
     );
     if (await saveTest(id, saved)) {
       const keepTest = testId;
@@ -647,6 +654,30 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
                   {field('Normal Value (Text)', 'referenceText')}
                   {field('Critical Low', 'criticalLow')}
                   {field('Critical High', 'criticalHigh')}
+                  {/* A calculated line: worked out on the result screen, not typed. */}
+                  <div className="col-span-full mt-1.5 min-w-0">
+                    <label className={LABEL}>Formula (leave blank for a typed value)</label>
+                    <input
+                      value={form.formula || ''}
+                      onChange={(e) => setField('formula', e.target.value)}
+                      disabled={formIsHeader}
+                      placeholder="e.g. #TC# - #HDL# - (#TG# / 5)"
+                      className={`${BOX} font-mono`}
+                    />
+                    <p className="mt-0.5 text-[10px] leading-snug text-slate-400">
+                      Other parameters of this test between # signs:{' '}
+                      <span className="font-mono text-slate-300">
+                        {Array.from(
+                          new Set(
+                            (rowsByTest[activeTestId] || [])
+                              .filter((r) => !isHeader(r) && nameKey(r) !== nameKey(form))
+                              .map((r) => `#${r.shortName || r.parameterName}#`)
+                          )
+                        ).join(' ') || '-'}
+                      </span>
+                      {'  '}· + - * / ^ ( ) · min() max() round(x, 1) · #AGE# #MALE# #FEMALE#
+                    </p>
+                  </div>
                 </div>
               )}
             </form>
@@ -813,7 +844,13 @@ export const ParameterMasterModal: React.FC<ParameterMasterModalProps> = ({ isOp
                             >
                               <td className={TD}>{sn}</td>
                               <td className={TD}>{header ? '' : r.paraFor || 'ALL'}</td>
-                              <td className={`${TD} ${hl} truncate`} title={r.parameterName}>
+                              <td
+                                className={`${TD} ${hl} truncate`}
+                                title={r.formula ? `${r.parameterName} = ${r.formula}` : r.parameterName}
+                              >
+                                {r.formula && !header && (
+                                  <span className="mr-1 rounded bg-violet-100 px-1 font-bold italic text-violet-700">ƒ</span>
+                                )}
                                 {r.parameterName}
                               </td>
                               <td className={`${TD} ${hl} truncate`}>

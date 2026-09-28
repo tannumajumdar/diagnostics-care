@@ -1,3 +1,4 @@
+import { withStandardFormulas } from './parameter-formulas';
 /**
  * The parameter sheet behind every test on the menu.
  *
@@ -25,6 +26,8 @@ export type TestResultType =
 export interface ParameterTemplate {
   parameterName: string;
   shortName?: string;
+  /** Calculated lines only - see constants/parameter-formulas. */
+  formula?: string;
   unit?: string;
   maleReferenceRange?: string;
   femaleReferenceRange?: string;
@@ -510,5 +513,6 @@ export const findParameterTemplate = (testName: string, testCode = ''): Paramete
  */
 export const parametersForTest = (testName: string, testCode = ''): ParameterTemplate[] => {
   const matched = findParameterTemplate(testName, testCode);
-  return matched.length ? matched : genericSheet(testName);
+  // Calculated lines (MCV, LDL, Globulin...) come with their formulas.
+  return matched.length ? withStandardFormulas(matched) : genericSheet(testName);
 };

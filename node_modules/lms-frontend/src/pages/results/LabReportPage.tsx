@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { asList } from '../../utils/api-list';
-import { resultApi } from '../../api/result.api';
+import { resultApi, saveReportPdf } from '../../api/result.api';
+import { useToast } from '../../context/ToastContext';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { ArrowLeft, Printer, Download, CheckCircle2, AlertTriangle } from 'lucide-react';
@@ -53,6 +54,8 @@ export const LabReportPage: React.FC = () => {
   // them it was skipped on the first render and React threw "Rendered more
   // hooks than during the previous render" the moment the report arrived.
   const [logoShown, setLogoShown] = useState(Boolean(CENTRE.logoUrl));
+  const { showToast } = useToast();
+  const [saving, setSaving] = useState(false);
 
   const { data: opened, isLoading, isError, error } = useQuery({
     queryKey: ['lab-report', resultId],
@@ -118,7 +121,13 @@ export const LabReportPage: React.FC = () => {
     return sample.status === 'Completed' ? `Result ${sheet.status || 'Draft'}` : sample.status || 'Pending';
   };
   const notReady = sheets.filter((sheet) => !isReleased(sheet));
-  const reportable = sheets;
+  /**
+   * Saved but not yet approved: the report can be looked at with what has been
+   * saved so far, but it is unsigned - no pathologist's name, marked
+   * provisional, and it cannot be saved as the patient's PDF.
+   */
+  const provisional = notReady.length > 0;
+  const reportable = provisional ? sheets.filter(hasValues) : sheets;
 
   const primary: any = reportable[0] || opened;
 
@@ -156,13 +165,23 @@ export const LabReportPage: React.FC = () => {
 
   // One pathologist for the whole visit is the usual case; where two signed
   // different tests, the sections carry their own line instead.
-  const verifiers = Array.from(
-    new Set(standard.map((s) => s.verifiedBy?.name).filter(Boolean) as string[])
-  );
+  const verifiers = provisional
+    ? []
+    : Array.from(new Set(standard.map((s) => s.verifiedBy?.name).filter(Boolean) as string[]));
 
-  const handleDownloadPDF = () => window.open(resultApi.getPDFUrl(primary._id), '_blank');
+  const handleDownloadPDF = async () => {
+    setSaving(true);
+    try {
+      const fileName = await saveReportPdf(primary._id, patient.patientName, primary.resultId);
+      showToast(`Report saved as ${fileName}`, 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Could not save the report', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  if (notReady.length > 0) {
+  if (reportable.length === 0) {
     const done = sheets.length - notReady.length;
     return (
       <div className="mx-auto max-w-2xl space-y-4 py-4">
@@ -236,9 +255,11 @@ export const LabReportPage: React.FC = () => {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-blue-600">Official Diagnostic Lab Report</h1>
+            <h1 className={`text-2xl font-bold tracking-tight ${provisional ? 'text-amber-600' : 'text-blue-600'}`}>
+              {provisional ? 'Provisional Report' : 'Final Report'}
+            </h1>
             <p className="font-mono text-xs text-muted-foreground">
-              {reportable.length} test{reportable.length === 1 ? '' : 's'} on this visit
+              {reportable.length} of {sheets.length} test{sheets.length === 1 ? '' : 's'} on this visit
             </p>
           </div>
         </div>
@@ -248,15 +269,72 @@ export const LabReportPage: React.FC = () => {
           <Button variant="outline" size="sm" onClick={() => window.print()}>
             <Printer className="mr-1 h-4 w-4" /> Print Report
           </Button>
-          <Button size="sm" onClick={handleDownloadPDF} className="bg-blue-600 hover:bg-blue-700">
-            <Download className="mr-1 h-4 w-4" /> Download PDF
+          <Button
+            size="sm"
+            onClick={handleDownloadPDF}
+            disabled={saving || provisional}
+            title={provisional ? 'The PDF is available once the pathologist approves the report' : undefined}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            <Download className="mr-1 h-4 w-4" /> {saving ? 'Saving…' : 'Save PDF'}
           </Button>
         </div>
         )}
       </div>
 
+      {provisional && (
+        <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800" data-print="hide">
+          <p className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Saved, not yet approved. This copy carries no pathologist&apos;s signature. The signed report - and its
+              PDF - is available once the pathologist approves every test on the visit.
+            </span>
+          </p>
+          <ul className="flex flex-wrap gap-1.5 pl-6">
+            {sheets.map((sheet: any) => {
+              const test: any = typeof sheet.test === 'object' ? sheet.test : {};
+              return (
+                <li
+                  key={sheet._id}
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                    isReleased(sheet) ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-amber-800'
+                  }`}
+                >
+                  {test.testName || 'Test'}: {isReleased(sheet) ? 'Approved' : hasValues(sheet) ? 'Saved' : stageOf(sheet)}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {standard.length > 0 && (
-      <Card className="report-sheet space-y-5 border-2 bg-card p-6 print:border-0 print:p-0 print:shadow-none">
+      <Card className="report-sheet relative space-y-5 overflow-hidden border-2 bg-card p-6 print:border-0 print:p-0 print:shadow-none">
+        {provisional && (
+          <>
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 flex select-none items-center justify-center"
+            >
+              <span style={{ transform: 'rotate(-30deg)' }} className="text-6xl font-black uppercase tracking-widest text-amber-500/15">
+                Provisional
+              </span>
+            </div>
+          </>
+        )}
+        {/* What kind of copy this is, printed on the report itself. */}
+        {provisional ? (
+          <div className="rounded-md border border-amber-300 bg-amber-50 py-1.5 text-center">
+            <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-800">Provisional Report</p>
+            <p className="text-[10px] font-semibold text-amber-700">Not verified by the pathologist</p>
+          </div>
+        ) : (
+          <div className="rounded-md border border-emerald-300 bg-emerald-50 py-1.5 text-center">
+            <p className="text-sm font-black uppercase tracking-[0.2em] text-emerald-800">Final Report</p>
+            <p className="text-[10px] font-semibold text-emerald-700">Verified and approved by the pathologist</p>
+          </div>
+        )}
         {/* Letterhead. Read from the same centre profile the bill prints, so
             the report a patient carries home names the centre that ran the
             test - not a placeholder, and not a different name to their bill. */}
@@ -585,7 +663,11 @@ export const LabReportPage: React.FC = () => {
                 </p>
               </>
             ) : (
-              <p className="font-semibold text-amber-700">Pending pathologist verification</p>
+              <>
+                <div className="mb-1 ml-auto h-8 w-40 border-b border-dashed border-amber-400" />
+                <p className="font-semibold text-amber-700">Not signed</p>
+                <p className="text-[11px] text-muted-foreground">Awaiting pathologist approval</p>
+              </>
             )}
           </div>
         </div>

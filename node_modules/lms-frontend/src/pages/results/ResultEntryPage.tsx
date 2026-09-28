@@ -10,8 +10,11 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
 import { useToast } from '../../context/ToastContext';
-import { ArrowLeft, Save, Send, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { hasPermission, PERMISSIONS } from '../../config/roles';
+import { ArrowLeft, Save, CheckCircle2, XCircle, AlertTriangle, RotateCcw, Lock, Eye } from 'lucide-react';
 import { ageLabel } from '../../utils/age';
+import { calculateSheet } from '../../utils/formula';
 
 const selectClass =
   'flex h-8 w-full rounded-lg border border-input bg-background px-2 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -84,6 +87,10 @@ export const ResultEntryPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const { user } = useAuth();
+  // An approved report is locked; only these two roles may open it again.
+  const canEditReleased = ['Admin', 'Pathologist'].includes(String(user?.role || ''));
+  const canVerify = hasPermission(user, PERMISSIONS.RESULT_VERIFY);
 
   // Typed values and remarks, keyed by the sheet they belong to, so two tests
   // that measure a parameter of the same name never overwrite each other.
@@ -91,6 +98,8 @@ export const ResultEntryPage: React.FC = () => {
   const [remarks, setRemarks] = useState<Record<string, string>>({});
   // Flags picked by hand, same keying. '' means "back to automatic".
   const [flagEdits, setFlagEdits] = useState<Record<string, Record<string, string>>>({});
+  // Calculated lines the bench typed over, same keying. false = back to the formula.
+  const [overrides, setOverrides] = useState<Record<string, Record<string, boolean>>>({});
 
   const { data, isLoading } = useQuery({
     queryKey: ['result-entry-visit', sampleId],
@@ -138,10 +147,69 @@ export const ResultEntryPage: React.FC = () => {
   const sampleOf = (sheet: any) => (typeof sheet?.sample === 'object' ? sheet.sample : {});
   const testOf = (sheet: any) => (typeof sheet?.test === 'object' ? sheet.test : {});
 
-  const valueOf = (sheet: any, p: any) => {
+  const typedValueOf = (sheet: any, p: any) => {
     const typed = values[sheet._id]?.[p.parameterName];
     return typed !== undefined ? typed : p.value || '';
   };
+
+  /** A calculated line's formula - off the sheet, or the test master for an older sheet. */
+  const formulaOf = (sheet: any, p: any): string => {
+    if (p?.resultType === 'Header') return '';
+    if (String(p?.formula || '').trim()) return String(p.formula).trim();
+    const name = String(p?.parameterName || '').trim().toLowerCase();
+    const master = asList<any>(testOf(sheet).parameters).find(
+      (m: any) => String(m?.parameterName || '').trim().toLowerCase() === name && String(m?.formula || '').trim()
+    );
+    return master ? String(master.formula).trim() : '';
+  };
+
+  const isOverridden = (sheet: any, p: any) => {
+    const picked = overrides[sheet._id]?.[p.parameterName];
+    return picked !== undefined ? picked : Boolean(p.formulaOverride);
+  };
+
+  /**
+   * Every calculated line of a sheet, worked out from what is typed right now
+   * - LDL moves as TC, HDL and TG are typed. Cached for this render only.
+   */
+  const calcCache = new Map<string, Map<string, string>>();
+  const calculatedOf = (sheet: any) => {
+    const cached = calcCache.get(sheet._id);
+    if (cached) return cached;
+    // A band row can lack the short name another band of the same parameter
+    // has - the formula's #HB# still has to find it.
+    const masterRows = asList<any>(testOf(sheet).parameters);
+    const shortNameOf = (p: any) =>
+      String(p?.shortName || '').trim() ||
+      String(
+        masterRows.find(
+          (m: any) =>
+            String(m?.parameterName || '').trim().toLowerCase() === String(p?.parameterName || '').trim().toLowerCase() &&
+            String(m?.shortName || '').trim()
+        )?.shortName || ''
+      ).trim();
+    const rows = parametersOf(sheet).map((p: any) => ({
+      ...p,
+      shortName: shortNameOf(p),
+      value: typedValueOf(sheet, p),
+    }));
+    const patientOf = typeof sheet?.patient === 'object' && sheet.patient ? sheet.patient : {};
+    const worked = calculateSheet(
+      rows,
+      (r: any) => formulaOf(sheet, r),
+      patientOf,
+      (r: any) => isOverridden(sheet, r)
+    );
+    const byName = new Map<string, string>();
+    worked.forEach((value, index) => byName.set(rows[index].parameterName, value));
+    calcCache.set(sheet._id, byName);
+    return byName;
+  };
+
+  const isCalculated = (sheet: any, p: any) => Boolean(formulaOf(sheet, p)) && !isOverridden(sheet, p);
+
+  const valueOf = (sheet: any, p: any) =>
+    isCalculated(sheet, p) ? calculatedOf(sheet).get(p.parameterName) ?? '' : typedValueOf(sheet, p);
 
   /** The flag chosen by hand for this line, or '' when it is left to the range. */
   const manualFlagOf = (sheet: any, p: any): string => {
@@ -162,6 +230,10 @@ export const ResultEntryPage: React.FC = () => {
   const setValue = (sheetId: string, parameterName: string, val: string) =>
     setValues((prev) => ({ ...prev, [sheetId]: { ...(prev[sheetId] || {}), [parameterName]: val } }));
 
+  // Typing into a calculated line takes it off the formula; the button puts it back.
+  const setOverride = (sheetId: string, parameterName: string, on: boolean) =>
+    setOverrides((prev) => ({ ...prev, [sheetId]: { ...(prev[sheetId] || {}), [parameterName]: on } }));
+
   /** Header rows are section titles - nothing is typed into them. */
   const entryRowsOf = (sheet: any) => parametersOf(sheet).filter((p: any) => p.resultType !== 'Header');
 
@@ -176,11 +248,25 @@ export const ResultEntryPage: React.FC = () => {
         value: valueOf(sheet, p),
         flag: manual || previewFlag(valueOf(sheet, p), p.referenceRange, p),
         flagManual: !!manual,
+        formulaOverride: Boolean(formulaOf(sheet, p)) && isOverridden(sheet, p),
       };
     });
 
-  /** Sheets worth writing back - anything with a value typed or already held. */
-  const sheetsWithValues = () => sheets.filter((sheet) => filledCount(sheet) > 0);
+  const isReleased = (sheet: any) => sheet?.status === 'Approved' || sheet?.status === 'Final';
+  /** Approved, and this user may not change it. */
+  const isLocked = (sheet: any) => isReleased(sheet) && !canEditReleased;
+  /** Something was changed on screen for this sheet since it loaded. */
+  const isDirty = (sheet: any) =>
+    [values, remarks, flagEdits, overrides].some((m: any) => m[sheet._id] !== undefined);
+
+  /**
+   * Sheets worth writing back - anything with a value typed or already held.
+   * An approved sheet goes only when it was actually edited (and only by a
+   * pathologist or admin): saving it sends it back for a fresh sign-off, so an
+   * untouched approved test must not be pulled back along with its neighbours.
+   */
+  const sheetsWithValues = () =>
+    sheets.filter((sheet) => filledCount(sheet) > 0 && !isLocked(sheet) && (!isReleased(sheet) || isDirty(sheet)));
 
   const saveAll = async (mode: 'draft' | 'submit') => {
     const targets = mode === 'draft' ? sheets : sheetsWithValues();
@@ -204,24 +290,23 @@ export const ResultEntryPage: React.FC = () => {
     return targets;
   };
 
-  const draftMutation = useMutation({
-    mutationFn: () => saveAll('draft'),
-    onSuccess: (targets) => {
-      invalidate();
-      if (targets.length) showToast(`Draft saved for ${targets.length} test(s)`, 'success');
-    },
-    onError: (err: any) => showToast(err?.message || 'Could not save the draft', 'error'),
-  });
-
+  // One Save: the values are kept and the report goes to the pathologist. Until
+  // they approve it the report can be viewed, but without their signature.
   const submitMutation = useMutation({
     mutationFn: () => saveAll('submit'),
     onSuccess: (targets) => {
       invalidate();
       if (!targets.length) return;
-      showToast(`${targets.length} test(s) sent to the pathologist`, 'success');
-      navigate('/results');
+      setValues({});
+      setRemarks({});
+      setFlagEdits({});
+      setOverrides({});
+      showToast(
+        `${targets.length} test(s) saved - the report can be viewed now, and is signed once the pathologist approves it`,
+        'success'
+      );
     },
-    onError: (err: any) => showToast(err?.message || 'Could not submit the result', 'error'),
+    onError: (err: any) => showToast(err?.message || 'Could not save the result', 'error'),
   });
 
   const verifyMutation = useMutation({
@@ -262,10 +347,12 @@ export const ResultEntryPage: React.FC = () => {
   const patient = typeof sheets[0].patient === 'object' ? sheets[0].patient : {};
   const totalFilled = sheets.reduce((sum, sheet) => sum + filledCount(sheet), 0);
   const totalParameters = sheets.reduce((sum, sheet) => sum + entryRowsOf(sheet).length, 0);
-  // An already-released report stays editable on purpose: a wrong or missing
-  // value has to be correctable. Saving sends it back to Draft, so the
-  // pathologist has to look at it again before it can be handed over.
-  const anyReleased = sheets.some((s) => s.status === 'Approved' || s.status === 'Final');
+  // An approved report is locked for everyone but a pathologist or an admin.
+  // When one of them corrects it, saving sends it back for a fresh sign-off.
+  const anyReleased = sheets.some(isReleased);
+  const allLocked = sheets.every(isLocked);
+  const anySaved = sheets.some((s) => s.status !== 'Draft' && asList<any>(s.results).some((p: any) => String(p.value ?? '').trim() !== ''));
+  const dirtyCount = sheets.filter(isDirty).length;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 py-4">
@@ -292,15 +379,23 @@ export const ResultEntryPage: React.FC = () => {
         </div>
       </div>
 
-      {anyReleased && (
-        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            One of these reports has already been released. Editing and saving it pulls it back to Draft, so the
-            pathologist has to verify it again before the patient can be given the corrected copy.
-          </span>
-        </div>
-      )}
+      {anyReleased &&
+        (canEditReleased ? (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Approved and locked for the rest of the lab. You can still correct it - saving a change sends it back
+              for approval, and the patient gets the corrected copy once it is approved again.
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2 rounded-xl border border-slate-300 bg-slate-100 p-3 text-xs text-slate-700">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Approved by the pathologist and locked. Only a pathologist or an admin can change an approved report.
+            </span>
+          </div>
+        ))}
 
       {notYetOnBench.length > 0 && (
         <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
@@ -336,7 +431,10 @@ export const ResultEntryPage: React.FC = () => {
                 </span>
                 <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
                   <span className="font-mono">{sample.sampleId}</span>
-                  <Badge variant={sheet.status === 'Approved' ? 'success' : 'amber'}>{sheet.status}</Badge>
+                  <Badge variant={isReleased(sheet) ? 'success' : 'amber'}>
+                    {isReleased(sheet) && <Lock className="mr-1 h-3 w-3" />}
+                    {sheet.status === 'Submitted' ? 'Saved - awaiting approval' : sheet.status}
+                  </Badge>
                   <span>
                     {filledCount(sheet)} of {entryRowsOf(sheet).length} filled
                   </span>
@@ -345,6 +443,8 @@ export const ResultEntryPage: React.FC = () => {
             </CardHeader>
 
             <CardContent className="p-0">
+              {/* A locked sheet is read-only: every control inside is disabled. */}
+              <fieldset disabled={isLocked(sheet)} className="min-w-0 disabled:opacity-80">
               {parameters.length === 0 ? (
                 <div className="m-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -379,6 +479,8 @@ export const ResultEntryPage: React.FC = () => {
                         }
 
                         const value = valueOf(sheet, p);
+                        const formula = formulaOf(sheet, p);
+                        const calculated = isCalculated(sheet, p);
                         const manualFlag = manualFlagOf(sheet, p);
                         const autoFlag = previewFlag(value, p.referenceRange, p);
                         const flag = flagOf(sheet, p);
@@ -391,6 +493,14 @@ export const ResultEntryPage: React.FC = () => {
                               {p.parameterName}
                               {p.shortName && (
                                 <span className="ml-1 font-normal text-muted-foreground">({p.shortName})</span>
+                              )}
+                              {formula && (
+                                <span
+                                  className="ml-1.5 rounded bg-violet-100 px-1 text-[10px] font-bold italic text-violet-700"
+                                  title={`Calculated: ${formula}`}
+                                >
+                                  ƒ calc
+                                </span>
                               )}
                             </td>
                             <td className="p-3">
@@ -408,12 +518,37 @@ export const ResultEntryPage: React.FC = () => {
                                   ))}
                                 </select>
                               ) : (
-                                <Input
-                                  value={value}
-                                  onChange={(e) => setValue(sheet._id, p.parameterName, e.target.value)}
-                                  className="h-8 font-mono"
-                                  placeholder={p.resultType === 'Numeric' ? '0.0' : 'Type the finding'}
-                                />
+                                <div className="flex items-center gap-1">
+                                  <Input
+                                    value={value}
+                                    onChange={(e) => {
+                                      if (formula) setOverride(sheet._id, p.parameterName, true);
+                                      setValue(sheet._id, p.parameterName, e.target.value);
+                                    }}
+                                    className={`h-8 font-mono ${calculated ? 'border-violet-200 bg-violet-50/60 text-violet-900' : ''}`}
+                                    placeholder={
+                                      calculated
+                                        ? 'Fills in from the other values'
+                                        : p.resultType === 'Numeric'
+                                        ? '0.0'
+                                        : 'Type the finding'
+                                    }
+                                    title={calculated ? `Calculated: ${formula} - type to override` : undefined}
+                                  />
+                                  {formula && !calculated && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOverride(sheet._id, p.parameterName, false);
+                                        setValue(sheet._id, p.parameterName, '');
+                                      }}
+                                      className="shrink-0 rounded p-1 text-violet-600 hover:bg-violet-50"
+                                      title={`Typed by hand - click to calculate again (${formula})`}
+                                    >
+                                      <RotateCcw className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </div>
                               )}
                             </td>
                             <td className="p-3 text-muted-foreground">{p.unit || '-'}</td>
@@ -465,6 +600,7 @@ export const ResultEntryPage: React.FC = () => {
                   />
                 </div>
               )}
+              </fieldset>
             </CardContent>
           </Card>
         );
@@ -472,50 +608,58 @@ export const ResultEntryPage: React.FC = () => {
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
         <div className="flex gap-2">
+          {!allLocked && (
+            <Button
+              disabled={sheetsWithValues().length === 0 || submitMutation.isPending}
+              isLoading={submitMutation.isPending}
+              onClick={() => submitMutation.mutate()}
+              className="bg-blue-600 hover:bg-blue-700"
+              title="Save the values - the pathologist then approves and signs the report"
+            >
+              <Save className="mr-1 h-4 w-4" /> Save{dirtyCount > 0 ? ` (${dirtyCount} changed)` : ''}
+            </Button>
+          )}
           <Button
             variant="outline"
-            disabled={totalParameters === 0 || draftMutation.isPending}
-            isLoading={draftMutation.isPending}
-            onClick={() => draftMutation.mutate()}
+            disabled={!anySaved}
+            onClick={() => navigate(`/results/report/${sheets[0]._id}`)}
+            title={anySaved ? 'Open the report' : 'Save the values first'}
           >
-            <Save className="mr-1 h-4 w-4" /> Save Draft
-          </Button>
-          <Button
-            disabled={totalFilled === 0 || submitMutation.isPending}
-            isLoading={submitMutation.isPending}
-            onClick={() => submitMutation.mutate()}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            <Send className="mr-1 h-4 w-4" /> Submit {sheets.length > 1 ? 'all' : ''} for Verification
+            <Eye className="mr-1 h-4 w-4" />{' '}
+            {sheets.every(isReleased) ? 'View Final Report' : 'View Provisional Report'}
           </Button>
         </div>
 
-        <div className="flex flex-col items-end gap-1">
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              className="text-red-500"
-              disabled={verifyMutation.isPending}
-              onClick={() => verifyMutation.mutate('Reject')}
-            >
-              <XCircle className="mr-1 h-4 w-4" /> Reject Result
-            </Button>
-            <Button
-              className="bg-emerald-600 hover:bg-emerald-700"
-              disabled={totalFilled === 0 || verifyMutation.isPending}
-              onClick={() => verifyMutation.mutate('Approve')}
-            >
-              <CheckCircle2 className="mr-1 h-4 w-4" /> Approve &amp; Release
-            </Button>
+        {canVerify && !allLocked && (
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="text-red-500"
+                disabled={sheetsWithValues().length === 0 || verifyMutation.isPending}
+                onClick={() => verifyMutation.mutate('Reject')}
+              >
+                <XCircle className="mr-1 h-4 w-4" /> Reject Result
+              </Button>
+              <Button
+                className="bg-emerald-600 hover:bg-emerald-700"
+                disabled={sheetsWithValues().length === 0 || verifyMutation.isPending}
+                onClick={() => verifyMutation.mutate('Approve')}
+              >
+                <CheckCircle2 className="mr-1 h-4 w-4" /> Approve &amp; Release
+              </Button>
+            </div>
+            <p className="text-[12px] text-muted-foreground">
+              {sheetsWithValues().length === 0
+                ? anyReleased
+                  ? 'Approved already - change a value to approve a correction.'
+                  : 'Fill in at least one parameter before this can be approved.'
+                : `Approving signs the report and locks it (${sheetsWithValues().length} of ${sheets.length} test${
+                    sheets.length === 1 ? '' : 's'
+                  }).`}
+            </p>
           </div>
-          <p className="text-[12px] text-muted-foreground">
-            {totalFilled === 0 && totalParameters > 0
-              ? 'Fill in at least one parameter before this can be approved.'
-              : `Acts on every test on this visit that has values typed in (${sheetsWithValues().length} of ${
-                  sheets.length
-                }).`}
-          </p>
-        </div>
+        )}
       </div>
     </div>
   );
