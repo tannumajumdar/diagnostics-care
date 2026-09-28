@@ -13,7 +13,7 @@ import { CancelTestRefundModal } from '../../components/accounts/CancelTestRefun
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission, PERMISSIONS } from '../../config/roles';
 import { asList } from '../../utils/api-list';
-import { DATE_PRESETS, formatDay, formatDateTime, relativeDayLabel, todayKey } from '../../utils/dates';
+import { DATE_PRESETS, formatDay, formatDateTime, formatTime, relativeDayLabel, todayKey } from '../../utils/dates';
 import { COLLECTION_METHODS, methodLabel } from '../../config/payment-methods';
 import { exportToExcel } from '../../utils/excel-export';
 import { useToast } from '../../context/ToastContext';
@@ -236,34 +236,57 @@ export const BookedTestsPage: React.FC = () => {
     try {
       const { tests, truncated } = await loadAll();
       if (!tests.length) return;
-      const exportRows = (tests as BookedTest[]).map((t) => ({
-        'Bill Date': formatDateTime(t.billedAt),
-        'Invoice No': t.invoiceNumber,
-        UHID: t.uhid,
-        'Patient Name': t.patient?.patientName || '',
-        Mobile: t.patient?.mobile || '',
-        'Referred By': t.doctorName || 'Self',
-        'Organization / TPA': t.organizationName || '',
-        'Test Code': t.testCode,
-        'Test Name': t.testName,
-        Department: t.departmentName,
-        Package: t.packageName || '',
-        Processing: t.processingMode || '',
-        'Sample ID': t.sampleId || '',
-        Status: statusBadge(t).label,
-        Rate: Number(t.rate) || 0,
-        'Net Amount': Number(t.netAmount) || 0,
-        Refunded: Number(t.refundedAmount) || 0,
-        'Bill Payment': t.paymentStatus,
-        'Bill Due': Number(t.dueAmount) || 0,
-        'Cancellation Reason': t.cancellationReason || '',
-      }));
+      // One row per patient per test: a patient who had the CBC done twice
+      // reads as CBC x 2 units, with both bills' amounts added together.
+      const groups = new Map<string, BookedTest[]>();
+      (tests as BookedTest[]).forEach((t) => {
+        const key = `${t.uhid}|${t.testCode || t.testName}`;
+        groups.set(key, [...(groups.get(key) || []), t]);
+      });
+      const joined = (values: (string | undefined)[]) =>
+        Array.from(new Set(values.filter(Boolean) as string[])).join(', ');
+      const sum = (lines: BookedTest[], pick: (t: BookedTest) => number) =>
+        lines.reduce((total, t) => total + (Number(pick(t)) || 0), 0);
+
+      const exportRows = Array.from(groups.values()).map((lines) => {
+        const first = lines[0];
+        const live = lines.filter((t) => !t.cancelled);
+        // The bill's due is per invoice, so count each invoice once.
+        const perInvoice = Array.from(new Map(lines.map((t) => [t.invoiceId, t])).values());
+        return {
+          // Listed booking by booking, not de-duplicated, so the nth date and
+          // the nth time belong to the same visit.
+          'Bill Date': lines.map((t) => formatDay(t.billedAt)).join(', '),
+          'Bill Time': lines.map((t) => formatTime(t.billedAt)).join(', '),
+          'Invoice No': joined(lines.map((t) => t.invoiceNumber)),
+          UHID: first.uhid,
+          'Patient Name': first.patient?.patientName || '',
+          Mobile: first.patient?.mobile || '',
+          'Referred By': joined(lines.map((t) => t.doctorName || 'Self')),
+          'Organization / TPA': joined(lines.map((t) => t.organizationName)),
+          'Test Code': first.testCode,
+          'Test Name': first.testName,
+          Department: first.departmentName,
+          Package: joined(lines.map((t) => t.packageName)),
+          Processing: joined(lines.map((t) => t.processingMode)),
+          'Sample ID': joined(lines.map((t) => t.sampleId)),
+          Status: joined(lines.map((t) => statusBadge(t).label)),
+          // Cancelled bookings are not work done, so they do not count as units.
+          Units: live.length,
+          Rate: Number((live[0] || first).rate) || 0,
+          'Net Amount': sum(lines, (t) => t.netAmount),
+          Refunded: sum(lines, (t) => t.refundedAmount),
+          'Bill Payment': joined(perInvoice.map((t) => t.paymentStatus)),
+          'Bill Due': sum(perInvoice, (t) => t.dueAmount),
+          'Cancellation Reason': joined(lines.map((t) => t.cancellationReason)),
+        };
+      });
       const windowSlug = !from && !to ? 'all-time' : `${from || 'start'}_to_${to || todayKey()}`;
       await exportToExcel(`booked-tests_${windowSlug}`, exportRows, { sheetName: 'Booked Tests' });
       showToast(
         truncated
           ? `Exported the newest ${tests.length} tests - narrow the dates to export the rest`
-          : `Exported ${tests.length} test${tests.length === 1 ? '' : 's'}`,
+          : `Exported ${tests.length} test${tests.length === 1 ? '' : 's'} as ${exportRows.length} row${exportRows.length === 1 ? '' : 's'}`,
         truncated ? 'info' : 'success'
       );
     } catch (err: any) {
@@ -720,20 +743,20 @@ export const BookedTestsPage: React.FC = () => {
             filterLines={filterLines}
             countLabel={`${printTarget.tests.length} test${printTarget.tests.length === 1 ? '' : 's'}`}
             columns={[
-              { header: 'Date' },
-              { header: 'Patient / UHID' },
+              { header: 'Date', nowrap: true },
+              { header: 'Patient', nowrap: true },
+              { header: 'UHID', nowrap: true },
               { header: 'Test' },
-              { header: 'Dept' },
               { header: 'Doctor / TPA' },
-              { header: 'Invoice' },
+              { header: 'Invoice', nowrap: true },
               { header: 'Status' },
               { header: 'Amount (₹)', numeric: true },
             ]}
             rows={printTarget.tests.map((t) => [
               formatDay(t.billedAt),
-              `${t.patient?.patientName || 'N/A'} / ${t.uhid}`,
+              t.patient?.patientName || 'N/A',
+              t.uhid,
               `${t.testName} (${t.testCode})`,
-              t.departmentName,
               [t.doctorName || 'Self', t.organizationName].filter(Boolean).join(' / '),
               t.invoiceNumber,
               statusBadge(t).label,

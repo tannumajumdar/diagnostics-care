@@ -3,7 +3,7 @@ import { TestController } from '../controllers/test.controller';
 import { authenticate, requirePermission } from '../middleware/auth.middleware';
 import { validateRequest } from '../middleware/validate.middleware';
 import { PERMISSIONS } from '../constants/permissions';
-import { createLabTestSchema, updateLabTestSchema, updateRatesSchema } from '../validators/test.validator';
+import { createLabTestSchema, updateLabTestSchema } from '../validators/test.validator';
 
 const router = Router();
 
@@ -51,11 +51,5 @@ router.put(
 router.get('/:id/report-template', requirePermission(PERMISSIONS.MASTER_VIEW), TestController.downloadReportTemplate);
 router.put('/:id/report-template', requirePermission(PERMISSIONS.TEST_MANAGE), TestController.uploadReportTemplate);
 router.delete('/:id/report-template', requirePermission(PERMISSIONS.TEST_MANAGE), TestController.removeReportTemplate);
-router.put(
-  '/:id/rates',
-  requirePermission(PERMISSIONS.RATE_MANAGE),
-  validateRequest(updateRatesSchema),
-  TestController.updateRates
-);
 
 export default router;

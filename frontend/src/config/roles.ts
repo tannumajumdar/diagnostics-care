@@ -23,7 +23,6 @@ import {
   Undo2,
   BookOpen,
   FileText,
-  ShieldCheck,
   FolderArchive,
   type LucideIcon,
 } from 'lucide-react';
@@ -369,7 +368,6 @@ export const NAV_ITEMS: NavItem[] = [
     group: 'Masters',
     permissions: [P.TEST_MANAGE],
   },
-  { label: 'Rate Master', path: '/rates', icon: IndianRupee, group: 'Masters', permissions: [P.RATE_MANAGE] },
   {
     label: 'Organizations',
     path: '/organizations',
@@ -378,13 +376,6 @@ export const NAV_ITEMS: NavItem[] = [
     permissions: [P.ORGANIZATION_MANAGE],
   },
   { label: 'Staff & Roles', path: '/staff', icon: UserCog, group: 'Masters', permissions: [P.STAFF_MANAGE] },
-  {
-    label: 'Role Permissions',
-    path: '/role-permissions',
-    icon: ShieldCheck,
-    group: 'Masters',
-    permissions: [P.STAFF_MANAGE],
-  },
   {
     label: 'Refund Policy',
     path: '/refund-policy',

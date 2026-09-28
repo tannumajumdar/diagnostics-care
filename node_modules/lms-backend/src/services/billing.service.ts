@@ -17,7 +17,7 @@ import {
 import { ApiError } from '../utils/api-error.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { JwtPayload } from '../types/auth.interface';
-import { PERMISSIONS, can, MAX_STAFF_DISCOUNT_PERCENT } from '../constants/permissions';
+import { PERMISSIONS, PermissionHolder, can, MAX_STAFF_DISCOUNT_PERCENT } from '../constants/permissions';
 import { getNextUhid } from '../models/counter.model';
 import { COLLECTION_METHODS, type CollectionMethod } from '../constants/payment-methods';
 
@@ -291,9 +291,9 @@ const priceBill = async (args: {
   discountType: 'Percentage' | 'Fixed';
   discountValue: number;
   /** Whose limit the concession is measured against. */
-  role?: string;
+  actor?: PermissionHolder;
 }): Promise<PricedBill> => {
-  const { lines: orderedLines, testById, rateTier, discountType, discountValue, role } = args;
+  const { lines: orderedLines, testById, rateTier, discountType, discountValue, actor } = args;
 
   const rupees = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
 
@@ -431,7 +431,7 @@ const priceBill = async (args: {
   // Everything the patient is not paying, measured against the rate card.
   const totalConcession = Math.max(0, rupees(catalogueTotal - finalNetAmount));
   const effectiveDiscountPercent = catalogueTotal > 0 ? (totalConcession / catalogueTotal) * 100 : 0;
-  if (effectiveDiscountPercent > MAX_STAFF_DISCOUNT_PERCENT && !can(role, PERMISSIONS.BILL_DISCOUNT_OVERRIDE)) {
+  if (effectiveDiscountPercent > MAX_STAFF_DISCOUNT_PERCENT && !can(actor, PERMISSIONS.BILL_DISCOUNT_OVERRIDE)) {
     throw new ApiError(
       HTTP_STATUS.FORBIDDEN,
       `Discounts above ${MAX_STAFF_DISCOUNT_PERCENT}% (this bill is at ${effectiveDiscountPercent.toFixed(
@@ -528,8 +528,8 @@ export class BillingService {
         );
       }
 
-      if (!can(activeUser.role, PERMISSIONS.PATIENT_CREATE)) {
-        throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Your role is not permitted to register a new patient');
+      if (!can(activeUser, PERMISSIONS.PATIENT_CREATE)) {
+        throw new ApiError(HTTP_STATUS.FORBIDDEN, 'You are not permitted to register a new patient');
       }
 
       const uhid = await getNextUhid();
@@ -640,7 +640,7 @@ export class BillingService {
       rateTier,
       discountType,
       discountValue,
-      role: activeUser.role,
+      actor: activeUser,
     });
 
     const { items, priced } = pricing;
@@ -1263,7 +1263,7 @@ export class BillingService {
     payload: ReviseInvoicePayload,
     currentUser: JwtPayload
   ) {
-    if (!can(currentUser?.role, PERMISSIONS.BILL_CREATE)) {
+    if (!can(currentUser, PERMISSIONS.BILL_CREATE)) {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Your role is not permitted to revise a bill');
     }
 
@@ -1415,7 +1415,7 @@ export class BillingService {
       rateTier,
       discountType,
       discountValue,
-      role: currentUser?.role,
+      actor: currentUser,
     });
 
     // What the cancelled lines still contribute: the centre kept the work it

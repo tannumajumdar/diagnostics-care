@@ -3,7 +3,7 @@ import { User } from '../models/user.model';
 import { sendResponse } from '../utils/api-response.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { ApiError } from '../utils/api-error.util';
-import { permissionsForRole } from '../constants/permissions';
+import { LOCKED_ROLE, effectivePermissions, isPermission } from '../constants/permissions';
 import { ROLES } from '../constants/roles';
 import { logAuditAction } from '../utils/auditLogger';
 import { IUserDocument } from '../types/user.interface';
@@ -48,6 +48,33 @@ const revokeSessions = (user: IUserDocument) => {
   user.refreshToken = undefined;
 };
 
+/**
+ * The permissions to store for an account. `undefined` means "follow the
+ * role", which is also what an Admin always gets - the Admin has everything
+ * and there is nothing to tick.
+ */
+const cleanPermissions = (role: string, permissions: unknown): string[] | undefined => {
+  if (role === LOCKED_ROLE || permissions === undefined || permissions === null) return undefined;
+  if (!Array.isArray(permissions)) {
+    throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'permissions must be a list');
+  }
+  const unknown = permissions.filter((p) => typeof p !== 'string' || !isPermission(p));
+  if (unknown.length) {
+    throw new ApiError(HTTP_STATUS.BAD_REQUEST, `Unknown permission(s): ${unknown.join(', ')}`);
+  }
+  return Array.from(new Set(permissions as string[]));
+};
+
+const samePermissions = (a?: string[], b?: string[]) =>
+  a === b || (!!a && !!b && a.length === b.length && a.every((p) => b.includes(p)));
+
+/** An account as the staff screen shows it: what it can do, and whether that was ticked by hand. */
+const withPermissions = (user: IUserDocument) => ({
+  ...user.toObject(),
+  permissions: effectivePermissions(user),
+  customPermissions: user.role !== LOCKED_ROLE && Array.isArray(user.permissions),
+});
+
 export class UserController {
   static getAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -72,12 +99,8 @@ export class UserController {
         res,
         statusCode: HTTP_STATUS.OK,
         message: 'Users retrieved',
-        // The staff screen shows what each role may do, read off the same
-        // matrix the API enforces rather than a caption maintained by hand.
-        data: users.map((user) => ({
-          ...user.toObject(),
-          permissions: permissionsForRole(user.role),
-        })),
+        // What each person may do, read off the same list the API enforces.
+        data: users.map(withPermissions),
         meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
       });
     } catch (error) {
@@ -137,13 +160,14 @@ export class UserController {
   static create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { name, email, password, role, mobile, status } = req.body;
+      const permissions = cleanPermissions(role, req.body.permissions);
 
       const existing = await User.findOne({ email: String(email).toLowerCase() });
       if (existing) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, `A staff account already exists for ${email}`);
       }
 
-      const user = await User.create({ name, email, password, role, mobile, status });
+      const user = await User.create({ name, email, password, role, mobile, status, permissions });
 
       logAuditAction({
         action: 'STAFF_CREATE',
@@ -151,10 +175,10 @@ export class UserController {
         user: actorOf(req),
         ipAddress: req.ip,
         targetId: user._id.toString(),
-        details: { name: user.name, email: user.email, role: user.role },
+        details: { name: user.name, email: user.email, role: user.role, permissions: user.permissions },
       });
 
-      const obj = user.toObject();
+      const obj: any = withPermissions(user);
       delete obj.password;
       sendResponse({
         res,
@@ -190,6 +214,20 @@ export class UserController {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'You cannot change your own account status');
       }
 
+      // A new role with no list sent goes back to that role's defaults rather
+      // than keeping ticks chosen for the old one.
+      const nextRole = role ?? user.role;
+      const permissionsSent = req.body.permissions !== undefined;
+      const nextPermissions = permissionsSent
+        ? cleanPermissions(nextRole, req.body.permissions)
+        : role !== undefined && role !== user.role
+          ? undefined
+          : cleanPermissions(nextRole, user.permissions);
+      const permissionsChanged = !samePermissions(user.permissions, nextPermissions);
+      if (isSelf && permissionsChanged) {
+        throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'You cannot change your own permissions');
+      }
+
       await assertNotLastActiveAdmin(user, { role, status });
 
       // Caught here so a clashing address comes back as a sentence rather
@@ -210,6 +248,7 @@ export class UserController {
       if (mobile !== undefined && mobile !== user.mobile) changed.push('mobile');
       if (roleChanged) changed.push(`role (${user.role} -> ${role})`);
       if (status !== undefined && status !== user.status) changed.push(`status (${status})`);
+      if (permissionsChanged) changed.push('permissions');
       if (password) changed.push('password');
 
       if (name !== undefined) user.name = name;
@@ -217,6 +256,7 @@ export class UserController {
       if (role !== undefined) user.role = role;
       if (mobile !== undefined) user.mobile = mobile;
       if (status !== undefined) user.status = status;
+      if (permissionsChanged) user.permissions = nextPermissions;
       // Assigned through save() so the hashing hook runs - findByIdAndUpdate
       // bypasses it and would have written the new password in clear text.
       if (password) user.password = password;
@@ -224,7 +264,7 @@ export class UserController {
       // A new password, a new role or a switched-off account has to reach the
       // person now. Never for the Admin doing the editing, who would otherwise
       // sign themselves out by correcting their own phone number.
-      if (!isSelf && (password || roleChanged || deactivated)) {
+      if (!isSelf && (password || roleChanged || deactivated || permissionsChanged)) {
         revokeSessions(user);
       }
 
@@ -242,7 +282,7 @@ export class UserController {
         });
       }
 
-      const obj = user.toObject();
+      const obj: any = withPermissions(user);
       delete obj.password;
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Staff account updated', data: obj });
     } catch (error) {

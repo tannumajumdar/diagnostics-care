@@ -7,6 +7,8 @@ export interface ListPrintColumn {
   header: string;
   /** Right-aligned and monospaced - money and counts. */
   numeric?: boolean;
+  /** Kept on one line - codes like an invoice number read badly broken. */
+  nowrap?: boolean;
 }
 
 export interface ListPrintSheetProps {
@@ -69,7 +71,10 @@ export const ListPrintSheet: React.FC<ListPrintSheetProps> = ({
             <tr className="border-b border-black bg-slate-50 font-bold">
               <th className={`${cell} text-left`}>#</th>
               {columns.map((c) => (
-                <th key={c.header} className={`${cell} ${c.numeric ? 'text-right' : 'text-left'}`}>
+                <th
+                  key={c.header}
+                  className={`${cell} ${c.numeric ? 'text-right' : 'text-left'} ${c.nowrap ? 'whitespace-nowrap' : ''}`}
+                >
                   {c.header}
                 </th>
               ))}
@@ -87,7 +92,12 @@ export const ListPrintSheet: React.FC<ListPrintSheetProps> = ({
                 <tr key={i} className="border-t border-slate-300" style={{ breakInside: 'avoid' }}>
                   <td className={cell}>{i + 1}</td>
                   {row.map((value, j) => (
-                    <td key={j} className={`${cell} ${columns[j]?.numeric ? 'text-right font-mono' : ''}`}>
+                    <td
+                      key={j}
+                      className={`${cell} ${columns[j]?.numeric ? 'text-right font-mono' : ''} ${
+                        columns[j]?.nowrap ? 'whitespace-nowrap' : ''
+                      }`}
+                    >
                       {value}
                     </td>
                   ))}

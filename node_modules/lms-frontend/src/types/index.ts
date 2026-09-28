@@ -278,6 +278,8 @@ export interface User {
   status: UserStatus;
   /** Granted actions, sent by the API on login and on /auth/me. */
   permissions?: string[];
+  /** True when the Admin ticked this person's permissions by hand, rather than the role's defaults. */
+  customPermissions?: boolean;
   createdAt: string;
   updatedAt: string;
 }

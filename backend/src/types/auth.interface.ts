@@ -5,6 +5,8 @@ export interface JwtPayload {
   email: string;
   name: string;
   role: UserRole;
+  /** This account's own granted list, resolved on every request. */
+  permissions?: string[];
 }
 
 export interface LoginCredentials {

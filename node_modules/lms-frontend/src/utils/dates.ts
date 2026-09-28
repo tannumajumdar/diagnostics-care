@@ -32,12 +32,20 @@ export const formatDay = (value?: string | Date | null): string => {
   return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
+/** "4:12 pm" - the time of day on its own. */
+export const formatTime = (value?: string | Date | null): string => {
+  if (!value) return '—';
+  const date = typeof value === 'string' ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+};
+
 /** "9 Sep 2026, 4:12 pm" - for a row where the time of day matters. */
 export const formatDateTime = (value?: string | Date | null): string => {
   if (!value) return '—';
   const date = typeof value === 'string' ? new Date(value) : value;
   if (Number.isNaN(date.getTime())) return '—';
-  return `${formatDay(date)}, ${date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
+  return `${formatDay(date)}, ${formatTime(date)}`;
 };
 
 /** "Today" / "Yesterday" where that reads better than the date itself. */

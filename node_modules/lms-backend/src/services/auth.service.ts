@@ -3,7 +3,7 @@ import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '.
 import { ApiError } from '../utils/api-error.util';
 import { HTTP_STATUS, MESSAGES } from '../constants/messages';
 import { LoginCredentials } from '../types/auth.interface';
-import { permissionsForRole } from '../constants/permissions';
+import { effectivePermissions } from '../constants/permissions';
 
 export class AuthService {
   static async login(credentials: LoginCredentials) {
@@ -38,7 +38,7 @@ export class AuthService {
     return {
       // The client renders its menu and buttons off this list, so the UI can
       // never offer an action the API would refuse.
-      user: { ...userObject, permissions: permissionsForRole(user.role) },
+      user: { ...userObject, permissions: effectivePermissions(user) },
       accessToken,
       refreshToken,
     };
@@ -80,7 +80,7 @@ export class AuthService {
     if (!user) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
     }
-    return { ...user.toObject(), permissions: permissionsForRole(user.role) };
+    return { ...user.toObject(), permissions: effectivePermissions(user) };
   }
 
   static async changePassword(userId: string, oldPass: string, newPass: string) {

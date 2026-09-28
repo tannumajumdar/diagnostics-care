@@ -325,7 +325,7 @@ export class AccountsService {
       payload.user || { userId: new mongoose.Types.ObjectId().toString(), name: 'Admin Staff', role: 'Admin' };
     const role = activeUser.role || 'Admin';
 
-    if (!can(role, PERMISSIONS.REFUND_ISSUE)) {
+    if (!can(activeUser, PERMISSIONS.REFUND_ISSUE)) {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Only authorized accounting personnel can issue refunds');
     }
 
@@ -416,7 +416,7 @@ export class AccountsService {
     const activeUser = currentUser || payload.user || { userId: '', name: 'Admin Staff', role: 'Admin' };
     const role = activeUser.role || 'Admin';
 
-    if (!can(role, PERMISSIONS.PAYOUT_CREATE)) {
+    if (!can(activeUser, PERMISSIONS.PAYOUT_CREATE)) {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Your role is not permitted to record payouts');
     }
 
@@ -424,7 +424,7 @@ export class AccountsService {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Payout amount must be greater than zero');
     }
 
-    const canSelfApprove = can(role, PERMISSIONS.PAYOUT_APPROVE);
+    const canSelfApprove = can(activeUser, PERMISSIONS.PAYOUT_APPROVE);
     const needsApproval = !canSelfApprove && payload.amount > SELF_APPROVE_PAYOUT_LIMIT;
     const status: PayoutStatus = needsApproval ? 'Pending' : 'Paid';
 
@@ -572,7 +572,7 @@ export class AccountsService {
     payload: { status: 'Paid' | 'Rejected'; rejectionReason?: string },
     currentUser: JwtPayload
   ) {
-    if (!can(currentUser?.role, PERMISSIONS.PAYOUT_APPROVE)) {
+    if (!can(currentUser, PERMISSIONS.PAYOUT_APPROVE)) {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Only an Admin can approve or reject a payout');
     }
 
@@ -604,7 +604,7 @@ export class AccountsService {
   }
 
   static async deletePayout(id: string, currentUser: JwtPayload) {
-    if (!can(currentUser?.role, PERMISSIONS.PAYOUT_DELETE)) {
+    if (!can(currentUser, PERMISSIONS.PAYOUT_DELETE)) {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Only an Admin can delete a payout record');
     }
 

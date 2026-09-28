@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '../../api/user.api';
+import { rolePermissionApi, RolePermissionMatrix } from '../../api/rolePermission.api';
 import { User, UserRole } from '../../types';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -8,7 +9,7 @@ import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
-import { ALL_ROLES, ROLE_PERMISSIONS, ROLE_INTRO, type Role } from '../../config/roles';
+import { ALL_ROLES, ROLE_INTRO, type Role } from '../../config/roles';
 import { asList } from '../../utils/api-list';
 import { UserCog, Plus, Power, Pencil, ShieldCheck, KeyRound } from 'lucide-react';
 
@@ -28,12 +29,13 @@ const emptyForm = {
   mobile: '',
   role: 'Receptionist' as UserRole,
   status: 'Active' as 'Active' | 'Inactive',
+  permissions: [] as string[],
 };
 
 /**
- * Staff and roles. Only an Admin reaches this screen, and what each role can
- * do is rendered from the shared permission matrix rather than described in
- * prose that would drift away from what the API actually allows.
+ * Staff and what each of them may do. Permissions are chosen per person on the
+ * add / edit form: picking a role pre-ticks that role's defaults, and the Admin
+ * adds or removes from there. The Admin role always has everything.
  */
 export const StaffPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -54,6 +56,44 @@ export const StaffPage: React.FC = () => {
   });
 
   const staff = asList<User>(data, 'users');
+
+  // The permission list and each role's defaults, to tick on the form.
+  const { data: matrix } = useQuery<RolePermissionMatrix>({
+    queryKey: ['role-permissions'],
+    queryFn: () => rolePermissionApi.getMatrix(),
+  });
+  const totalPermissions = matrix?.catalog.length ?? 0;
+  const lockedRole = matrix?.lockedRole ?? 'Admin';
+
+  const permissionGroups = useMemo(() => {
+    const byGroup = new Map<string, RolePermissionMatrix['catalog']>();
+    (matrix?.catalog || []).forEach((entry) => {
+      byGroup.set(entry.group, [...(byGroup.get(entry.group) || []), entry]);
+    });
+    return Array.from(byGroup.entries());
+  }, [matrix]);
+
+  const roleDefaults = (role: string) => matrix?.roles.find((r) => r.role === role)?.permissions ?? [];
+
+  const togglePermission = (key: string) =>
+    setForm((prev) => ({
+      ...prev,
+      permissions: prev.permissions.includes(key)
+        ? prev.permissions.filter((k) => k !== key)
+        : [...prev.permissions, key],
+    }));
+
+  /** Tick or clear a whole group at once. */
+  const togglePermissionGroup = (keys: string[]) =>
+    setForm((prev) => {
+      const allOn = keys.every((k) => prev.permissions.includes(k));
+      return {
+        ...prev,
+        permissions: allOn
+          ? prev.permissions.filter((k) => !keys.includes(k))
+          : Array.from(new Set([...prev.permissions, ...keys])),
+      };
+    });
 
   const saveMutation = useMutation({
     mutationFn: (payload: any) =>
@@ -92,7 +132,7 @@ export const StaffPage: React.FC = () => {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ ...emptyForm });
+    setForm({ ...emptyForm, permissions: [...roleDefaults(emptyForm.role)] });
     setIsFormOpen(true);
   };
 
@@ -105,6 +145,7 @@ export const StaffPage: React.FC = () => {
       mobile: member.mobile ?? '',
       role: member.role,
       status: member.status,
+      permissions: [...(member.permissions ?? roleDefaults(member.role))],
     });
     setIsFormOpen(true);
   };
@@ -140,6 +181,18 @@ export const StaffPage: React.FC = () => {
       role: form.role,
       status: form.status,
     };
+    // Sent only when it was actually changed, so saving a phone number does not
+    // pin someone to a hand-ticked list or sign them out. The Admin always has
+    // everything, so there is nothing to send for that role.
+    const initial = editing ? editing.permissions ?? roleDefaults(editing.role) : null;
+    const untouched =
+      !!editing &&
+      editing.role === form.role &&
+      initial!.length === form.permissions.length &&
+      initial!.every((k) => form.permissions.includes(k));
+    const isSelf = editing?.id === currentUser?.id;
+    if (form.role === lockedRole) payload.permissions = null;
+    else if (!untouched && !isSelf) payload.permissions = form.permissions;
     // On an edit the password field is left blank unless it is being reset.
     if (form.password) payload.password = form.password;
     saveMutation.mutate(payload);
@@ -186,6 +239,7 @@ export const StaffPage: React.FC = () => {
                   <th className="p-3">Email</th>
                   <th className="p-3">Mobile</th>
                   <th className="p-3">Role</th>
+                  <th className="p-3">Permissions</th>
                   <th className="p-3">Status</th>
                   <th className="p-3 text-right">Action</th>
                 </tr>
@@ -193,13 +247,13 @@ export const StaffPage: React.FC = () => {
               <tbody className="divide-y border-border">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-muted-foreground">
+                    <td colSpan={7} className="p-6 text-center text-muted-foreground">
                       Loading staff...
                     </td>
                   </tr>
                 ) : staff.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-muted-foreground">
+                    <td colSpan={7} className="p-6 text-center text-muted-foreground">
                       No staff accounts yet.
                     </td>
                   </tr>
@@ -216,6 +270,21 @@ export const StaffPage: React.FC = () => {
                       <td className="p-3 font-mono text-muted-foreground">{member.mobile}</td>
                       <td className="p-3">
                         <Badge variant={ROLE_TONE[member.role as Role] ?? 'secondary'}>{member.role}</Badge>
+                      </td>
+                      <td className="p-3 text-muted-foreground">
+                        {member.role === lockedRole ? (
+                          'Full access'
+                        ) : (
+                          <>
+                            {member.permissions?.length ?? 0}
+                            {totalPermissions ? ` of ${totalPermissions}` : ''}
+                            {member.customPermissions && (
+                              <span className="ml-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                                custom
+                              </span>
+                            )}
+                          </>
+                        )}
                       </td>
                       <td className="p-3">
                         <Badge variant={member.status === 'Active' ? 'success' : 'destructive'}>
@@ -261,36 +330,6 @@ export const StaffPage: React.FC = () => {
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* What each role reaches - read straight off the permission matrix */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base font-bold">
-            <ShieldCheck className="h-4 w-4 text-emerald-600" />
-            What Each Role Can Do
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 text-xs md:grid-cols-2 lg:grid-cols-3">
-          {ALL_ROLES.map((role) => (
-            <div key={role} className="space-y-2 rounded-xl border p-3">
-              <div>
-                <Badge variant={ROLE_TONE[role]}>{role}</Badge>
-                <p className="mt-1.5 text-[12px] text-muted-foreground">{ROLE_INTRO[role].subtitle}</p>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {ROLE_PERMISSIONS[role].map((permission) => (
-                  <span
-                    key={permission}
-                    className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600"
-                  >
-                    {permission}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
         </CardContent>
       </Card>
 
@@ -363,7 +402,7 @@ export const StaffPage: React.FC = () => {
 
       {isFormOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md space-y-4 rounded-2xl border bg-card p-6 shadow-2xl">
+          <div className="max-h-[90vh] w-full max-w-3xl space-y-4 overflow-y-auto rounded-2xl border bg-card p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b pb-2">
               <h2 className="text-base font-bold text-foreground">
                 {editing ? `Edit ${editing.name}` : 'Add Staff Member'}
@@ -408,7 +447,11 @@ export const StaffPage: React.FC = () => {
                   <label className="mb-1 block font-semibold">Role *</label>
                   <select
                     value={form.role}
-                    onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}
+                    onChange={(e) => {
+                      const role = e.target.value as UserRole;
+                      // A new role starts from that role's defaults.
+                      setForm({ ...form, role, permissions: [...roleDefaults(role)] });
+                    }}
                     className="h-10 w-full rounded-xl border bg-background px-3"
                   >
                     {ALL_ROLES.map((role) => (
@@ -448,6 +491,76 @@ export const StaffPage: React.FC = () => {
               <p className="rounded-lg bg-slate-50 p-2 text-[12px] text-muted-foreground">
                 {ROLE_INTRO[form.role as Role]?.subtitle}
               </p>
+
+              <div className="space-y-3 rounded-xl border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="flex items-center gap-1.5 font-bold text-foreground">
+                    <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                    Permissions
+                    {form.role !== lockedRole && totalPermissions > 0 && (
+                      <span className="font-normal text-muted-foreground">
+                        ({form.permissions.length} of {totalPermissions})
+                      </span>
+                    )}
+                  </p>
+                  {form.role !== lockedRole && (
+                    <button
+                      type="button"
+                      className="text-[12px] font-semibold text-blue-600 hover:underline"
+                      onClick={() => setForm({ ...form, permissions: [...roleDefaults(form.role)] })}
+                    >
+                      Reset to {form.role} defaults
+                    </button>
+                  )}
+                </div>
+
+                {form.role === lockedRole ? (
+                  <p className="text-[12px] text-muted-foreground">
+                    An Admin always has every permission, so the centre can never lock itself out.
+                  </p>
+                ) : editing && editing.id === currentUser?.id ? (
+                  <p className="text-[12px] text-muted-foreground">You cannot change your own permissions.</p>
+                ) : !matrix ? (
+                  <p className="text-[12px] text-muted-foreground">Loading permissions...</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {permissionGroups.map(([group, entries]) => {
+                      const keys = entries.map((e) => e.key);
+                      const allOn = keys.every((k) => form.permissions.includes(k));
+                      return (
+                        <div key={group} className="space-y-1.5 rounded-lg bg-slate-50 p-2.5">
+                          <label className="flex cursor-pointer items-center gap-2 font-semibold text-foreground">
+                            <input
+                              type="checkbox"
+                              checked={allOn}
+                              onChange={() => togglePermissionGroup(keys)}
+                            />
+                            {group}
+                          </label>
+                          {entries.map((entry) => (
+                            <label
+                              key={entry.key}
+                              className="flex cursor-pointer items-start gap-2 pl-5"
+                              title={entry.description}
+                            >
+                              <input
+                                type="checkbox"
+                                className="mt-0.5"
+                                checked={form.permissions.includes(entry.key)}
+                                onChange={() => togglePermission(entry.key)}
+                              />
+                              <span>
+                                {entry.label}
+                                <span className="block text-[11px] text-muted-foreground">{entry.description}</span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
               <div className="flex justify-end gap-2 border-t pt-2">
                 <Button type="button" variant="outline" onClick={() => setIsFormOpen(false)}>

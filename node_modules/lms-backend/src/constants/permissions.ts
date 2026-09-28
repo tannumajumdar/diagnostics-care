@@ -90,9 +90,9 @@ const RECEPTIONIST_PERMISSIONS: Permission[] = [
 const ADMIN_PERMISSIONS: Permission[] = Object.values(P);
 
 /**
- * The shipped matrix. The Admin can change any role's reach from the Roles &
- * Permissions screen; what they save is kept in the database and loaded over
- * these at startup, and "Reset to default" goes back to this list.
+ * The starting point for each role. When a staff account is created these are
+ * pre-ticked for the chosen role; the Admin then adds or removes permissions
+ * for that one person, and the account keeps its own list from then on.
  */
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
   [ROLES.ADMIN]: ADMIN_PERMISSIONS,
@@ -222,14 +222,13 @@ export const PERMISSION_CATALOG: Array<{ group: string; key: Permission; label: 
   { group: 'Laboratory', key: P.RESULT_ENTER, label: 'Enter results', description: 'Result entry' },
   { group: 'Laboratory', key: P.RESULT_VERIFY, label: 'Verify & release', description: 'Verify results and release reports' },
 
-  { group: 'Masters', key: P.MASTER_VIEW, label: 'View masters', description: 'Read tests, rates, doctors (needed for billing)' },
+  { group: 'Masters', key: P.MASTER_VIEW, label: 'View masters', description: 'Read tests, doctors (needed for billing)' },
   { group: 'Masters', key: P.DOCTOR_MANAGE, label: 'Manage doctors', description: 'Add and edit doctors' },
   { group: 'Masters', key: P.TEST_MANAGE, label: 'Manage tests', description: 'Test catalog and packages' },
-  { group: 'Masters', key: P.RATE_MANAGE, label: 'Manage rates', description: 'Rate master' },
   { group: 'Masters', key: P.DEPARTMENT_MANAGE, label: 'Manage departments', description: 'Add and edit departments' },
   { group: 'Masters', key: P.ORGANIZATION_MANAGE, label: 'Manage organizations', description: 'TPA / corporate organizations' },
 
-  { group: 'Administration', key: P.STAFF_MANAGE, label: 'Staff & permissions', description: 'Staff accounts and this screen' },
+  { group: 'Administration', key: P.STAFF_MANAGE, label: 'Staff & permissions', description: 'Add staff and choose what each person can do' },
   { group: 'Administration', key: P.REPORT_VIEW, label: 'Analytics reports', description: 'Reports and doctor commission' },
   { group: 'Administration', key: P.AUDIT_VIEW, label: 'Audit log', description: 'Who did what, and when' },
 ];
@@ -237,8 +236,27 @@ export const PERMISSION_CATALOG: Array<{ group: string; key: Permission; label: 
 export const permissionsForRole = (role?: string): Permission[] =>
   (role && ROLE_PERMISSIONS[role]) || [];
 
-export const can = (role: string | undefined, permission: Permission): boolean =>
-  permissionsForRole(role).includes(permission);
+/** Anything that carries a role and, optionally, its own granted list. */
+export interface PermissionHolder {
+  role?: string;
+  permissions?: string[] | null;
+}
+
+/**
+ * What one staff member may actually do. Each account carries its own list,
+ * ticked when the Admin creates or edits it; an account saved before that
+ * existed has none and falls back to its role's defaults. The Admin always
+ * has everything, so the centre can never lock itself out.
+ */
+export const effectivePermissions = (holder?: PermissionHolder | null): Permission[] => {
+  if (!holder) return [];
+  if (holder.role === LOCKED_ROLE) return [...ALL_PERMISSIONS];
+  if (Array.isArray(holder.permissions)) return holder.permissions.filter(isPermission);
+  return permissionsForRole(holder.role);
+};
+
+export const can = (who: string | PermissionHolder | null | undefined, permission: Permission): boolean =>
+  effectivePermissions(typeof who === 'string' ? { role: who } : who).includes(permission);
 
 /**
  * Petty-cash ceiling for a payout recorded by anyone without PAYOUT_APPROVE.

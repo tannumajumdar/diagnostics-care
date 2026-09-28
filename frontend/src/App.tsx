@@ -13,10 +13,8 @@ import { DepartmentsPage } from './pages/departments/DepartmentsPage';
 import { DoctorsPage } from './pages/doctors/DoctorsPage';
 import { TestsPage } from './pages/tests/TestsPage';
 import { PackagesPage } from './pages/packages/PackagesPage';
-import { RatesPage } from './pages/rates/RatesPage';
 import { OrganizationsPage } from './pages/organizations/OrganizationsPage';
 import { StaffPage } from './pages/staff/StaffPage';
-import { RolePermissionsPage } from './pages/staff/RolePermissionsPage';
 import { PatientsListPage } from './pages/patients/PatientsListPage';
 import { PatientDetailsPage } from './pages/patients/PatientDetailsPage';
 import { PatientFormPage } from './pages/patients/PatientFormPage';
@@ -76,16 +74,11 @@ export default function App() {
                     <Route path="/doctors" element={guarded([P.DOCTOR_MANAGE], <DoctorsPage />)} />
                     <Route path="/tests" element={guarded([P.TEST_MANAGE], <TestsPage />)} />
                     <Route path="/packages" element={guarded([P.TEST_MANAGE], <PackagesPage />)} />
-                    <Route path="/rates" element={guarded([P.RATE_MANAGE], <RatesPage />)} />
                     <Route
                       path="/organizations"
                       element={guarded([P.ORGANIZATION_MANAGE], <OrganizationsPage />)}
                     />
                     <Route path="/staff" element={guarded([P.STAFF_MANAGE], <StaffPage />)} />
-                    <Route
-                      path="/role-permissions"
-                      element={guarded([P.STAFF_MANAGE], <RolePermissionsPage />)}
-                    />
                     {/* What a cancelled test is worth back to the patient. */}
                     <Route
                       path="/refund-policy"

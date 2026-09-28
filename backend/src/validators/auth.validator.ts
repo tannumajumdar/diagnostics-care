@@ -26,6 +26,9 @@ export const createUserSchema = z.object({
   }),
   mobile: z.string().min(6, 'Mobile number is required'),
   status: z.enum(['Active', 'Inactive']).optional(),
+  // This person's own ticked permissions. Left out (or null) to follow the
+  // role's defaults; ignored for an Admin, who always has everything.
+  permissions: z.array(z.string()).nullable().optional(),
 });
 
 export const updateUserSchema = createUserSchema.partial();

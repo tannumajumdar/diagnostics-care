@@ -42,6 +42,12 @@ const userSchema = new Schema<IUserDocument>(
       type: String,
       select: false,
     },
+    // Left unset (not an empty list) until the Admin ticks them, so an older
+    // account keeps following its role instead of losing everything.
+    permissions: {
+      type: [String],
+      default: undefined,
+    },
     // A cut-off for tokens already in circulation. See IUserDocument.
     sessionsValidFrom: {
       type: Date,

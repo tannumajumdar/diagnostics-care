@@ -4,7 +4,7 @@ import { ApiError } from '../utils/api-error.util';
 import { HTTP_STATUS, MESSAGES } from '../constants/messages';
 import { UserRole } from '../types/user.interface';
 import { JwtPayload } from '../types/auth.interface';
-import { Permission, can } from '../constants/permissions';
+import { Permission, can, effectivePermissions } from '../constants/permissions';
 import { User } from '../models/user.model';
 
 declare global {
@@ -34,7 +34,7 @@ export const authenticate = async (req: Request, _res: Response, next: NextFunct
     const decoded = verifyAccessToken(token);
 
     const account = await User.findById(decoded.userId)
-      .select('name email role status sessionsValidFrom')
+      .select('name email role status permissions sessionsValidFrom')
       .lean();
 
     if (!account) {
@@ -61,6 +61,7 @@ export const authenticate = async (req: Request, _res: Response, next: NextFunct
       email: account.email,
       name: account.name,
       role: account.role as UserRole,
+      permissions: effectivePermissions(account),
     };
     next();
   } catch (error) {
@@ -89,8 +90,8 @@ export const authorize = (...allowedRoles: (UserRole | UserRole[])[]) => {
 
 /**
  * Route guard expressed in terms of what the staff member is doing rather than
- * a hand-maintained role list, so a role's reach only ever changes in
- * constants/permissions.ts. Any one of the listed permissions is enough.
+ * a hand-maintained role list. Checked against the account's own permissions,
+ * read fresh by `authenticate`. Any one of the listed permissions is enough.
  */
 export const requirePermission = (...permissions: Permission[]) => {
   return (req: Request, _res: Response, next: NextFunction): void => {
@@ -98,14 +99,9 @@ export const requirePermission = (...permissions: Permission[]) => {
       return next(new ApiError(HTTP_STATUS.UNAUTHORIZED, MESSAGES.AUTH.UNAUTHORIZED));
     }
 
-    const granted = permissions.some((permission) => can(req.user!.role, permission));
+    const granted = permissions.some((permission) => can(req.user, permission));
     if (!granted) {
-      return next(
-        new ApiError(
-          HTTP_STATUS.FORBIDDEN,
-          `Your role (${req.user.role}) is not permitted to perform this action`
-        )
-      );
+      return next(new ApiError(HTTP_STATUS.FORBIDDEN, 'You do not have permission to perform this action'));
     }
 
     next();

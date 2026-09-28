@@ -4,19 +4,20 @@ import {
   DEFAULT_ROLE_PERMISSIONS,
   LOCKED_ROLE,
   PERMISSION_CATALOG,
-  isPermission,
   permissionsForRole,
-  resetRolePermissions,
   setRolePermissions,
 } from '../constants/permissions';
-import { ApiError } from '../utils/api-error.util';
-import { HTTP_STATUS } from '../constants/messages';
-import { JwtPayload } from '../types/auth.interface';
 
+/**
+ * Each role's starting permissions. Staff are no longer granted access per
+ * role - every account carries its own ticked list - so this only supplies
+ * what the staff form pre-ticks when a role is picked, and what an account
+ * made before per-user permissions still follows.
+ */
 export class RolePermissionService {
   /**
-   * Loads what the Admin saved over the shipped defaults. Called once when the
-   * server starts; every save after that updates the live matrix directly.
+   * Role matrices an Admin saved on the old Role Permissions screen stay the
+   * defaults for their role, so older accounts keep exactly the access they had.
    */
   static async loadIntoMemory(): Promise<void> {
     const saved = await RolePermission.find().lean();
@@ -40,46 +41,5 @@ export class RolePermissionService {
         updatedBy: savedByRole.get(role)?.updatedBy,
       })),
     };
-  }
-
-  static async updateRole(role: string, permissions: unknown, currentUser: JwtPayload) {
-    if (!(ALL_ROLES as string[]).includes(role)) {
-      throw new ApiError(HTTP_STATUS.BAD_REQUEST, `Unknown role: ${role}`);
-    }
-    if (role === LOCKED_ROLE) {
-      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'The Admin role always has every permission');
-    }
-    if (!Array.isArray(permissions) || permissions.some((p) => typeof p !== 'string')) {
-      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'permissions must be a list');
-    }
-    const unknown = permissions.filter((p) => !isPermission(p));
-    if (unknown.length) {
-      throw new ApiError(HTTP_STATUS.BAD_REQUEST, `Unknown permission(s): ${unknown.join(', ')}`);
-    }
-
-    const clean = Array.from(new Set(permissions as string[]));
-    await RolePermission.findOneAndUpdate(
-      { role },
-      {
-        role,
-        permissions: clean,
-        updatedBy: { userId: String(currentUser?.userId || ''), name: currentUser?.name, at: new Date() },
-      },
-      { upsert: true, new: true }
-    );
-    setRolePermissions(role, clean);
-    return { role, permissions: permissionsForRole(role) };
-  }
-
-  static async resetRole(role: string) {
-    if (!(ALL_ROLES as string[]).includes(role)) {
-      throw new ApiError(HTTP_STATUS.BAD_REQUEST, `Unknown role: ${role}`);
-    }
-    if (role === LOCKED_ROLE) {
-      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'The Admin role always has every permission');
-    }
-    await RolePermission.deleteOne({ role });
-    resetRolePermissions(role);
-    return { role, permissions: permissionsForRole(role) };
   }
 }

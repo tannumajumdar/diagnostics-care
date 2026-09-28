@@ -82,7 +82,7 @@ export class RefundPolicyService {
   }
 
   static async updatePolicy(payload: Partial<IRefundPolicyDocument>, currentUser: JwtPayload) {
-    if (!can(currentUser?.role, PERMISSIONS.REFUND_POLICY_MANAGE)) {
+    if (!can(currentUser, PERMISSIONS.REFUND_POLICY_MANAGE)) {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Only an Admin can change the refund policy');
     }
 
@@ -228,7 +228,7 @@ export class RefundPolicyService {
    * cannot be reconciled against the receipt the patient is holding.
    */
   static async cancelTestsAndRefund(payload: CancelTestsPayload, currentUser: JwtPayload) {
-    if (!can(currentUser?.role, PERMISSIONS.REFUND_ISSUE)) {
+    if (!can(currentUser, PERMISSIONS.REFUND_ISSUE)) {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Your role is not permitted to cancel a test and refund it');
     }
 
@@ -265,7 +265,7 @@ export class RefundPolicyService {
       if (!policy.allowAdminOverride) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'This centre does not allow overriding the refund policy');
       }
-      if (!can(currentUser?.role, PERMISSIONS.REFUND_POLICY_MANAGE)) {
+      if (!can(currentUser, PERMISSIONS.REFUND_POLICY_MANAGE)) {
         throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Only an Admin can override the refund policy');
       }
       if (!payload.overrideReason) {
