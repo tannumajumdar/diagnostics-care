@@ -67,4 +67,29 @@ export const billingApi = {
 
     return { invoices: collected, total, truncated: collected.length < total };
   },
+
+  /** Every booked test matching a filter, walked page by page like the bills above. */
+  getBookedTestsForExport: async (
+    filters: Record<string, any> = {}
+  ): Promise<{ tests: any[]; total: number; truncated: boolean }> => {
+    const collected: any[] = [];
+    let page = 1;
+    let total = 0;
+
+    for (;;) {
+      const response: any = await billingApi.getBookedTests({ ...filters, page, limit: EXPORT_PAGE_SIZE });
+      const rows: any[] = Array.isArray(response) ? response : response?.tests || [];
+      const meta = response?.meta || response?.pagination || {};
+      total = Number(meta.total ?? total ?? 0) || collected.length + rows.length;
+
+      collected.push(...rows);
+
+      if (rows.length < EXPORT_PAGE_SIZE) break;
+      if (collected.length >= total) break;
+      if (collected.length >= EXPORT_ROW_CEILING) break;
+      page += 1;
+    }
+
+    return { tests: collected, total, truncated: collected.length < total };
+  },
 };

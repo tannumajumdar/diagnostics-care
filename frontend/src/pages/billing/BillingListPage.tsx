@@ -12,7 +12,11 @@ import { exportToExcel } from '../../utils/excel-export';
 import { invoiceExportRows, paymentBreakdownOf, processingModeOf } from '../../utils/invoice-export';
 import { COLLECTION_METHODS, methodIcon, methodLabel } from '../../config/payment-methods';
 import { useToast } from '../../context/ToastContext';
+import { usePrintTarget } from '../../hooks/usePrintTarget';
+import { ListPrintSheet } from '../../components/billing/ListPrintSheet';
+import { BillPrint } from '../../components/billing/BillPrint';
 import {
+  Printer,
   CreditCard,
   Plus,
   Search,
@@ -73,6 +77,11 @@ export const BillingListPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
+  const [printing, setPrinting] = useState<string>('');
+  // The whole filtered list, or one bill exactly as its details page prints it.
+  const [printTarget, setPrintTarget] = usePrintTarget<
+    { kind: 'list'; invoices: Invoice[]; truncated: boolean } | { kind: 'bill'; invoice: any; payments: any[] }
+  >();
 
   // The date window the desk is looking at. Empty means every bill ever
   // raised, which is the right default for a search by invoice number.
@@ -179,8 +188,58 @@ export const BillingListPage: React.FC = () => {
     }
   };
 
+  const filterLines = (() => {
+    const lines = [`Period: ${rangeLabel}`];
+    if (searchTerm) lines.push(`Search: "${searchTerm}"`);
+    if (processingMode) lines.push(`Work: ${processingMode}`);
+    if (paymentStatus) lines.push(`Payment: ${paymentStatus === 'Paid' ? 'Paid' : 'Unpaid / due'}`);
+    if (paymentMethod) lines.push(`Method: ${methodLabel(paymentMethod)}`);
+    return lines;
+  })();
+
+  const handlePrintList = async () => {
+    setPrinting('list');
+    try {
+      const { invoices, truncated } = await billingApi.getInvoicesForExport({
+        search: searchTerm || undefined,
+        from: from || undefined,
+        to: to || undefined,
+        processingMode: processingMode || undefined,
+        paymentStatus: paymentStatus || undefined,
+        paymentMethod: paymentMethod || undefined,
+      });
+      if (!invoices.length) {
+        showToast('No bills to print for this filter', 'error');
+        return;
+      }
+      setPrintTarget({ kind: 'list', invoices, truncated });
+    } catch (err: any) {
+      showToast(err?.message || 'Could not load the bills to print', 'error');
+    } finally {
+      setPrinting('');
+    }
+  };
+
+  /** One bill, fetched with its receipts so it prints like the details page. */
+  const handlePrintBill = async (id: string) => {
+    setPrinting(id);
+    try {
+      const data: any = await billingApi.getInvoiceById(id);
+      if (!data?.invoice) throw new Error('Bill not found');
+      setPrintTarget({ kind: 'bill', invoice: data.invoice, payments: data.payments || [] });
+    } catch (err: any) {
+      showToast(err?.message || 'Could not load this bill', 'error');
+    } finally {
+      setPrinting('');
+    }
+  };
+
+  const listTotal = (list: Invoice[], pick: (inv: Invoice) => number) =>
+    `₹${list.reduce((s, inv) => s + (Number(pick(inv)) || 0), 0).toFixed(2)}`;
+
   return (
-    <div className="space-y-6">
+    <>
+    <div className="space-y-6 print:hidden">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
@@ -202,6 +261,16 @@ export const BillingListPage: React.FC = () => {
           >
             <Download className="h-4 w-4" />
             <span>Export {summary.invoices ? `(${summary.invoices})` : ''}</span>
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handlePrintList}
+            disabled={!!printing || !summary.invoices}
+            isLoading={printing === 'list'}
+            className="gap-2"
+          >
+            <Printer className="h-4 w-4" />
+            <span>Print</span>
           </Button>
           <Button onClick={() => navigate('/billing/new')} className="gap-2">
             <Plus className="h-4 w-4" />
@@ -517,9 +586,21 @@ export const BillingListPage: React.FC = () => {
                         </Badge>
                       </td>
                       <td className="p-3 text-right">
-                        <Button variant="outline" size="sm" onClick={() => navigate(`/billing/${inv._id}`)}>
-                          <Eye className="h-4 w-4 mr-1" /> View Details
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" onClick={() => navigate(`/billing/${inv._id}`)}>
+                            <Eye className="h-4 w-4 mr-1" /> View Details
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            title="Print this bill"
+                            onClick={() => handlePrintBill(inv._id)}
+                            disabled={!!printing}
+                            isLoading={printing === inv._id}
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -551,5 +632,51 @@ export const BillingListPage: React.FC = () => {
         )}
       </Card>
     </div>
+
+      {printTarget?.kind === 'list' && (
+        <div className="hidden print:block">
+          <ListPrintSheet
+            title="Bills"
+            filterLines={filterLines}
+            countLabel={`${printTarget.invoices.length} bill${printTarget.invoices.length === 1 ? '' : 's'}`}
+            columns={[
+              { header: 'Date' },
+              { header: 'Invoice' },
+              { header: 'Patient / UHID' },
+              { header: 'Paid By' },
+              { header: 'Status' },
+              { header: 'Net (₹)', numeric: true },
+              { header: 'Paid (₹)', numeric: true },
+              { header: 'Due (₹)', numeric: true },
+            ]}
+            rows={printTarget.invoices.map((inv) => [
+              formatDay((inv as any).createdAt),
+              inv.invoiceNumber,
+              `${(inv.patient as any)?.patientName || 'N/A'} / ${inv.uhid}`,
+              paymentBreakdownOf(inv)
+                .map((b) => methodLabel(b.method))
+                .join(' + ') || '-',
+              inv.paymentStatus,
+              (Number(inv.netAmount) || 0).toFixed(2),
+              (Number(inv.paidAmount) || 0).toFixed(2),
+              (Number(inv.dueAmount) || 0).toFixed(2),
+            ])}
+            totals={[
+              ['Bills', String(printTarget.invoices.length)],
+              ['Billed', listTotal(printTarget.invoices, (inv) => inv.netAmount)],
+              ['Collected', listTotal(printTarget.invoices, (inv) => inv.paidAmount)],
+              ['Due', listTotal(printTarget.invoices, (inv) => inv.dueAmount)],
+            ]}
+            note={printTarget.truncated ? 'Only the newest bills are printed - narrow the dates to print the rest.' : undefined}
+          />
+        </div>
+      )}
+
+      {printTarget?.kind === 'bill' && (
+        <div className="hidden print:block">
+          <BillPrint invoice={printTarget.invoice} payments={printTarget.payments} />
+        </div>
+      )}
+    </>
   );
 };

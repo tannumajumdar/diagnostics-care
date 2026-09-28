@@ -13,8 +13,13 @@ import { CancelTestRefundModal } from '../../components/accounts/CancelTestRefun
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission, PERMISSIONS } from '../../config/roles';
 import { asList } from '../../utils/api-list';
-import { DATE_PRESETS, formatDay, relativeDayLabel, todayKey } from '../../utils/dates';
-import { COLLECTION_METHODS } from '../../config/payment-methods';
+import { DATE_PRESETS, formatDay, formatDateTime, relativeDayLabel, todayKey } from '../../utils/dates';
+import { COLLECTION_METHODS, methodLabel } from '../../config/payment-methods';
+import { exportToExcel } from '../../utils/excel-export';
+import { useToast } from '../../context/ToastContext';
+import { usePrintTarget } from '../../hooks/usePrintTarget';
+import { ListPrintSheet } from '../../components/billing/ListPrintSheet';
+import { TestSlipPrint } from '../../components/billing/TestSlipPrint';
 import {
   FlaskConical,
   Search,
@@ -24,6 +29,8 @@ import {
   ChevronRight,
   CalendarDays,
   X,
+  Download,
+  Printer,
 } from 'lucide-react';
 
 const money = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
@@ -151,25 +158,31 @@ export const BookedTestsPage: React.FC = () => {
   });
   const organizations = asList<any>(organizationsData, 'organizations');
 
+  // The filters in force, shared by the list, the export and the print.
+  const filters = {
+    search: search || undefined,
+    from: from || undefined,
+    to: to || undefined,
+    status: status || undefined,
+    department: department || undefined,
+    processingMode: processingMode || undefined,
+    paymentStatus: paymentStatus || undefined,
+    paymentMethod: paymentMethod || undefined,
+    organization: organization || undefined,
+    doctor: doctor || undefined,
+  };
+
   const { data, isLoading } = useQuery({
-    queryKey: ['booked-tests', search, from, to, status, department, processingMode, paymentStatus, paymentMethod, organization, doctor, page],
-    queryFn: () =>
-      billingApi.getBookedTests({
-        search: search || undefined,
-        from: from || undefined,
-        to: to || undefined,
-        status: status || undefined,
-        department: department || undefined,
-        processingMode: processingMode || undefined,
-        paymentStatus: paymentStatus || undefined,
-        paymentMethod: paymentMethod || undefined,
-        organization: organization || undefined,
-        doctor: doctor || undefined,
-        page,
-        limit: 20,
-      }),
+    queryKey: ['booked-tests', filters, page],
+    queryFn: () => billingApi.getBookedTests({ ...filters, page, limit: 20 }),
     placeholderData: (prev: any) => prev,
   });
+
+  const { showToast } = useToast();
+  const [busy, setBusy] = useState<'' | 'export' | 'print'>('');
+  const [printTarget, setPrintTarget] = usePrintTarget<
+    { kind: 'list'; tests: BookedTest[]; truncated: boolean } | { kind: 'slip'; test: BookedTest }
+  >();
 
   const rows = asList<BookedTest>(data, 'tests');
   const meta = data?.meta || data?.pagination || {};
@@ -197,6 +210,81 @@ export const BookedTestsPage: React.FC = () => {
 
   const anyFilter = !!(search || from || to || status || department || processingMode || paymentStatus || paymentMethod || organization || doctor);
 
+  /** The filters as words, for the top of the printed list. */
+  const filterLines = (() => {
+    const lines = [`Period: ${rangeLabel}`];
+    if (search) lines.push(`Search: "${search}"`);
+    if (status) lines.push(`Status: ${STATUS_FILTERS.find((o) => o.value === status)?.label}`);
+    if (department) lines.push(`Department: ${departments.find((d: any) => d._id === department)?.departmentName || ''}`);
+    if (processingMode) lines.push(`Work: ${processingMode}`);
+    if (paymentStatus) lines.push(`Payment: ${paymentStatus === 'Paid' ? 'Paid' : 'Unpaid / due'}`);
+    if (paymentMethod) lines.push(`Method: ${methodLabel(paymentMethod)}`);
+    if (organization)
+      lines.push(`Organization: ${organizations.find((o: any) => o._id === organization)?.organizationName || ''}`);
+    if (doctor) lines.push(`Doctor: ${doctors.find((d: any) => d._id === doctor)?.doctorName || ''}`);
+    return lines;
+  })();
+
+  const loadAll = async () => {
+    const result = await billingApi.getBookedTestsForExport(filters);
+    if (!result.tests.length) showToast('No tests match this filter', 'error');
+    return result;
+  };
+
+  const handleExport = async () => {
+    setBusy('export');
+    try {
+      const { tests, truncated } = await loadAll();
+      if (!tests.length) return;
+      const exportRows = (tests as BookedTest[]).map((t) => ({
+        'Bill Date': formatDateTime(t.billedAt),
+        'Invoice No': t.invoiceNumber,
+        UHID: t.uhid,
+        'Patient Name': t.patient?.patientName || '',
+        Mobile: t.patient?.mobile || '',
+        'Referred By': t.doctorName || 'Self',
+        'Organization / TPA': t.organizationName || '',
+        'Test Code': t.testCode,
+        'Test Name': t.testName,
+        Department: t.departmentName,
+        Package: t.packageName || '',
+        Processing: t.processingMode || '',
+        'Sample ID': t.sampleId || '',
+        Status: statusBadge(t).label,
+        Rate: Number(t.rate) || 0,
+        'Net Amount': Number(t.netAmount) || 0,
+        Refunded: Number(t.refundedAmount) || 0,
+        'Bill Payment': t.paymentStatus,
+        'Bill Due': Number(t.dueAmount) || 0,
+        'Cancellation Reason': t.cancellationReason || '',
+      }));
+      const windowSlug = !from && !to ? 'all-time' : `${from || 'start'}_to_${to || todayKey()}`;
+      await exportToExcel(`booked-tests_${windowSlug}`, exportRows, { sheetName: 'Booked Tests' });
+      showToast(
+        truncated
+          ? `Exported the newest ${tests.length} tests - narrow the dates to export the rest`
+          : `Exported ${tests.length} test${tests.length === 1 ? '' : 's'}`,
+        truncated ? 'info' : 'success'
+      );
+    } catch (err: any) {
+      showToast(err?.message || 'Could not export the tests', 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const handlePrintList = async () => {
+    setBusy('print');
+    try {
+      const { tests, truncated } = await loadAll();
+      if (tests.length) setPrintTarget({ kind: 'list', tests, truncated });
+    } catch (err: any) {
+      showToast(err?.message || 'Could not load the tests to print', 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const clearAll = () => {
     setSearchTerm('');
     setSearch('');
@@ -213,7 +301,8 @@ export const BookedTestsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <>
+    <div className="space-y-6 print:hidden">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
@@ -223,6 +312,29 @@ export const BookedTestsPage: React.FC = () => {
           <p className="mt-1 text-xs text-muted-foreground">
             Every test booked on a bill, with where its sample has got to. Cancel and refund a test from its row.
           </p>
+        </div>
+        {/* Both work on every test the filters match, not just this page. */}
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={!!busy || !summary.tests}
+            isLoading={busy === 'export'}
+            className="gap-2"
+          >
+            <Download className="h-4 w-4" />
+            <span>Export {summary.tests ? `(${summary.tests})` : ''}</span>
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handlePrintList}
+            disabled={!!busy || !summary.tests}
+            isLoading={busy === 'print'}
+            className="gap-2"
+          >
+            <Printer className="h-4 w-4" />
+            <span>Print</span>
+          </Button>
         </div>
       </div>
 
@@ -529,6 +641,14 @@ export const BookedTestsPage: React.FC = () => {
                           <Button variant="outline" size="sm" onClick={() => navigate(`/billing/${row.invoiceId}`)}>
                             <Eye className="mr-1 h-4 w-4" /> Bill
                           </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            title="Print this test"
+                            onClick={() => setPrintTarget({ kind: 'slip', test: row })}
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
                           {canCancel && !row.cancelled && (
                             <Button
                               variant="outline"
@@ -592,5 +712,58 @@ export const BookedTestsPage: React.FC = () => {
         />
       )}
     </div>
+
+      {printTarget?.kind === 'list' && (
+        <div className="hidden print:block">
+          <ListPrintSheet
+            title="Booked Tests"
+            filterLines={filterLines}
+            countLabel={`${printTarget.tests.length} test${printTarget.tests.length === 1 ? '' : 's'}`}
+            columns={[
+              { header: 'Date' },
+              { header: 'Patient / UHID' },
+              { header: 'Test' },
+              { header: 'Dept' },
+              { header: 'Doctor / TPA' },
+              { header: 'Invoice' },
+              { header: 'Status' },
+              { header: 'Amount (₹)', numeric: true },
+            ]}
+            rows={printTarget.tests.map((t) => [
+              formatDay(t.billedAt),
+              `${t.patient?.patientName || 'N/A'} / ${t.uhid}`,
+              `${t.testName} (${t.testCode})`,
+              t.departmentName,
+              [t.doctorName || 'Self', t.organizationName].filter(Boolean).join(' / '),
+              t.invoiceNumber,
+              statusBadge(t).label,
+              (Number(t.netAmount) || 0).toFixed(2),
+            ])}
+            totals={[
+              ['Tests', String(printTarget.tests.length)],
+              [
+                'Billed (live tests)',
+                `₹${printTarget.tests
+                  .filter((t) => !t.cancelled)
+                  .reduce((s, t) => s + (Number(t.netAmount) || 0), 0)
+                  .toFixed(2)}`,
+              ],
+              ['Cancelled', String(printTarget.tests.filter((t) => t.cancelled).length)],
+              [
+                'Refunded',
+                `₹${printTarget.tests.reduce((s, t) => s + (Number(t.refundedAmount) || 0), 0).toFixed(2)}`,
+              ],
+            ]}
+            note={printTarget.truncated ? 'Only the newest tests are printed - narrow the dates to print the rest.' : undefined}
+          />
+        </div>
+      )}
+
+      {printTarget?.kind === 'slip' && (
+        <div className="hidden print:block">
+          <TestSlipPrint test={{ ...printTarget.test, statusLabel: statusBadge(printTarget.test).label }} />
+        </div>
+      )}
+    </>
   );
 };
