@@ -16,8 +16,8 @@
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
-import mongoose from 'mongoose';
-import { LabTest } from '../models/test.model';
+import { prisma } from '../db/prisma';
+import { repo, NATURAL } from '../db/repo';
 
 const FULL_LIFE_DAYS = 54750;
 const CHILD_UP_TO_DAYS = 12 * 365 - 1;
@@ -58,8 +58,12 @@ const toBands = (p: any): any[] => {
 
 const run = async () => {
   const dryRun = process.argv.includes('--dry-run');
-  await mongoose.connect(process.env.MONGODB_URI as string);
-  const all = await LabTest.find({}, { testCode: 1, testName: 1, parameters: 1 }).lean();
+  // Parameter rows come back with every field set, in the schema's field order -
+  // the shape Mongoose stored a line in, so the before/after comparison below
+  // sees what it saw on a fully stored line. A field that was simply absent on
+  // an old Mongo line cannot be told apart any more: the table holds its
+  // default, which is what Mongoose would have written for it anyway.
+  const all = await repo.find('labTest', { orderBy: NATURAL });
 
   if (!dryRun) {
     const dir = path.join(__dirname, '../../backups');
@@ -79,10 +83,10 @@ const run = async () => {
     if (JSON.stringify(before) === JSON.stringify(after)) continue;
     changed += 1;
     console.log(`${dryRun ? '[dry] ' : ''}${String(t.testCode).padEnd(9)} ${before.length} -> ${after.length} rows`);
-    if (!dryRun) await LabTest.updateOne({ _id: t._id }, { $set: { parameters: after } }, { runValidators: true });
+    if (!dryRun) await repo.updateById('labTest', t._id, { parameters: after }, { runValidators: true });
   }
   console.log(`${dryRun ? 'Would change' : 'Changed'} ${changed} of ${all.length} tests.`);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
 };
 
 run().catch((err) => {

@@ -1,6 +1,6 @@
-import { LabTest } from '../models/test.model';
+import { repo, mongoSort, refFilter } from '../db/repo';
 import { AppError } from '../middleware/errorHandler';
-import { testSearchClauses } from '../utils/search.util';
+import { testSearchWhere } from '../utils/search.util';
 
 export class TestService {
   static getAll = async (params: { search?: string; department?: string; status?: string; page?: number; limit?: number }) => {
@@ -8,19 +8,25 @@ export class TestService {
     const limit = params.limit || 10;
     const skip = (page - 1) * limit;
 
-    const query: any = {};
+    const query: any = { AND: [] };
     // Name, code, the parameters inside the test, and the initials of the
     // words - the desk types APTT and Hb, not the full name off the menu.
     if (params.search) {
-      const clauses = testSearchClauses(params.search);
-      if (clauses.length) query.$or = clauses;
+      const where = await testSearchWhere(params.search);
+      if (where) query.AND.push(where);
     }
-    if (params.department) query.department = params.department;
+    if (params.department) query.departmentId = refFilter(params.department, 'department');
     if (params.status) query.status = params.status;
 
     const [tests, total] = await Promise.all([
-      LabTest.find(query).populate('department').sort({ testName: 1 }).skip(skip).limit(limit),
-      LabTest.countDocuments(query),
+      repo.find('labTest', {
+        where: query,
+        include: { department: true },
+        orderBy: mongoSort('labTest', { testName: 1 }),
+        skip,
+        take: limit,
+      }),
+      repo.count('labTest', query),
     ]);
 
     return {
@@ -51,7 +57,7 @@ export class TestService {
   };
 
   static create = async (data: any) => {
-    const test = await LabTest.create(data);
+    const test = await repo.create('labTest', data);
     return {
       id: test._id.toString(),
       testName: test.testName,

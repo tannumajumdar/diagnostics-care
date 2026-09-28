@@ -1,4 +1,4 @@
-import { Document, Schema } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 
 export interface IParameterResult {
   parameterName: string;
@@ -24,27 +24,27 @@ export interface IParameterResult {
   formulaOverride?: boolean;
 }
 
-export interface IResultDocument extends Document {
+export interface IResultDocument extends StoredDocument {
   resultId: string;
-  sample: Schema.Types.ObjectId;
-  invoice: Schema.Types.ObjectId;
-  patient: Schema.Types.ObjectId;
+  sample: Ref;
+  invoice: Ref;
+  patient: Ref;
   uhid: string;
   /** The visit's enquiry number, copied off the invoice. */
   enquiryNo?: string;
-  test: Schema.Types.ObjectId;
-  department?: Schema.Types.ObjectId;
+  test: Ref;
+  department?: Ref;
   results: IParameterResult[];
   status: 'Draft' | 'Submitted' | 'Approved' | 'Rejected' | 'Final';
   overallRemarks?: string;
   rejectionReason?: string;
   versions?: any[];
   enteredBy: {
-    userId: Schema.Types.ObjectId;
+    userId: Ref;
     name: string;
   };
   verifiedBy?: {
-    userId: Schema.Types.ObjectId;
+    userId: Ref;
     name: string;
     role?: string;
     date: Date;

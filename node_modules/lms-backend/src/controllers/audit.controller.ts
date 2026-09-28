@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { AuditLog } from '../models/auditLog.model';
+import { repo } from '../db/repo';
 
 export const getAuditLogs = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -8,12 +8,13 @@ export const getAuditLogs = async (req: Request, res: Response, next: NextFuncti
     const skip = (page - 1) * limit;
 
     const query: any = {};
-    if (req.query.module) query.module = req.query.module;
-    if (req.query.action) query.action = req.query.action;
+    if (req.query.module) query.module = String(req.query.module);
+    if (req.query.action) query.action = String(req.query.action);
 
     const [logs, total] = await Promise.all([
-      AuditLog.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
-      AuditLog.countDocuments(query),
+      // `_id` breaks ties the way Mongo's natural order did for rows written in the same millisecond.
+      repo.find('auditLog', { where: query, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip, take: limit }),
+      repo.count('auditLog', query),
     ]);
 
     res.status(200).json({

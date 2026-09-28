@@ -59,7 +59,7 @@ app.get('/health', (req: Request, res: Response) => {
 // Centralized Error Handling
 app.use(errorHandler);
 
-// Start Server after connecting to MongoDB
+// Start Server after connecting to PostgreSQL
 if (process.env.NODE_ENV !== 'test') {
   connectDB().then(async () => {
     // The Admin's saved role permissions replace the shipped defaults before

@@ -1,9 +1,8 @@
-import mongoose from 'mongoose';
-import { RefundPolicy } from '../models/refundPolicy.model';
-import { Invoice } from '../models/invoice.model';
-import { Sample } from '../models/sample.model';
-import { Refund } from '../models/refund.model';
-import { getNextRefundId } from '../models/counter.model';
+import { prisma } from '../db/prisma';
+import { repo } from '../db/repo';
+import { isValidObjectIdValue, newObjectId } from '../db/ids';
+import { toDoc } from '../db/mappers';
+import { getNextRefundId } from '../db/counters';
 import { ApiError } from '../utils/api-error.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { JwtPayload } from '../types/auth.interface';
@@ -65,9 +64,9 @@ const round = (value: number) => Math.max(0, Math.round(value));
 export class RefundPolicyService {
   /** The policy, created from the defaults the first time anyone asks for it. */
   static async getPolicy(): Promise<IRefundPolicyDocument> {
-    const existing = await RefundPolicy.findOne({ singleton: 'refund-policy' });
+    const existing = await repo.findOne('refundPolicy', { singleton: 'refund-policy' });
     if (existing) return existing;
-    return RefundPolicy.create({ singleton: 'refund-policy', ...DEFAULT_REFUND_POLICY });
+    return repo.create('refundPolicy', { singleton: 'refund-policy', ...DEFAULT_REFUND_POLICY });
   }
 
   /** The policy plus the labels the screen needs, so it renders off one call. */
@@ -129,8 +128,7 @@ export class RefundPolicyService {
       at: new Date(),
     };
 
-    await policy.save();
-    return policy;
+    return repo.save('refundPolicy', policy);
   }
 
   /**
@@ -141,10 +139,18 @@ export class RefundPolicyService {
   static async quoteForInvoice(invoiceId: string) {
     const policy = await this.getPolicy();
 
-    const invoice = await Invoice.findById(invoiceId).populate('patient', 'patientName uhid mobile').lean();
+    const invoice: any = await repo.findById('invoice', invoiceId, {
+      include: { patient: { select: { id: true, patientName: true, uhid: true, mobile: true } } },
+    });
     if (!invoice) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Invoice not found');
 
-    const samples = await Sample.find({ invoice: invoice._id }).select('test status sampleId').lean();
+    const samples = (
+      await prisma.sample.findMany({
+        where: { invoiceId: invoice._id },
+        select: { id: true, testId: true, status: true, sampleId: true },
+        orderBy: { insertOrder: 'asc' },
+      })
+    ).map((s) => toDoc('sample', s));
     const sampleByTest = new Map(samples.map((s: any) => [String(s.test), s]));
 
     const billedAt = new Date((invoice as any).createdAt);
@@ -247,7 +253,7 @@ export class RefundPolicyService {
     }
 
     const quote = await this.quoteForInvoice(invoiceId);
-    const invoice = await Invoice.findById(invoiceId);
+    const invoice: any = await repo.findById('invoice', invoiceId);
     if (!invoice) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Invoice not found');
 
     const picked = itemIndexes.map((index) => {
@@ -334,22 +340,24 @@ export class RefundPolicyService {
     invoice.dueAmount = Math.max(0, invoice.netAmount - invoice.paidAmount);
     invoice.paymentStatus = invoice.dueAmount === 0 ? 'Paid' : invoice.paidAmount === 0 ? 'Unpaid' : 'Partial';
 
-    await invoice.save();
+    const saved = await repo.save('invoice', invoice);
 
     // The specimens behind the cancelled lines come off the bench queues -
     // unless the work is already finished, because a released result is not
     // withdrawn by a refund.
-    const cancelledTestIds = picked.map((line) => (invoice.items[line.index] as any).test);
-    await Sample.updateMany(
-      { invoice: invoice._id, test: { $in: cancelledTestIds }, status: { $nin: ['Completed', 'Cancelled'] } },
-      {
-        $set: {
-          status: 'Cancelled',
-          cancelledAt: new Date(),
-          cancellationReason: reason,
-        },
-      }
-    );
+    const cancelledTestIds = picked.map((line) => String((invoice.items[line.index] as any).test));
+    await prisma.sample.updateMany({
+      where: {
+        invoiceId: invoice._id,
+        testId: { in: cancelledTestIds },
+        status: { notIn: ['Completed', 'Cancelled'] },
+      },
+      data: {
+        status: 'Cancelled',
+        cancelledAt: new Date(),
+        cancellationReason: reason,
+      },
+    });
 
     // A refund record is the receipt for money leaving the drawer. Nothing
     // left it when the bill was still unpaid, so none is written in that case -
@@ -357,9 +365,9 @@ export class RefundPolicyService {
     let refund = null;
     if (cashRefund > 0) {
       const rawUserId = (currentUser as any).userId || (currentUser as any).id;
-      const userId = mongoose.Types.ObjectId.isValid(rawUserId) ? rawUserId : new mongoose.Types.ObjectId();
+      const userId = isValidObjectIdValue(rawUserId) ? rawUserId : newObjectId();
 
-      refund = await Refund.create({
+      refund = await repo.create('refund', {
         refundId: await getNextRefundId(),
         invoice: invoice._id,
         patient: invoice.patient,
@@ -381,7 +389,7 @@ export class RefundPolicyService {
 
     return {
       refund,
-      invoice,
+      invoice: saved,
       cancelled: picked.map((line, i) => ({
         testName: line.testName,
         stage: line.stageLabel,

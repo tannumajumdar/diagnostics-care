@@ -1,4 +1,4 @@
-import { Document, Types } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 import { type DisbursementMethod } from '../constants/payment-methods';
 
 /**
@@ -27,7 +27,7 @@ export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
 /** A payout goes out the same ways a refund does. */
 export type PayoutMethod = DisbursementMethod;
 
-export interface IExpenseDocument extends Document {
+export interface IExpenseDocument extends StoredDocument {
   expenseId: string;
   payeeType: PayeeType;
   payeeName: string;
@@ -42,9 +42,9 @@ export interface IExpenseDocument extends Document {
   status: PayoutStatus;
   /** Set when a payout above the petty-cash limit was filed by non-admin staff. */
   needsApproval: boolean;
-  patient?: Types.ObjectId;
-  invoice?: Types.ObjectId;
-  doctor?: Types.ObjectId;
+  patient?: Ref;
+  invoice?: Ref;
+  doctor?: Ref;
   recordedBy: {
     userId: string;
     name: string;

@@ -1,4 +1,4 @@
-import { Document } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 import { RefundStage } from '../constants/refund-policy';
 
 export interface IRefundStageRule {
@@ -8,7 +8,7 @@ export interface IRefundStageRule {
   refundPercent: number;
 }
 
-export interface IRefundPolicyDocument extends Document {
+export interface IRefundPolicyDocument extends StoredDocument {
   /** One document, always. `singleton` is what keeps it that way. */
   singleton: string;
   /** Off means no test can be cancelled for a refund from the counter at all. */

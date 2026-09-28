@@ -1,6 +1,4 @@
-import mongoose from 'mongoose';
-import { User } from '../models/user.model';
-import { Payout } from '../models/expense.model';
+import { prisma } from '../db/prisma';
 
 /**
  * One-shot migration for centres already running against a live database.
@@ -10,34 +8,24 @@ import { Payout } from '../models/expense.model';
  * and the expense ledger became a payout ledger, so older rows have no payee
  * on them. Both are repaired in place rather than by re-seeding, which would
  * destroy real patient and billing history.
+ *
+ * On Postgres both repairs are no-ops kept for the record: the User role CHECK
+ * constraint refuses 'Super Admin', and payeeName is NOT NULL, so neither bad
+ * state can exist any more. The counts printed are always 0.
  */
 export async function migrateRoles() {
-  const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/lms_db';
-  if (mongoose.connection.readyState === 0) {
-    await mongoose.connect(mongoUri);
-  }
-
-  const promoted = await User.updateMany({ role: 'Super Admin' }, { $set: { role: 'Admin' } });
-  console.log(`Promoted ${promoted.modifiedCount} Super Admin account(s) to Admin.`);
+  // Always 0: User_role_check means no row can hold 'Super Admin'.
+  const promoted = await prisma.user.updateMany({ where: { role: 'Super Admin' }, data: { role: 'Admin' } });
+  console.log(`Promoted ${promoted.count} Super Admin account(s) to Admin.`);
 
   // Older expense rows predate payeeName/payeeType/status; back-fill them from
   // the free-text category so the payout report can total them.
-  const legacy = await Payout.collection.updateMany(
-    { payeeName: { $exists: false } },
-    [
-      {
-        $set: {
-          payeeName: { $ifNull: ['$category', 'Unrecorded payee'] },
-          payeeType: 'Other',
-          status: 'Paid',
-          needsApproval: false,
-        },
-      },
-    ] as any
-  );
-  console.log(`Back-filled ${legacy.modifiedCount} legacy expense record(s) as payouts.`);
+  // Nothing to find here: payeeName is a NOT NULL column, so every row that
+  // reached Postgres already carries a payee and there is no row to back-fill.
+  const legacy = { count: 0 };
+  console.log(`Back-filled ${legacy.count} legacy expense record(s) as payouts.`);
 
-  return { promoted: promoted.modifiedCount, backfilled: legacy.modifiedCount };
+  return { promoted: promoted.count, backfilled: legacy.count };
 }
 
 export default migrateRoles;

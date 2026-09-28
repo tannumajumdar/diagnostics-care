@@ -1,11 +1,10 @@
-import mongoose from 'mongoose';
-import { Invoice } from '../models/invoice.model';
-import { Payment } from '../models/payment.model';
-import { Refund } from '../models/refund.model';
-import { Payout } from '../models/expense.model';
-import { Doctor } from '../models/doctor.model';
-import { Patient } from '../models/patient.model';
-import { getNextRefundId, getNextExpenseId } from '../models/counter.model';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../db/prisma';
+import { repo, regexWhere, mongoSort, dateFilter as checkedDate } from '../db/repo';
+import { assertObjectId, isValidObjectIdValue, newObjectId } from '../db/ids';
+import { utc } from '../db/billing.queries';
+import { fromDecimal } from '../db/mappers';
+import { getNextRefundId, getNextExpenseId } from '../db/counters';
 import { ApiError } from '../utils/api-error.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { JwtPayload } from '../types/auth.interface';
@@ -74,15 +73,41 @@ const dateWindow = (from?: string, to?: string, fromTime?: string, toTime?: stri
   return { start, end };
 };
 
+/** `.populate(path, 'patientName uhid mobile age gender address')` */
+const PARTY_PATIENT = {
+  select: { id: true, patientName: true, uhid: true, mobile: true, age: true, gender: true, address: true },
+};
+
+/**
+ * A staff-name filter: a case-insensitive "contains" of any of the names - the
+ * `{ $in: [/name/i, ...] }` the ledger matched a handler's name with.
+ */
+const anyNameLike = (column: string, names: string[]) => ({
+  OR: names.map((n) => ({ [column]: { contains: n, mode: 'insensitive' as const } })),
+});
+
+/** `Model.distinct(path, filter)`: the distinct non-empty values of one column. */
+const distinctValues = async (model: 'payment' | 'refund' | 'expense', column: string, where: any = {}) => {
+  const rows: any[] = await (prisma as any)[model].findMany({
+    // Empty and missing names are dropped by the caller, as they were.
+    where,
+    distinct: [column],
+    select: { [column]: true },
+    orderBy: { [column]: 'asc' },
+  });
+  return rows.map((r) => r[column]);
+};
+
 export class AccountsService {
   static async getDailyCollections(dateStr?: string) {
     const targetDate = dateStr ? new Date(dateStr) : new Date();
     const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
     const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
 
-    const payments = await Payment.find({
-      createdAt: { $gte: startOfDay, $lte: endOfDay },
-    }).populate('patient', 'patientName uhid');
+    const payments = await repo.find('payment', {
+      where: { createdAt: { gte: checkedDate(startOfDay, 'createdAt'), lte: checkedDate(endOfDay, 'createdAt') } },
+      include: { patient: { select: { id: true, patientName: true, uhid: true } } },
+    });
 
     /**
      * Totalled off the shared method list rather than an if-else chain.
@@ -95,7 +120,7 @@ export class AccountsService {
      */
     const breakdown: Record<string, number> = Object.fromEntries(METHOD_FIELDS.map((field) => [field, 0]));
 
-    payments.forEach((p) => {
+    payments.forEach((p: any) => {
       const field = METHOD_FIELD[p.paymentMethod as CollectionMethod];
       if (field) breakdown[field] += p.amount;
     });
@@ -104,11 +129,11 @@ export class AccountsService {
 
     // Cash out on the same day, so the drawer can be reconciled against the
     // collections rather than against the collections alone.
-    const paidOutToday = await Payout.aggregate([
-      { $match: { status: 'Paid', expenseDate: { $gte: startOfDay, $lte: endOfDay } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]);
-    const totalPaidOut = paidOutToday[0]?.total || 0;
+    const paidOutToday = await prisma.expense.aggregate({
+      where: { status: 'Paid', expenseDate: { gte: startOfDay, lte: endOfDay } },
+      _sum: { amount: true },
+    });
+    const totalPaidOut = fromDecimal(paidOutToday._sum.amount) || 0;
 
     return {
       date: startOfDay.toISOString().split('T')[0],
@@ -152,38 +177,26 @@ export class AccountsService {
    * one round trip whether the centre is a month old or ten years old.
    */
   static async getOverallCollections() {
-    const [collections, billing, refunds, payouts, firstReceipt] = await Promise.all([
-      Payment.aggregate([
-        {
-          $group: {
-            _id: '$paymentMethod',
-            amount: { $sum: '$amount' },
-            receipts: { $sum: 1 },
-          },
-        },
-      ]),
-      Invoice.aggregate([
-        {
-          $group: {
-            _id: null,
-            bills: { $sum: 1 },
-            billed: { $sum: '$netAmount' },
-            // The gap between gross and net - there is no `discountAmount` on
-            // a bill, that field lives on its lines.
-            discount: { $sum: { $subtract: ['$subtotal', '$netAmount'] } },
-            due: { $sum: '$dueAmount' },
-          },
-        },
-      ]),
-      Refund.aggregate([{ $group: { _id: null, total: { $sum: '$refundAmount' }, count: { $sum: 1 } } }]),
-      Payout.aggregate([
-        { $match: { status: 'Paid' } },
-        { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
-      ]),
+    const [collections, billingRows, refundRows, payoutRows, firstReceipt] = await Promise.all([
+      prisma.$queryRaw<any[]>`
+        SELECT "paymentMethod" AS "_id", SUM(amount)::float8 AS amount, COUNT(*)::int AS receipts
+        FROM "Payment" GROUP BY 1`,
+      // The gap between gross and net - there is no `discountAmount` on a
+      // bill, that field lives on its lines.
+      prisma.$queryRaw<any[]>`
+        SELECT COUNT(*)::int AS bills, SUM("netAmount")::float8 AS billed,
+               SUM(subtotal - "netAmount")::float8 AS discount, SUM("dueAmount")::float8 AS due
+        FROM "Invoice" HAVING COUNT(*) > 0`,
+      prisma.$queryRaw<any[]>`SELECT SUM("refundAmount")::float8 AS total, COUNT(*)::int AS count FROM "Refund" HAVING COUNT(*) > 0`,
+      prisma.$queryRaw<any[]>`
+        SELECT SUM(amount)::float8 AS total, COUNT(*)::int AS count FROM "Expense" WHERE status = 'Paid' HAVING COUNT(*) > 0`,
       // When the centre took its first payment, so the figure above can be
       // read as "since <date>" rather than as a number without a period.
-      Payment.findOne().sort({ createdAt: 1 }).select('createdAt'),
+      prisma.payment.findFirst({ orderBy: mongoSort('payment', { createdAt: 1 }), select: { createdAt: true } }),
     ]);
+    const billing = billingRows;
+    const refunds = refundRows;
+    const payouts = payoutRows;
 
     // One entry per method on the shared list, including the methods nobody
     // has ever used - a zero against Cheque is information when you are
@@ -246,8 +259,20 @@ export class AccountsService {
       `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
     const [payments, payouts] = await Promise.all([
-      Payment.find({ createdAt: { $gte: start, $lte: end } }).select('amount paymentMethod createdAt'),
-      Payout.find({ status: 'Paid', expenseDate: { $gte: start, $lte: end } }).select('amount expenseDate'),
+      prisma.payment
+        .findMany({
+          where: { createdAt: { gte: checkedDate(start, 'createdAt'), lte: checkedDate(end, 'createdAt') } },
+          select: { amount: true, paymentMethod: true, createdAt: true },
+          orderBy: { insertOrder: 'asc' },
+        })
+        .then((rows) => rows.map((r) => ({ ...r, amount: fromDecimal(r.amount) }))),
+      prisma.expense
+        .findMany({
+          where: { status: 'Paid', expenseDate: { gte: start, lte: end } },
+          select: { amount: true, expenseDate: true },
+          orderBy: { insertOrder: 'asc' },
+        })
+        .then((rows) => rows.map((r) => ({ ...r, amount: fromDecimal(r.amount) }))),
     ]);
 
     // The per-method fields come off the shared list, so a method added there
@@ -321,8 +346,7 @@ export class AccountsService {
   }
 
   static async createRefund(payload: CreateRefundPayload, currentUser?: JwtPayload) {
-    const activeUser = currentUser ||
-      payload.user || { userId: new mongoose.Types.ObjectId().toString(), name: 'Admin Staff', role: 'Admin' };
+    const activeUser = currentUser || payload.user || { userId: newObjectId(), name: 'Admin Staff', role: 'Admin' };
     const role = activeUser.role || 'Admin';
 
     if (!can(activeUser, PERMISSIONS.REFUND_ISSUE)) {
@@ -330,7 +354,7 @@ export class AccountsService {
     }
 
     const { invoiceId, refundAmount, reason, paymentMethod, remarks = '' } = payload;
-    const invoice = await Invoice.findById(invoiceId);
+    const invoice: any = await repo.findById('invoice', invoiceId);
 
     if (!invoice) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Invoice not found');
@@ -349,9 +373,9 @@ export class AccountsService {
 
     const refundId = await getNextRefundId();
     const rawUserId = activeUser.userId || activeUser.id || activeUser._id;
-    const userId = mongoose.Types.ObjectId.isValid(rawUserId) ? rawUserId : new mongoose.Types.ObjectId();
+    const userId = isValidObjectIdValue(rawUserId) ? rawUserId : newObjectId();
 
-    const refundDoc = await Refund.create({
+    const refundDoc = await repo.create('refund', {
       refundId,
       invoice: invoice._id,
       patient: invoice.patient,
@@ -377,7 +401,7 @@ export class AccountsService {
       invoice.paymentStatus = 'Partial';
     }
 
-    await invoice.save();
+    await repo.save('invoice', invoice);
     return refundDoc;
   }
 
@@ -386,13 +410,16 @@ export class AccountsService {
     const skip = (Number(page) - 1) * Number(limit);
 
     const [refunds, total] = await Promise.all([
-      Refund.find({})
-        .populate('patient', 'patientName uhid mobile')
-        .populate('invoice', 'invoiceNumber barcode')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(Number(limit)),
-      Refund.countDocuments({}),
+      repo.find('refund', {
+        include: {
+          patient: { select: { id: true, patientName: true, uhid: true, mobile: true } },
+          invoice: { select: { id: true, invoiceNumber: true, barcode: true } },
+        },
+        orderBy: mongoSort('refund', { createdAt: -1 }),
+        skip,
+        take: Number(limit),
+      }),
+      repo.count('refund'),
     ]);
 
     return {
@@ -430,9 +457,9 @@ export class AccountsService {
 
     const expenseId = await getNextExpenseId();
     const rawUserId = activeUser.userId || activeUser.id || activeUser._id;
-    const userId = mongoose.Types.ObjectId.isValid(rawUserId) ? rawUserId : new mongoose.Types.ObjectId();
+    const userId = isValidObjectIdValue(rawUserId) ? rawUserId : newObjectId();
 
-    const payout = await Payout.create({
+    const payout = await repo.create('expense', {
       expenseId,
       payeeType: payload.payeeType,
       payeeName: payload.payeeName,
@@ -462,26 +489,30 @@ export class AccountsService {
 
   static async getAllPayouts(query: PayoutQuery) {
     const { payeeType, payeeName, status, from, to, page = 1, limit = 20 } = query;
-    const filter: any = {};
+    const filter: any = { AND: [] };
 
     if (payeeType) filter.payeeType = payeeType;
     if (status) filter.status = status;
-    if (payeeName) filter.payeeName = { $regex: payeeName, $options: 'i' };
+    if (payeeName) filter.AND.push(await regexWhere('expense', 'payeeName', String(payeeName)));
     if (from || to) {
       const { start, end } = dateWindow(from, to);
-      filter.expenseDate = { $gte: start, $lte: end };
+      filter.expenseDate = { gte: checkedDate(start, 'expenseDate'), lte: checkedDate(end, 'expenseDate') };
     }
 
     const skip = (Number(page) - 1) * Number(limit);
     const [payouts, total] = await Promise.all([
-      Payout.find(filter)
-        .populate('patient', 'patientName uhid mobile')
-        .populate('invoice', 'invoiceNumber netAmount')
-        .populate('doctor', 'doctorName')
-        .sort({ expenseDate: -1, createdAt: -1 })
-        .skip(skip)
-        .limit(Number(limit)),
-      Payout.countDocuments(filter),
+      repo.find('expense', {
+        where: filter,
+        include: {
+          patient: { select: { id: true, patientName: true, uhid: true, mobile: true } },
+          invoice: { select: { id: true, invoiceNumber: true, netAmount: true } },
+          doctor: { select: { id: true, doctorName: true } },
+        },
+        orderBy: mongoSort('expense', { expenseDate: -1, createdAt: -1 }),
+        skip,
+        take: Number(limit),
+      }),
+      repo.count('expense', filter),
     ]);
 
     return {
@@ -502,45 +533,29 @@ export class AccountsService {
    */
   static async getPayoutSummary(query: { from?: string; to?: string }) {
     const { start, end } = dateWindow(query.from, query.to);
-    const window = { expenseDate: { $gte: start, $lte: end } };
-    const settled = { ...window, status: 'Paid' };
+    const inWindow = Prisma.sql`"expenseDate" >= ${utc(start)} AND "expenseDate" <= ${utc(end)}`;
+    const settled = Prisma.sql`${inWindow} AND status = 'Paid'`;
 
-    const [byType, byPayee, byDay, statusTotals, pending] = await Promise.all([
-      Payout.aggregate([
-        { $match: settled },
-        { $group: { _id: '$payeeType', total: { $sum: '$amount' }, count: { $sum: 1 } } },
-        { $sort: { total: -1 } },
-      ]),
-      Payout.aggregate([
-        { $match: settled },
-        {
-          $group: {
-            _id: { payeeName: '$payeeName', payeeType: '$payeeType' },
-            total: { $sum: '$amount' },
-            count: { $sum: 1 },
-            lastPaidAt: { $max: '$expenseDate' },
-          },
-        },
-        { $sort: { total: -1 } },
-        { $limit: 25 },
-      ]),
-      Payout.aggregate([
-        { $match: settled },
-        {
-          $group: {
-            _id: { $dateToString: { format: '%Y-%m-%d', date: '$expenseDate' } },
-            total: { $sum: '$amount' },
-            count: { $sum: 1 },
-          },
-        },
-        { $sort: { _id: 1 } },
-      ]),
-      Payout.aggregate([
-        { $match: window },
-        { $group: { _id: '$status', total: { $sum: '$amount' }, count: { $sum: 1 } } },
-      ]),
-      Payout.find({ status: 'Pending' }).sort({ createdAt: -1 }).limit(50),
+    const [byType, byPayeeRows, byDay, statusTotals, pending] = await Promise.all([
+      prisma.$queryRaw<any[]>`
+        SELECT "payeeType" AS "_id", SUM(amount)::float8 AS total, COUNT(*)::int AS count
+        FROM "Expense" WHERE ${settled}
+        GROUP BY 1 ORDER BY total DESC, 1`,
+      prisma.$queryRaw<any[]>`
+        SELECT "payeeName", "payeeType", SUM(amount)::float8 AS total, COUNT(*)::int AS count, MAX("expenseDate") AS "lastPaidAt"
+        FROM "Expense" WHERE ${settled}
+        GROUP BY 1, 2 ORDER BY total DESC, 1, 2 LIMIT 25`,
+      prisma.$queryRaw<any[]>`
+        SELECT to_char("expenseDate", 'YYYY-MM-DD') AS "_id", SUM(amount)::float8 AS total, COUNT(*)::int AS count
+        FROM "Expense" WHERE ${settled}
+        GROUP BY 1 ORDER BY 1`,
+      prisma.$queryRaw<any[]>`
+        SELECT status AS "_id", SUM(amount)::float8 AS total, COUNT(*)::int AS count
+        FROM "Expense" WHERE ${inWindow}
+        GROUP BY 1`,
+      repo.find('expense', { where: { status: 'Pending' }, orderBy: mongoSort('expense', { createdAt: -1 }), take: 50 }),
     ]);
+    const byPayee = byPayeeRows.map((row) => ({ ...row, _id: { payeeName: row.payeeName, payeeType: row.payeeType } }));
 
     const statusMap: Record<string, { total: number; count: number }> = {};
     statusTotals.forEach((row: any) => {
@@ -576,7 +591,7 @@ export class AccountsService {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Only an Admin can approve or reject a payout');
     }
 
-    const payout = await Payout.findById(id);
+    const payout: any = await repo.findById('expense', id);
     if (!payout) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Payout record not found');
     }
@@ -599,8 +614,7 @@ export class AccountsService {
       at: new Date(),
     };
 
-    await payout.save();
-    return payout;
+    return repo.save('expense', payout);
   }
 
   static async deletePayout(id: string, currentUser: JwtPayload) {
@@ -608,7 +622,7 @@ export class AccountsService {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Only an Admin can delete a payout record');
     }
 
-    const payout = await Payout.findByIdAndDelete(id);
+    const payout = await repo.deleteById('expense', id);
     if (!payout) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Payout record not found');
     }
@@ -621,25 +635,27 @@ export class AccountsService {
    * read off real records rather than assumed.
    */
   static async getDoctorCommissionReport() {
-    const doctors = await Doctor.find({ status: 'Active' }).populate('department');
+    const doctors = await repo.find('doctor', { where: { status: 'Active' }, include: { department: true } });
 
-    const paidByDoctor = await Payout.aggregate([
-      { $match: { payeeType: 'Doctor Referral', status: 'Paid', doctor: { $ne: null } } },
-      { $group: { _id: '$doctor', paid: { $sum: '$amount' } } },
-    ]);
+    const paidByDoctor = await prisma.$queryRaw<any[]>`
+      SELECT "doctorId" AS "_id", SUM(amount)::float8 AS paid
+      FROM "Expense"
+      WHERE "payeeType" = 'Doctor Referral' AND status = 'Paid' AND "doctorId" IS NOT NULL
+      GROUP BY 1`;
 
     const paidMap = new Map<string, number>(
       paidByDoctor.map((row: any) => [String(row._id), row.paid])
     );
 
     const report = await Promise.all(
-      doctors.map(async (doc) => {
-        const invoices = await Invoice.find({ referringDoctor: doc._id, status: { $ne: 'Cancelled' } });
+      doctors.map(async (doc: any) => {
+        // A bill has no status field, so the old `status: { $ne: 'Cancelled' }` kept every bill.
+        const invoices = await repo.find('invoice', { where: { referringDoctorId: doc._id } });
 
         let totalReferredTests = 0;
         let totalRevenue = 0;
 
-        invoices.forEach((inv) => {
+        invoices.forEach((inv: any) => {
           totalReferredTests += inv.items.length;
           totalRevenue += inv.netAmount;
         });
@@ -695,13 +711,15 @@ export class AccountsService {
     const staffRegexes = staffNames.map(
       (n) => new RegExp(n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
     );
-    const staffMatch = staffRegexes.length ? { $in: staffRegexes } : null;
+    const staffMatch = staffNames.length > 0;
 
     let dateFilter: any = null;
     if (from || to || fromTime || toTime) {
       const { start, end } = dateWindow(from, to, fromTime, toTime);
-      dateFilter = { $gte: start, $lte: end };
+      dateFilter = { gte: checkedDate(start, 'createdAt'), lte: checkedDate(end, 'createdAt') };
     }
+    // The patient is looked up first, so a bad id failed there, on `_id`.
+    const patientKey = patientId ? assertObjectId(patientId) : undefined;
 
     // 1. Fetch patient profile & invoices if patientId is provided
     let patientData: any = null;
@@ -715,16 +733,18 @@ export class AccountsService {
     };
 
     if (patientId) {
-      patientData = await Patient.findById(patientId);
+      patientData = await repo.findById('patient', patientId);
       if (patientData) {
-        patientInvoices = await Invoice.find({ patient: patientId })
-          .populate('referringDoctor', 'doctorName')
-          .sort({ createdAt: -1 });
+        patientInvoices = await repo.find('invoice', {
+          where: { patientId: patientKey },
+          include: { referringDoctor: { select: { id: true, doctorName: true } } },
+          orderBy: mongoSort('invoice', { createdAt: -1 }),
+        });
 
         const [patientPayments, patientRefunds, patientPayoutRefunds] = await Promise.all([
-          Payment.find({ patient: patientId }),
-          Refund.find({ patient: patientId }),
-          Payout.find({ patient: patientId, payeeType: 'Patient Refund', status: 'Paid' }),
+          repo.find('payment', { where: { patientId: patientKey } }),
+          repo.find('refund', { where: { patientId: patientKey } }),
+          repo.find('expense', { where: { patientId: patientKey, payeeType: 'Patient Refund', status: 'Paid' } }),
         ]);
 
         const totalBilled = patientInvoices.reduce((sum, inv) => sum + (inv.netAmount || 0), 0);
@@ -751,19 +771,32 @@ export class AccountsService {
       flowType !== 'refund' &&
       (!payeeType || payeeType === 'All' || payeeType === 'Patient')
     ) {
-      const paymentQuery: any = {};
-      if (patientId) paymentQuery.patient = patientId;
+      const paymentQuery: any = { AND: [] };
+      if (patientId) paymentQuery.patientId = patientKey;
       if (dateFilter) paymentQuery.createdAt = dateFilter;
       if (paymentMethod && paymentMethod !== 'All' && paymentMethod !== 'Split') {
         paymentQuery.paymentMethod = paymentMethod;
       }
-      if (staffMatch) paymentQuery['receivedBy.name'] = staffMatch;
+      if (staffMatch) paymentQuery.AND.push(anyNameLike('receivedByName', staffNames));
 
-      const payments = await Payment.find(paymentQuery)
-        .populate('patient', 'patientName uhid mobile age gender address')
-        .populate('invoice', 'invoiceNumber netAmount dueAmount paymentBreakdown paymentMethod')
-        .sort({ createdAt: -1 })
-        .limit(500);
+      const payments = await repo.find('payment', {
+        where: paymentQuery,
+        include: {
+          patient: PARTY_PATIENT,
+          invoice: {
+            select: {
+              id: true,
+              invoiceNumber: true,
+              netAmount: true,
+              dueAmount: true,
+              paymentMethod: true,
+              paymentBreakdown: true,
+            },
+          },
+        },
+        orderBy: mongoSort('payment', { createdAt: -1 }),
+        take: 500,
+      });
 
       paymentTransactions = payments.map((p: any) => {
         const breakdown = Array.isArray(p.invoice?.paymentBreakdown) ? p.invoice.paymentBreakdown : [];
@@ -816,21 +849,25 @@ export class AccountsService {
         payeeType === 'Patient';
 
       if (includePatientRefunds) {
-        const refundQuery: any = {};
-        if (patientId) refundQuery.patient = patientId;
+        const refundQuery: any = { AND: [] };
+        if (patientId) refundQuery.patientId = patientKey;
         if (dateFilter) {
-          refundQuery.$or = [{ date: dateFilter }, { createdAt: dateFilter }];
+          refundQuery.AND.push({ OR: [{ date: dateFilter }, { createdAt: dateFilter }] });
         }
         if (paymentMethod && paymentMethod !== 'All' && paymentMethod !== 'Split') {
           refundQuery.paymentMethod = paymentMethod;
         }
-        if (staffMatch) refundQuery['approvedBy.name'] = staffMatch;
+        if (staffMatch) refundQuery.AND.push(anyNameLike('approvedByName', staffNames));
 
-        const refunds = await Refund.find(refundQuery)
-          .populate('patient', 'patientName uhid mobile age gender address')
-          .populate('invoice', 'invoiceNumber netAmount dueAmount')
-          .sort({ date: -1, createdAt: -1 })
-          .limit(500);
+        const refunds = await repo.find('refund', {
+          where: refundQuery,
+          include: {
+            patient: PARTY_PATIENT,
+            invoice: { select: { id: true, invoiceNumber: true, netAmount: true, dueAmount: true } },
+          },
+          orderBy: mongoSort('refund', { date: -1, createdAt: -1 }),
+          take: 500,
+        });
 
         refundTransactions = refunds.map((r: any) => ({
           id: r._id,
@@ -862,9 +899,9 @@ export class AccountsService {
         (!patientId || !payeeType || payeeType === 'All' || payeeType === 'Patient Refund');
 
       if (includePayouts) {
-        const payoutQuery: any = { status: 'Paid' };
+        const payoutQuery: any = { status: 'Paid', AND: [] };
         if (patientId) {
-          payoutQuery.patient = patientId;
+          payoutQuery.patientId = patientKey;
           payoutQuery.payeeType = 'Patient Refund';
         }
         if (dateFilter) payoutQuery.expenseDate = dateFilter;
@@ -873,15 +910,21 @@ export class AccountsService {
         }
         if (payeeType && payeeType !== 'All') payoutQuery.payeeType = payeeType;
         if (staffMatch) {
-          payoutQuery.$or = [{ 'recordedBy.name': staffMatch }, { 'approvedBy.name': staffMatch }];
+          payoutQuery.AND.push({
+            OR: [anyNameLike('recordedByName', staffNames), anyNameLike('approvedByName', staffNames)],
+          });
         }
 
-        const payouts = await Payout.find(payoutQuery)
-          .populate('patient', 'patientName uhid mobile age gender address')
-          .populate('doctor', 'doctorName')
-          .populate('invoice', 'invoiceNumber netAmount')
-          .sort({ expenseDate: -1, createdAt: -1 })
-          .limit(500);
+        const payouts = await repo.find('expense', {
+          where: payoutQuery,
+          include: {
+            patient: PARTY_PATIENT,
+            doctor: { select: { id: true, doctorName: true } },
+            invoice: { select: { id: true, invoiceNumber: true, netAmount: true } },
+          },
+          orderBy: mongoSort('expense', { expenseDate: -1, createdAt: -1 }),
+          take: 500,
+        });
 
         payoutTransactions = payouts.map((p: any) => ({
           id: p._id,
@@ -1065,21 +1108,21 @@ export class AccountsService {
       const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
       const [todayPayments, todayRefunds, todayPayouts] = await Promise.all([
-        Payment.find({ createdAt: { $gte: todayStart, $lte: todayEnd } }),
-        Refund.find({ createdAt: { $gte: todayStart, $lte: todayEnd } }),
-        Payout.find({ status: 'Paid', expenseDate: { $gte: todayStart, $lte: todayEnd } }),
+        repo.find('payment', { where: { createdAt: { gte: todayStart, lte: todayEnd } } }),
+        repo.find('refund', { where: { createdAt: { gte: todayStart, lte: todayEnd } } }),
+        repo.find('expense', { where: { status: 'Paid', expenseDate: { gte: todayStart, lte: todayEnd } } }),
       ]);
 
       const todayByMethod: Record<string, number> = {};
       let todayCollections = 0;
-      todayPayments.forEach((p) => {
+      todayPayments.forEach((p: any) => {
         todayCollections += p.amount || 0;
         const m = p.paymentMethod || 'Other';
         todayByMethod[m] = (todayByMethod[m] || 0) + (p.amount || 0);
       });
 
-      const todayRefundTotal = todayRefunds.reduce((sum, r) => sum + (r.refundAmount || 0), 0);
-      const todayPayoutTotal = todayPayouts.reduce((sum, p) => sum + (p.amount || 0), 0);
+      const todayRefundTotal = todayRefunds.reduce((sum: number, r: any) => sum + (r.refundAmount || 0), 0);
+      const todayPayoutTotal = todayPayouts.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
       const totalTodayPayouts = todayRefundTotal + todayPayoutTotal;
 
       todaySummary = {
@@ -1129,10 +1172,10 @@ export class AccountsService {
    */
   static async getLedgerStaff(): Promise<string[]> {
     const [received, refunded, recorded, approved] = await Promise.all([
-      Payment.distinct('receivedBy.name'),
-      Refund.distinct('approvedBy.name'),
-      Payout.distinct('recordedBy.name', { status: 'Paid' }),
-      Payout.distinct('approvedBy.name', { status: 'Paid' }),
+      distinctValues('payment', 'receivedByName'),
+      distinctValues('refund', 'approvedByName'),
+      distinctValues('expense', 'recordedByName', { status: 'Paid' }),
+      distinctValues('expense', 'approvedByName', { status: 'Paid' }),
     ]);
     const names = new Map<string, string>();
     [...received, ...refunded, ...recorded, ...approved].forEach((n: any) => {

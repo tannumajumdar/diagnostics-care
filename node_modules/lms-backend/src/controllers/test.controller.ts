@@ -1,11 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { LabTest } from '../models/test.model';
-import { RateHistory } from '../models/rateHistory.model';
-import { TestAttachment } from '../models/testAttachment.model';
-import { Invoice } from '../models/invoice.model';
-import { Sample } from '../models/sample.model';
-import { Result } from '../models/result.model';
-import { Appointment } from '../models/appointment.model';
+import { prisma } from '../db/prisma';
+import { repo, regexAny, mongoSort, refFilter } from '../db/repo';
+import { assertObjectId } from '../db/ids';
 import { sendResponse } from '../utils/api-response.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { ApiError } from '../utils/api-error.util';
@@ -20,10 +16,13 @@ import { formulaKey, formulaProblem } from '../utils/formula.util';
  * Returns the copied lines, or throws when the source test is gone.
  */
 const parametersFrom = async (sourceId: string) => {
-  const source = await LabTest.findById(sourceId).lean();
+  const source = await repo.findById('labTest', sourceId);
   if (!source) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'The test to import parameters from was not found');
   return (source.parameters || []).map((p: any) => ({ ...p }));
 };
+
+/** `.populate('department').populate('tpa', 'organizationName')` */
+const TEST_REFS = { department: true, tpa: { select: { id: true, organizationName: true } } };
 
 /** '' and 'none' from the form both mean the centre's own catalogue. */
 /** Reference files a test may carry - documents and images, nothing executable. */
@@ -84,10 +83,11 @@ const useAsReport = async (test: any, file: any, userName?: string) => {
     uploadedAt: new Date(),
     uploadedBy: userName || '',
   };
-  await test.save();
+  const saved = await repo.save('labTest', test);
   if (previous && String(previous) !== String(file._id)) {
-    await TestAttachment.deleteOne({ _id: previous, kind: 'report-template' });
+    await prisma.testAttachment.deleteMany({ where: { id: String(previous), kind: 'report-template' } });
   }
+  return saved;
 };
 
 /**
@@ -119,26 +119,24 @@ export class TestController {
   static getAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { search, department, status, tpa, page = 1, limit = 10 } = req.query;
-      const filter: any = {};
-      if (search) {
-        filter.$or = [
-          { testName: { $regex: search, $options: 'i' } },
-          { testCode: { $regex: search, $options: 'i' } },
-        ];
-      }
-      if (department) filter.department = department;
+      const filter: any = { AND: [] };
+      if (search) filter.AND.push(await regexAny('labTest', ['testName', 'testCode'], String(search)));
+      if (department) filter.departmentId = refFilter(department, 'department');
       if (status) filter.status = status;
       // 'own' is the centre's catalogue alone; an organisation id is that TPA's tests.
-      if (tpa === 'own') filter.tpa = null;
-      else if (tpa) filter.tpa = tpa;
+      if (tpa === 'own') filter.tpaId = null;
+      else if (tpa) filter.tpaId = refFilter(tpa, 'tpa');
 
       const skip = (Number(page) - 1) * Number(limit);
       const [tests, total] = await Promise.all([
-        LabTest.find(filter)
-          .populate('department')
-          .populate('tpa', 'organizationName')
-          .sort({ testName: 1 }).skip(skip).limit(Number(limit)),
-        LabTest.countDocuments(filter),
+        repo.find('labTest', {
+          where: filter,
+          include: TEST_REFS,
+          orderBy: mongoSort('labTest', { testName: 1 }),
+          skip,
+          take: Number(limit),
+        }),
+        repo.count('labTest', filter),
       ]);
 
       sendResponse({
@@ -156,7 +154,7 @@ export class TestController {
   static getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const test = await LabTest.findById(id).populate('department').populate('tpa', 'organizationName');
+      const test = await repo.findById('labTest', id, { include: TEST_REFS });
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Test details retrieved', data: test });
     } catch (error) {
@@ -209,7 +207,7 @@ export class TestController {
       if (!String(body.sampleContainer || '').trim()) body.sampleContainer = 'EDTA Vial';
       if (!String(body.turnaroundTime || '').trim()) body.turnaroundTime = '24 Hours';
 
-      const test = await LabTest.create(body);
+      const test = await repo.create('labTest', body);
       sendResponse({ res, statusCode: HTTP_STATUS.CREATED, message: 'Lab test created', data: test });
     } catch (error) {
       next(error);
@@ -238,9 +236,7 @@ export class TestController {
         body.outsourceLab = '';
         body.outsourceCost = 0;
       }
-      const test = await LabTest.findByIdAndUpdate(id, body, { new: true })
-        .populate('department')
-        .populate('tpa', 'organizationName');
+      const test = await repo.updateById('labTest', id, body, { include: TEST_REFS });
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Lab test updated', data: test });
     } catch (error) {
@@ -252,7 +248,7 @@ export class TestController {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const currentUser = (req as any).user as JwtPayload;
-      const test = await LabTest.findById(id);
+      const test: any = await repo.findById('labTest', id);
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
 
       const previousRates = {
@@ -271,16 +267,16 @@ export class TestController {
       test.doctorRate = newRates.doctorRate ?? test.doctorRate;
       test.emergencyRate = newRates.emergencyRate ?? test.emergencyRate;
       test.referralRate = newRates.referralRate ?? test.referralRate;
-      await test.save();
+      const saved = await repo.save('labTest', test);
 
-      await RateHistory.create({
+      await repo.create('rateHistory', {
         test: test._id,
         testCode: test.testCode,
         testName: test.testName,
         previousRates,
         // What the test now actually carries, not the partial patch that was
         // posted - a tariff trail has to read as the rate card on that date.
-        newRates: { ...newRates, referralRate: test.referralRate },
+        newRates: { ...newRates, referralRate: saved.referralRate },
         changedBy: {
           userId: currentUser.userId,
           name: currentUser.name,
@@ -289,7 +285,7 @@ export class TestController {
         reason: req.body.reason || 'Tariff update',
       });
 
-      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Rates updated', data: test });
+      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Rates updated', data: saved });
     } catch (error) {
       next(error);
     }
@@ -298,13 +294,13 @@ export class TestController {
   static updateParameters = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const test = await LabTest.findById(id);
+      const test = await repo.findById('labTest', id);
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
 
       checkFormulas(req.body.parameters);
       test.parameters = req.body.parameters;
-      await test.save();
-      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Test parameters updated', data: test });
+      const saved = await repo.save('labTest', test);
+      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Test parameters updated', data: saved });
     } catch (error) {
       next(error);
     }
@@ -323,14 +319,14 @@ export class TestController {
   static remove = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const test = await LabTest.findById(id);
+      const test = await repo.findById('labTest', id);
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
 
       const [invoices, samples, results, appointments] = await Promise.all([
-        Invoice.countDocuments({ 'items.test': test._id }),
-        Sample.countDocuments({ test: test._id }),
-        Result.countDocuments({ test: test._id }),
-        Appointment.countDocuments({ tests: test._id }),
+        prisma.invoice.count({ where: { items: { some: { testId: test._id } } } }),
+        prisma.sample.count({ where: { testId: test._id } }),
+        prisma.result.count({ where: { testId: test._id } }),
+        prisma.appointment.count({ where: { tests: { some: { testId: test._id } } } }),
       ]);
 
       const used = [
@@ -349,9 +345,12 @@ export class TestController {
       }
 
       // Nothing ever priced against it, so the tariff trail goes with it.
-      await RateHistory.deleteMany({ test: test._id });
-      await TestAttachment.deleteMany({ test: test._id });
-      await test.deleteOne();
+      await prisma.rateHistory.deleteMany({ where: { testId: test._id } });
+      await prisma.testAttachment.deleteMany({ where: { testId: test._id } });
+      // Mongo left the id behind in any package holding the test, and a
+      // populated package simply stopped listing it; the join row goes here.
+      await prisma.testPackageItem.deleteMany({ where: { testId: test._id } });
+      await prisma.labTest.delete({ where: { id: test._id } });
 
       sendResponse({
         res,
@@ -367,26 +366,29 @@ export class TestController {
   static toggleStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const test = await LabTest.findById(id);
+      const test = await repo.findById('labTest', id);
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
       test.status = test.status === 'Active' ? 'Inactive' : 'Active';
-      await test.save();
-      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Status updated', data: test });
+      const saved = await repo.save('labTest', test);
+      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Status updated', data: saved });
     } catch (error) {
       next(error);
     }
   };
   static listAttachments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const id = paramOf(req.params.id);
-      const test = await LabTest.findById(id).select('reportTemplate');
-      const files = await TestAttachment.find({ test: id, kind: { $ne: 'report-template' } }).sort({ createdAt: -1 });
+      const id = assertObjectId(paramOf(req.params.id));
+      const test = await repo.findById('labTest', id);
+      const files = await repo.find('testAttachment', {
+        where: { testId: id, kind: { not: 'report-template' } },
+        orderBy: mongoSort('testAttachment', { createdAt: -1 }),
+      });
       const reportId = (test as any)?.reportTemplate?.attachment;
       sendResponse({
         res,
         statusCode: HTTP_STATUS.OK,
         message: 'Test files retrieved',
-        data: files.map((f) => attachmentView(f, reportId)),
+        data: files.map((f: any) => attachmentView(f, reportId)),
       });
     } catch (error) {
       next(error);
@@ -398,7 +400,7 @@ export class TestController {
     try {
       const id = paramOf(req.params.id);
       const currentUser = (req as any).user as JwtPayload;
-      const test = await LabTest.findById(id);
+      let test: any = await repo.findById('labTest', id);
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
 
       const fileName = String(req.body?.fileName || '').trim().slice(0, 200);
@@ -418,7 +420,7 @@ export class TestController {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'A file can be at most 5 MB');
       }
 
-      const file = await TestAttachment.create({
+      const file = await repo.create('testAttachment', {
         test: test._id,
         fileName,
         mimeType,
@@ -434,7 +436,7 @@ export class TestController {
       if (mimeType === DOCX_MIME && isReportFormat(data)) {
         try {
           checkReportTemplate(data);
-          await useAsReport(test, file, currentUser?.name);
+          test = await useAsReport(test, file, currentUser?.name);
           asReport = true;
         } catch {
           // A file whose placeholders do not pair up stays a plain reference file.
@@ -453,10 +455,14 @@ export class TestController {
 
   static downloadAttachment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const file = await TestAttachment.findOne({
-        _id: paramOf(req.params.attachmentId),
-        test: paramOf(req.params.id),
-      }).select('+data');
+      const file = await repo.findOne(
+        'testAttachment',
+        {
+          id: assertObjectId(paramOf(req.params.attachmentId)),
+          testId: assertObjectId(paramOf(req.params.id), 'test'),
+        },
+        { omit: { data: false } }
+      );
       if (!file) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'File not found');
       res.setHeader('Content-Type', file.mimeType);
       res.setHeader('Content-Length', String(file.size));
@@ -472,17 +478,26 @@ export class TestController {
 
   static removeAttachment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const file = await TestAttachment.findOneAndDelete({
-        _id: paramOf(req.params.attachmentId),
-        test: paramOf(req.params.id),
-        kind: { $ne: 'report-template' },
+      const file = await repo.findOne('testAttachment', {
+        id: assertObjectId(paramOf(req.params.attachmentId)),
+        testId: assertObjectId(paramOf(req.params.id), 'test'),
+        kind: { not: 'report-template' },
       });
       if (!file) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'File not found');
-      // Removing the file the report printed from puts the test back on the standard report.
-      await LabTest.updateOne(
-        { _id: file.test, 'reportTemplate.attachment': file._id },
-        { $set: { reportTemplate: null } }
-      );
+      // Removing the file the report printed from puts the test back on the
+      // standard report. Done before the delete: the foreign key would
+      // otherwise clear only the link and leave the rest of reportTemplate.
+      await prisma.labTest.updateMany({
+        where: { id: String(file.test), reportTemplateAttachmentId: file._id },
+        data: {
+          reportTemplateAttachmentId: null,
+          reportTemplateFileName: null,
+          reportTemplateSize: null,
+          reportTemplateUploadedAt: null,
+          reportTemplateUploadedBy: null,
+        },
+      });
+      await prisma.testAttachment.delete({ where: { id: file._id } });
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: `${file.fileName} removed`, data: { id: String(file._id) } });
     } catch (error) {
       next(error);
@@ -493,24 +508,28 @@ export class TestController {
   static useAttachmentAsReport = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const currentUser = (req as any).user as JwtPayload;
-      const test = await LabTest.findById(paramOf(req.params.id));
+      const test = await repo.findById('labTest', paramOf(req.params.id));
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
-      const file = await TestAttachment.findOne({
-        _id: paramOf(req.params.attachmentId),
-        test: test._id,
-        kind: { $ne: 'report-template' },
-      }).select('+data');
+      const file = await repo.findOne(
+        'testAttachment',
+        {
+          id: assertObjectId(paramOf(req.params.attachmentId)),
+          testId: test._id,
+          kind: { not: 'report-template' },
+        },
+        { omit: { data: false } }
+      );
       if (!file) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'File not found');
       if (file.mimeType !== DOCX_MIME) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Only a Word .docx file can be used as the report');
       }
       checkReportTemplate(file.data);
-      await useAsReport(test, file, currentUser?.name);
+      const saved = await useAsReport(test, file, currentUser?.name);
       sendResponse({
         res,
         statusCode: HTTP_STATUS.OK,
         message: `${test.testName} reports will now print in ${file.fileName}`,
-        data: (test as any).reportTemplate,
+        data: saved.reportTemplate,
       });
     } catch (error) {
       next(error);
@@ -524,7 +543,7 @@ export class TestController {
   static uploadReportTemplate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const currentUser = (req as any).user as JwtPayload;
-      const test = await LabTest.findById(paramOf(req.params.id));
+      const test = await repo.findById('labTest', paramOf(req.params.id));
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
 
       const fileName = String(req.body?.fileName || '').trim().slice(0, 200);
@@ -543,7 +562,7 @@ export class TestController {
       // .docx, or whose #PLACEHOLDERS# do not pair up.
       checkReportTemplate(data);
 
-      const file = await TestAttachment.create({
+      const file = await repo.create('testAttachment', {
         test: test._id,
         fileName,
         mimeType: DOCX_MIME,
@@ -561,14 +580,16 @@ export class TestController {
         uploadedAt: new Date(),
         uploadedBy: currentUser?.name || '',
       };
-      await test.save();
-      if (previous) await TestAttachment.deleteOne({ _id: previous, kind: 'report-template' });
+      const saved = await repo.save('labTest', test);
+      if (previous) {
+        await prisma.testAttachment.deleteMany({ where: { id: String(previous), kind: 'report-template' } });
+      }
 
       sendResponse({
         res,
         statusCode: HTTP_STATUS.CREATED,
         message: 'Report format uploaded',
-        data: (test as any).reportTemplate,
+        data: saved.reportTemplate,
       });
     } catch (error) {
       next(error);
@@ -577,10 +598,10 @@ export class TestController {
 
   static downloadReportTemplate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const test = await LabTest.findById(paramOf(req.params.id)).select('reportTemplate');
+      const test = await repo.findById('labTest', paramOf(req.params.id));
       const ref = (test as any)?.reportTemplate;
       if (!ref) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'This test has no report format');
-      const file = await TestAttachment.findById(ref.attachment).select('+data');
+      const file = await repo.findById('testAttachment', ref.attachment, { omit: { data: false } });
       if (!file) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'The report format file is missing');
       res.setHeader('Content-Type', DOCX_MIME);
       res.setHeader('Content-Length', String(file.size));
@@ -594,12 +615,14 @@ export class TestController {
   /** Back to the standard report layout for this test. */
   static removeReportTemplate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const test = await LabTest.findById(paramOf(req.params.id));
+      const test = await repo.findById('labTest', paramOf(req.params.id));
       if (!test) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Test not found');
       const ref = (test as any).reportTemplate;
       (test as any).reportTemplate = null;
-      await test.save();
-      if (ref?.attachment) await TestAttachment.deleteOne({ _id: ref.attachment, kind: 'report-template' });
+      await repo.save('labTest', test);
+      if (ref?.attachment) {
+        await prisma.testAttachment.deleteMany({ where: { id: String(ref.attachment), kind: 'report-template' } });
+      }
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Report format removed', data: null });
     } catch (error) {
       next(error);

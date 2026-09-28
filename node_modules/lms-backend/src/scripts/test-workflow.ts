@@ -1,19 +1,7 @@
-import mongoose from 'mongoose';
 import * as dotenv from 'dotenv';
-import { User } from '../models/user.model';
-import { Patient } from '../models/patient.model';
-import { Doctor } from '../models/doctor.model';
-import { Department } from '../models/department.model';
-import { LabTest } from '../models/test.model';
-import { Organization } from '../models/organization.model';
-import { Invoice } from '../models/invoice.model';
-import { Payment } from '../models/payment.model';
-import { Sample } from '../models/sample.model';
-import { Result } from '../models/result.model';
-import { Appointment } from '../models/appointment.model';
-import { Refund } from '../models/refund.model';
-import { Expense } from '../models/expense.model';
-import { AuditLog } from '../models/auditLog.model';
+import { prisma } from '../db/prisma';
+import { repo } from '../db/repo';
+import { hashIfSet } from '../db/passwords';
 import { AuthService } from '../services/auth.service';
 import { BillingService } from '../services/billing.service';
 import { SampleService } from '../services/sample.service';
@@ -28,30 +16,46 @@ const runEndToEndTests = async () => {
   console.log('🚀 STARTING COMPREHENSIVE E2E WORKFLOW VERIFICATION');
   console.log('======================================================\n');
 
-  const mongoURI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/lms_db';
-  await mongoose.connect(mongoURI);
-  console.log('✅ Connected to MongoDB for E2E validation');
+  await prisma.$connect();
+  console.log('✅ Connected to PostgreSQL for E2E validation');
 
   // 1. Clear & Seed Fresh State
   console.log('\n[TEST 1] Seeding Fresh System State...');
-  await Promise.all([
-    User.deleteMany({}),
-    Department.deleteMany({}),
-    Doctor.deleteMany({}),
-    LabTest.deleteMany({}),
-    Organization.deleteMany({}),
-    Patient.deleteMany({}),
-    Invoice.deleteMany({}),
-    Payment.deleteMany({}),
-    Sample.deleteMany({}),
-    Result.deleteMany({}),
-    Appointment.deleteMany({}),
-    Refund.deleteMany({}),
-    Expense.deleteMany({}),
-    AuditLog.deleteMany({}),
+  // Children before parents, so no foreign key is left pointing at a row
+  // that is gone. Mongo let the rows below outlive what they referenced;
+  // Postgres does not, so the ones that cannot stand alone go with them:
+  // saved report PDFs (their result), gateway transactions (their invoice),
+  // rate history and package lines (their test), and the test attachments,
+  // which cascade with their test. A package itself is kept, with its
+  // department cleared - what populating the dangling ref used to show.
+  // Invoice lines, splits and revisions, appointment tests, sample status
+  // history and result parameters/versions cascade with their parent.
+  await prisma.$transaction([
+    prisma.savedReport.deleteMany({}),
+    prisma.paymentTransaction.deleteMany({}),
+    prisma.rateHistory.deleteMany({}),
+    prisma.testPackageItem.deleteMany({}),
+    prisma.testPackage.updateMany({ data: { departmentId: null } }),
+    prisma.result.deleteMany({}),
+    prisma.sample.deleteMany({}),
+    prisma.refund.deleteMany({}),
+    prisma.payment.deleteMany({}),
+    prisma.expense.deleteMany({}),
+    prisma.appointment.deleteMany({}),
+    prisma.invoice.deleteMany({}),
+    prisma.patient.deleteMany({}),
+    prisma.labTest.updateMany({ data: { reportTemplateAttachmentId: null } }),
+    prisma.testAttachment.deleteMany({}),
+    prisma.labTest.deleteMany({}),
+    prisma.doctor.deleteMany({}),
+    prisma.organization.deleteMany({}),
+    prisma.department.deleteMany({}),
+    prisma.user.deleteMany({}),
+    prisma.auditLog.deleteMany({}),
   ]);
 
-  await User.create([
+  // One at a time, each with its password hashed on the way in.
+  for (const staff of [
     {
       name: 'Centre Admin',
       email: 'admin@lms.com',
@@ -68,7 +72,9 @@ const runEndToEndTests = async () => {
       mobile: '9876543212',
       status: 'Active',
     },
-  ]);
+  ]) {
+    await repo.create('user', staff, { transform: hashIfSet(staff.password) });
+  }
   console.log('✅ Seeding completed');
 
   // 2. Authentication Test
@@ -88,7 +94,7 @@ const runEndToEndTests = async () => {
 
   // 3. Department CRUD Test
   console.log('\n[TEST 3] Department Master Operations...');
-  const testDept = await Department.create({
+  const testDept = await repo.create('department', {
     departmentName: 'Hematology Express',
     departmentCode: 'HEMEXP',
     description: 'Automated blood testing',
@@ -98,7 +104,7 @@ const runEndToEndTests = async () => {
 
   // 4. Doctor CRUD Test
   console.log('\n[TEST 4] Doctor Master Operations...');
-  const testDoc = await Doctor.create({
+  const testDoc = await repo.create('doctor', {
     doctorName: 'Dr. Robert Vance, MD',
     department: testDept._id,
     mobile: '9876543210',
@@ -111,7 +117,7 @@ const runEndToEndTests = async () => {
 
   // 5. Test & Parameter Catalog Test
   console.log('\n[TEST 5] Laboratory Test & Parameter Master...');
-  const testItem = await LabTest.create({
+  const testItem = await repo.create('labTest', {
     testName: 'Complete Blood Count (CBC)',
     testCode: 'CBC01',
     department: testDept._id,
@@ -140,7 +146,7 @@ const runEndToEndTests = async () => {
 
   // 6. Patient Registration & UHID Auto-generation Test
   console.log('\n[TEST 6] Patient Registration & UHID Generation...');
-  const newPatient = await Patient.create({
+  const newPatient = await repo.create('patient', {
     uhid: `UHID-${new Date().getFullYear()}-000001`,
     patientName: 'E2E Test Patient',
     gender: 'Male',
@@ -246,8 +252,8 @@ const runEndToEndTests = async () => {
   // 12. Business Analytics Aggregations & Audit Trail Verification
   console.log('\n[TEST 12] Aggregation Reports & Audit Logging Verification...');
   const dailyRev = await ReportsService.getDailyRevenue();
-  const auditLogs = await AuditLog.find({});
-  console.log(`✅ MongoDB Daily Revenue Aggregation executed cleanly (${dailyRev.length} data points)`);
+  const auditLogs = await repo.find('auditLog');
+  console.log(`✅ PostgreSQL Daily Revenue Aggregation executed cleanly (${dailyRev.length} data points)`);
   console.log(`✅ Audit Trail contains ${auditLogs.length} logged actions`);
 
   console.log('\n======================================================');

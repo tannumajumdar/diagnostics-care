@@ -12,9 +12,10 @@
  *   npm run seed:staff              # add whoever is missing
  *   npm run seed:staff -- --dry-run # show who would be added
  */
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { User } from '../models/user.model';
+import { prisma } from '../db/prisma';
+import { repo } from '../db/repo';
+import { hashIfSet } from '../db/passwords';
 
 dotenv.config();
 
@@ -32,31 +33,34 @@ const RENAMED: Record<string, string> = {
   'reception.evening@lms.com': 'rohit@lms.com',
 };
 
+/** Whether a user is already registered under this email. */
+const userExists = async (email: string) =>
+  !!(await prisma.user.findFirst({ where: { email }, select: { id: true } }));
+
 const run = async () => {
   const dryRun = process.argv.includes('--dry-run');
-  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/lms_db');
 
   for (const [from, to] of Object.entries(RENAMED)) {
-    if (!(await User.exists({ email: from })) || (await User.exists({ email: to }))) continue;
-    if (!dryRun) await User.updateOne({ email: from }, { $set: { email: to } });
+    if (!(await userExists(from)) || (await userExists(to))) continue;
+    if (!dryRun) await prisma.user.update({ where: { email: from }, data: { email: to } });
     console.log(`${dryRun ? '[dry-run] ' : ''}~ ${from} -> ${to}`);
   }
 
   let added = 0;
   for (const s of STAFF) {
-    if (await User.exists({ email: s.email })) continue;
-    // Created one at a time so the model's password hashing hook runs.
-    if (!dryRun) await User.create({ ...s, status: 'Active' });
+    if (await userExists(s.email)) continue;
+    // Created one at a time, each with its password hashed on the way in.
+    if (!dryRun) await repo.create('user', { ...s, status: 'Active' }, { transform: hashIfSet(s.password) });
     added++;
     console.log(`${dryRun ? '[dry-run] ' : ''}+ ${s.name} (${s.role}) - ${s.email}`);
   }
 
   console.log(`\n${dryRun ? 'Would add' : 'Added'}: ${added}, already present: ${STAFF.length - added}`);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
 };
 
 run().catch(async (err) => {
   console.error('Seeding staff failed:', err);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
   process.exit(1);
 });

@@ -1,5 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { Doctor } from '../models/doctor.model';
+import { prisma } from '../db/prisma';
+import { repo, regexAny, regexWhere, mongoSort, refFilter, dateFilter } from '../db/repo';
+import { assertObjectId } from '../db/ids';
+import { decimalsIn } from '../db/mappers';
+
+/** `.populate('addedBy', 'name email role')` */
+const ADDED_BY = { addedBy: { select: { id: true, name: true, email: true, role: true } } };
 import { sendResponse } from '../utils/api-response.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { ApiError } from '../utils/api-error.util';
@@ -21,31 +27,26 @@ export class DoctorController {
         limit = 10,
       } = req.query;
 
-      const filter: any = {};
+      const filter: any = { AND: [] };
       if (search) {
-        filter.$or = [
-          { doctorName: { $regex: search, $options: 'i' } },
-          { mobile: { $regex: search, $options: 'i' } },
-          { hospital: { $regex: search, $options: 'i' } },
-          { degree: { $regex: search, $options: 'i' } },
-          { specialty: { $regex: search, $options: 'i' } },
-          { area: { $regex: search, $options: 'i' } },
-        ];
+        filter.AND.push(
+          await regexAny('doctor', ['doctorName', 'mobile', 'hospital', 'degree', 'specialty', 'area'], String(search))
+        );
       }
-      if (department) filter.department = department;
+      if (department) filter.departmentId = refFilter(department, 'department');
       if (status) filter.status = status;
-      if (area) filter.area = { $regex: area, $options: 'i' };
+      if (area) filter.AND.push(await regexWhere('doctor', 'area', String(area)));
 
       // Date range, filtered on either entry date or date of birth so the list
       // can answer "registered this week" and "birthdays this month" alike.
       const dateKey = String(dateField) === 'dob' ? 'dob' : 'createdAt';
       if (fromDate || toDate) {
         filter[dateKey] = {};
-        if (fromDate) filter[dateKey].$gte = new Date(String(fromDate));
+        if (fromDate) filter[dateKey].gte = dateFilter(new Date(String(fromDate)), dateKey);
         if (toDate) {
           const end = new Date(String(toDate));
           end.setHours(23, 59, 59, 999); // inclusive of the whole TO DATE day
-          filter[dateKey].$lte = end;
+          filter[dateKey].lte = dateFilter(end, dateKey);
         }
       }
 
@@ -55,13 +56,14 @@ export class DoctorController {
 
       const skip = (Number(page) - 1) * Number(limit);
       const [doctors, total] = await Promise.all([
-        Doctor.find(filter)
-          .populate('department')
-          .populate('addedBy', 'name email role')
-          .sort(sort)
-          .skip(skip)
-          .limit(Number(limit)),
-        Doctor.countDocuments(filter),
+        repo.find('doctor', {
+          where: filter,
+          include: { department: true, ...ADDED_BY },
+          orderBy: mongoSort('doctor', sort),
+          skip,
+          take: Number(limit),
+        }),
+        repo.count('doctor', filter),
       ]);
 
       sendResponse({
@@ -79,7 +81,7 @@ export class DoctorController {
   static getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const doc = await Doctor.findById(id).populate('department');
+      const doc = await repo.findById('doctor', id, { include: { department: true } });
       if (!doc) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Doctor not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Doctor details retrieved', data: doc });
     } catch (error) {
@@ -89,9 +91,11 @@ export class DoctorController {
 
   static create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const doc = await Doctor.create({ ...req.body, addedBy: req.user?.userId });
-      await doc.populate('department');
-      await doc.populate('addedBy', 'name email role');
+      const doc = await repo.create(
+        'doctor',
+        { ...req.body, addedBy: req.user?.userId },
+        { include: { department: true, ...ADDED_BY } }
+      );
       sendResponse({ res, statusCode: HTTP_STATUS.CREATED, message: 'Doctor registered', data: doc });
     } catch (error) {
       next(error);
@@ -136,12 +140,15 @@ export class DoctorController {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Provide a commission or discount value to apply');
       }
 
-      const result = await Doctor.updateMany({ _id: { $in: ids } }, { $set: update });
+      const keys = ids.map((id) => assertObjectId(String(id)));
+      // Every matched doctor's updatedAt moves with the write, so Mongo
+      // counted every match as modified as well.
+      const result = await prisma.doctor.updateMany({ where: { id: { in: keys } }, data: decimalsIn('doctor', { ...update }) });
       sendResponse({
         res,
         statusCode: HTTP_STATUS.OK,
-        message: `Cut value applied to ${result.modifiedCount} doctor(s)`,
-        data: { matched: result.matchedCount, modified: result.modifiedCount, applied: update },
+        message: `Cut value applied to ${result.count} doctor(s)`,
+        data: { matched: result.count, modified: result.count, applied: update },
       });
     } catch (error) {
       next(error);
@@ -151,7 +158,7 @@ export class DoctorController {
   static update = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const doc = await Doctor.findByIdAndUpdate(id, req.body, { new: true });
+      const doc = await repo.updateById('doctor', id, req.body);
       if (!doc) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Doctor not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Doctor updated', data: doc });
     } catch (error) {
@@ -162,10 +169,10 @@ export class DoctorController {
   static toggleStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const doc = await Doctor.findById(id);
-      if (!doc) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Doctor not found');
-      doc.status = doc.status === 'Active' ? 'Inactive' : 'Active';
-      await doc.save();
+      const found = await repo.findById('doctor', id);
+      if (!found) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Doctor not found');
+      found.status = found.status === 'Active' ? 'Inactive' : 'Active';
+      const doc = await repo.save('doctor', found);
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Status updated', data: doc });
     } catch (error) {
       next(error);

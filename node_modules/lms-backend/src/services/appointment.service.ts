@@ -1,6 +1,13 @@
-import { Appointment } from '../models/appointment.model';
-import { Patient } from '../models/patient.model';
-import { getNextAppointmentId } from '../models/counter.model';
+import { prisma } from '../db/prisma';
+import { repo, regexAny, regexWhere, mongoSort } from '../db/repo';
+import { getNextAppointmentId } from '../db/counters';
+
+/** `.populate('patient').populate('doctor').populate('tests')` - whole documents, a test's parameters included. */
+const APPOINTMENT_REFS = {
+  patient: true,
+  doctor: true,
+  tests: { include: { test: { include: { parameters: true } } } },
+};
 import { NotificationService } from './notification.service';
 import { ApiError } from '../utils/api-error.util';
 import { HTTP_STATUS } from '../constants/messages';
@@ -36,7 +43,7 @@ export class AppointmentService {
 
     const appointmentId = await getNextAppointmentId();
 
-    const appointment = await Appointment.create({
+    const appointment = await repo.create('appointment', {
       appointmentId,
       patient: patientId || undefined,
       patientName,
@@ -72,41 +79,39 @@ export class AppointmentService {
     limit?: number;
   }) {
     const { search, collectionType, status, phlebotomistId, page = 1, limit = 10 } = query;
-    const filter: any = {};
+    const filter: any = { AND: [] };
 
     if (collectionType) filter.collectionType = collectionType;
     if (status) filter.status = status;
-    if (phlebotomistId) filter['phlebotomist.userId'] = phlebotomistId;
+    if (phlebotomistId) filter.phlebotomistUserId = String(phlebotomistId);
 
     if (search) {
-      filter.$or = [
-        { appointmentId: { $regex: search, $options: 'i' } },
-        { patientName: { $regex: search, $options: 'i' } },
-        { mobile: { $regex: search, $options: 'i' } },
-      ];
+      const or = await regexAny('appointment', ['appointmentId', 'patientName', 'mobile'], String(search));
 
       // The UHID lives on the patient, not on the appointment, so searching it
       // means finding the patient first. Without this the desk can read a UHID
       // off a card but cannot use it to pull up the booking it belongs to.
-      const matchingPatients = await Patient.find({
-        uhid: { $regex: search, $options: 'i' },
-      }).select('_id');
+      const matchingPatients = await prisma.patient.findMany({
+        where: await regexWhere('patient', 'uhid', String(search)),
+        select: { id: true },
+      });
 
       if (matchingPatients.length > 0) {
-        filter.$or.push({ patient: { $in: matchingPatients.map((p) => p._id) } });
+        or.OR.push({ patientId: { in: matchingPatients.map((p) => p.id) } });
       }
+      filter.AND.push(or);
     }
 
     const skip = (Number(page) - 1) * Number(limit);
     const [appointments, total] = await Promise.all([
-      Appointment.find(filter)
-        .populate('patient')
-        .populate('doctor')
-        .populate('tests')
-        .sort({ date: 1, time: 1 })
-        .skip(skip)
-        .limit(Number(limit)),
-      Appointment.countDocuments(filter),
+      repo.find('appointment', {
+        where: filter,
+        include: APPOINTMENT_REFS,
+        orderBy: mongoSort('appointment', { date: 1, time: 1 }),
+        skip,
+        take: Number(limit),
+      }),
+      repo.count('appointment', filter),
     ]);
 
     return {
@@ -121,10 +126,7 @@ export class AppointmentService {
   }
 
   static async getById(id: string) {
-    const apt = await Appointment.findById(id)
-      .populate('patient')
-      .populate('doctor')
-      .populate('tests');
+    const apt = await repo.findById('appointment', id, { include: APPOINTMENT_REFS });
 
     if (!apt) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Appointment not found');
@@ -136,26 +138,25 @@ export class AppointmentService {
     id: string,
     phlebotomist: { userId: string; name: string; mobile?: string }
   ) {
-    const apt = await Appointment.findById(id);
+    const apt = await repo.findById('appointment', id);
     if (!apt) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Appointment not found');
     }
 
     apt.phlebotomist = phlebotomist;
     apt.status = 'Assigned';
-    await apt.save();
-    return apt;
+    return repo.save('appointment', apt);
   }
 
   static async updateStatus(id: string, status: any, notes?: string) {
-    const apt = await Appointment.findById(id);
-    if (!apt) {
+    const found = await repo.findById('appointment', id);
+    if (!found) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Appointment not found');
     }
 
-    apt.status = status;
-    if (notes) apt.notes = notes;
-    await apt.save();
+    found.status = status;
+    if (notes) found.notes = notes;
+    const apt = await repo.save('appointment', found);
 
     if (status === 'Collected') {
       NotificationService.sendNotification({

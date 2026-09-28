@@ -1,4 +1,4 @@
-import { Document } from 'mongoose';
+import { StoredDocument } from './document';
 
 export type UserRole =
   | 'Admin'
@@ -8,7 +8,7 @@ export type UserRole =
   | 'Accountant'
   | 'Phlebotomist';
 
-export interface IUserDocument extends Document {
+export interface IUserDocument extends StoredDocument {
   name: string;
   email: string;
   password: string;
@@ -27,6 +27,5 @@ export interface IUserDocument extends Document {
    * actions take effect at once instead of at the end of an 8 hour token.
    */
   sessionsValidFrom?: Date;
-  comparePassword(candidate: string): Promise<boolean>;
 }
 

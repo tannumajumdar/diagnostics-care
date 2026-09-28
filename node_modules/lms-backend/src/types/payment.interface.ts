@@ -1,9 +1,9 @@
-import { Document, Types } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 
-export interface IPaymentDocument extends Document {
+export interface IPaymentDocument extends StoredDocument {
   receiptNumber: string;
-  invoice: Types.ObjectId;
-  patient: Types.ObjectId;
+  invoice: Ref;
+  patient: Ref;
   amount: number;
   paymentMethod: 'Cash' | 'UPI' | 'Card' | 'Bank Transfer' | 'Online' | 'Credit';
   transactionRef?: string;

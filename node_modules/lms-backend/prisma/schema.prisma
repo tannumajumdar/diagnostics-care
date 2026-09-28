@@ -1,0 +1,1002 @@
+// PostgreSQL schema for the LMS, translated from the Mongoose models in
+// src/models. It is a design draft for the SQL migration - nothing reads it
+// yet, the running app still talks to MongoDB.
+//
+// Conventions used throughout:
+//
+// - Every `id` is a 24-hex ObjectId string. Rows migrated from Mongo keep
+//   their old id, so URLs and anything the frontend holds on to stay valid;
+//   new rows get one from gen_object_id() (see the init migration), which is
+//   time-ordered like Mongo's, so sorting by id still means creation order.
+// - Mongo's embedded "who did it" objects ({ userId, name, role }) are
+//   flattened into prefixed columns (createdById, createdByName ...). Where the
+//   Mongoose field had `ref: 'User'` the id is a real foreign key; where it was
+//   a plain String it stays a plain column, since the stored values were never
+//   guaranteed to point at a user.
+// - Embedded arrays that reports filter or total on (bill lines, payment
+//   splits, status history, parameters) became child tables. Snapshots that
+//   are only ever read back whole (result versions, audit details, the refund
+//   policy's stages) are JSONB.
+// - Mongo Numbers are `Decimal` (Postgres numeric), money included, and are
+//   read back as JS numbers (src/db/mappers.ts). Not Float: Prisma rounds a
+//   Float to 16 significant digits on the way in and out, and a double such
+//   as 227.67000000000002 - billing arithmetic makes them - needs 17. Not a
+//   fixed Decimal(12,2) either: rounding on write would change what billing
+//   stores. numeric keeps the double's exact decimal form, and its SUM is the
+//   exact total, which is what Mongo's compensated $sum came to as well.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Staff & access ──────────────────────────────────────────────────────────
+
+model User {
+  id                String    @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder       Int       @unique @default(autoincrement())
+  name              String
+  email             String    @unique
+  /// bcrypt hash - hashing moves from the Mongoose pre-save hook into auth.service.
+  password          String
+  role              String    @default("Receptionist")
+  mobile            String
+  status            String    @default("Active")
+  refreshToken      String?
+  /// Null (not an empty list) until the Admin ticks them, so the account keeps
+  /// following its role. Prisma scalar lists cannot be null, hence JSONB.
+  permissions       Json?
+  sessionsValidFrom DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  doctorsAdded        Doctor[]              @relation("DoctorAddedBy")
+  invoicesCreated     Invoice[]             @relation("InvoiceCreatedBy")
+  paymentsReceived    Payment[]             @relation("PaymentReceivedBy")
+  transactionsStarted PaymentTransaction[]  @relation("TransactionInitiatedBy")
+  rateChanges         RateHistory[]         @relation("RateChangedBy")
+  samplesRejected     Sample[]              @relation("SampleRejectedBy")
+  sampleStatusChanges SampleStatusHistory[]
+  attachmentsUploaded TestAttachment[]      @relation("AttachmentUploadedBy")
+}
+
+/// What one role may do. A role with no row runs on the shipped defaults.
+model RolePermission {
+  id            String    @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder   Int       @unique @default(autoincrement())
+  role          String    @unique
+  permissions   String[]  @default([])
+  updatedById   String?
+  updatedByName String?
+  updatedByAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model AuditLog {
+  id              String   @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder     Int      @unique @default(autoincrement())
+  action          String
+  module          String
+  /// Mixed in Mongo - usually a user id, sometimes a label like "system".
+  performedBy     String
+  performedByName String?
+  userRole        String?
+  ipAddress       String?
+  targetId        String?
+  details         Json?
+  createdAt       DateTime @default(now())
+
+  @@index([action])
+  @@index([module])
+  @@index([performedBy])
+  @@index([targetId])
+  @@index([createdAt(sort: Desc)])
+}
+
+/// Named running numbers (UHID, invoice, sample ...). Kept as a table rather
+/// than one Postgres SEQUENCE each so the existing getNext*() helpers map over
+/// directly: an upsert with `seq: { increment: 1 }` is atomic.
+model Counter {
+  name String @id
+  seq  Int    @default(0)
+}
+
+// ─── Masters ─────────────────────────────────────────────────────────────────
+
+model Department {
+  id             String   @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder    Int      @unique @default(autoincrement())
+  departmentName String   @unique
+  departmentCode String   @unique
+  description    String   @default("")
+  status         String   @default("Active")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  doctors      Doctor[]
+  tests        LabTest[]
+  packages     TestPackage[]
+  invoiceItems InvoiceItem[]
+  samples      Sample[]
+  results      Result[]
+}
+
+model Doctor {
+  id                 String     @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder        Int        @unique @default(autoincrement())
+  doctorName         String
+  departmentId       String
+  department         Department @relation(fields: [departmentId], references: [id])
+  gender             String     @default("Male")
+  degree             String     @default("")
+  specialty          String     @default("")
+  mobile             String
+  email              String     @default("")
+  dob                DateTime?  @db.Date
+  area               String     @default("")
+  areaCode           String     @default("")
+  hospital           String     @default("")
+  paymentTerm        String     @default("Monthly")
+  discountType       String     @default("Percentage")
+  discountPercentage Decimal    @default(0)
+  commission         Decimal    @default(0)
+  addedById          String?
+  addedBy            User?      @relation("DoctorAddedBy", fields: [addedById], references: [id])
+  status             String     @default("Active")
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  patients           Patient[]
+  appointments       Appointment[]
+  referredInvoices   Invoice[]     @relation("InvoiceReferringDoctor")
+  discountedInvoices Invoice[]     @relation("InvoiceDiscountDoctor")
+  payouts            Expense[]
+}
+
+model Organization {
+  id               String   @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder      Int      @unique @default(autoincrement())
+  organizationName String   @unique
+  contactPerson    String
+  mobile           String
+  email            String   @default("")
+  address          String   @default("")
+  city             String   @default("")
+  state            String   @default("")
+  gstNumber        String   @default("")
+  contractRate     String   @default("Corporate")
+  discount         Decimal  @default(0)
+  creditLimit      Decimal  @default(0)
+  paymentTerms     String   @default("Net 30")
+  status           String   @default("Active")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  patients Patient[]
+  invoices Invoice[]
+  /// Tests booked under this TPA's own name and code.
+  tpaTests LabTest[]
+}
+
+model LabTest {
+  id                  String        @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder         Int           @unique @default(autoincrement())
+  testName            String
+  testCode            String        @unique
+  departmentId        String
+  department          Department    @relation(fields: [departmentId], references: [id])
+  testType            String        @default("Routine")
+  sampleType          String        @default("Whole Blood")
+  sampleContainer     String        @default("EDTA Vial")
+  rate                Decimal
+  patientRate         Decimal
+  corporateRate       Decimal
+  doctorRate          Decimal
+  emergencyRate       Decimal
+  referralRate        Decimal       @default(0)
+  processingMode      String        @default("In-house")
+  outsourceLab        String        @default("")
+  outsourceCost       Decimal       @default(0)
+  /// Null is the centre's own catalogue.
+  tpaId               String?
+  tpa                 Organization? @relation(fields: [tpaId], references: [id])
+  discountAllowed     Boolean       @default(true)
+  fastingRequired     Boolean       @default(false)
+  preparationRequired String        @default("")
+  turnaroundTime      String        @default("24 Hours")
+  interpretationTitle String        @default("")
+  interpretation      String        @default("")
+
+  // reportTemplate, flattened. Null attachment id means no template.
+  reportTemplateAttachmentId String?         @unique
+  reportTemplateAttachment   TestAttachment? @relation("TestReportTemplate", fields: [reportTemplateAttachmentId], references: [id], onDelete: SetNull)
+  reportTemplateFileName     String?
+  reportTemplateSize         Int?
+  reportTemplateUploadedAt   DateTime?
+  reportTemplateUploadedBy   String?
+
+  status    String   @default("Active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parameters   TestParameter[]
+  attachments  TestAttachment[]  @relation("TestAttachments")
+  packages     TestPackageItem[]
+  appointments AppointmentTest[]
+  invoiceItems InvoiceItem[]
+  samples      Sample[]
+  results      Result[]
+  rateHistory  RateHistory[]
+
+  @@index([processingMode])
+  @@index([tpaId])
+}
+
+/// One row per parameter band - the same parameter repeats for each sex and
+/// age window it has a range for, and the sheet picks the row that fits.
+model TestParameter {
+  id                   String  @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder          Int     @unique @default(autoincrement())
+  testId               String
+  test                 LabTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+  /// Index in the Mongo array - the order it is read and printed in.
+  position             Int
+  parameterName        String
+  shortName            String  @default("")
+  unit                 String  @default("")
+  maleReferenceRange   String  @default("")
+  femaleReferenceRange String  @default("")
+  childReferenceRange  String  @default("")
+  criticalLow          String  @default("")
+  criticalHigh         String  @default("")
+  method               String  @default("")
+  resultType           String  @default("Numeric")
+  displayOrder         Decimal @default(1)
+  paraFor              String  @default("ALL")
+  minValue             String  @default("")
+  maxValue             String  @default("")
+  highRange            String  @default("")
+  lowRange             String  @default("")
+  ageFromDays          Decimal @default(0)
+  /// 0 means no upper limit.
+  ageToDays            Decimal @default(0)
+  referenceText        String  @default("")
+  formula              String  @default("")
+
+  @@index([testId, displayOrder])
+}
+
+/// A reference file kept with a test. Its own table so listing the catalogue
+/// never drags the bytes along - `data` should be left out via Prisma `omit`.
+model TestAttachment {
+  id             String   @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder    Int      @unique @default(autoincrement())
+  testId         String
+  test           LabTest  @relation("TestAttachments", fields: [testId], references: [id], onDelete: Cascade)
+  fileName       String
+  mimeType       String
+  size           Int
+  data           Bytes
+  kind           String   @default("reference")
+  uploadedById   String?
+  uploadedBy     User?    @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id])
+  uploadedByName String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  templateFor LabTest? @relation("TestReportTemplate")
+
+  @@index([testId])
+}
+
+model TestPackage {
+  id              String      @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder     Int         @unique @default(autoincrement())
+  packageName     String
+  packageCode     String      @unique
+  description     String      @default("")
+  departmentId    String?
+  department      Department? @relation(fields: [departmentId], references: [id])
+  rate            Decimal
+  referralRate    Decimal     @default(0)
+  discountAllowed Boolean     @default(true)
+  status          String      @default("Active")
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  tests        TestPackageItem[]
+  invoiceItems InvoiceItem[]
+
+  @@index([departmentId])
+}
+
+/// Package ↔ test. An explicit join so the order the tests were listed in
+/// survives - Mongo kept it as array order.
+model TestPackageItem {
+  packageId String
+  package   TestPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  testId    String
+  test      LabTest     @relation(fields: [testId], references: [id])
+  position  Int
+
+  @@id([packageId, testId])
+}
+
+model RateHistory {
+  id          String  @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder Int     @unique @default(autoincrement())
+  testId      String
+  test        LabTest @relation(fields: [testId], references: [id])
+  testCode    String
+  testName    String
+
+  prevRate          Decimal
+  prevPatientRate   Decimal
+  prevCorporateRate Decimal
+  prevDoctorRate    Decimal
+  prevEmergencyRate Decimal
+  /// Older rows in the trail predate referral rates.
+  prevReferralRate  Decimal?
+
+  newRate          Decimal
+  newPatientRate   Decimal
+  newCorporateRate Decimal
+  newDoctorRate    Decimal
+  newEmergencyRate Decimal
+  newReferralRate  Decimal?
+
+  reason        String   @default("")
+  changedById   String
+  changedBy     User     @relation("RateChangedBy", fields: [changedById], references: [id])
+  changedByName String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([testId])
+}
+
+/// The centre's single return policy. `singleton` is fixed so "create it if
+/// missing" stays an upsert.
+model RefundPolicy {
+  id                       String    @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder              Int       @unique @default(autoincrement())
+  singleton                String    @unique @default("refund-policy")
+  enabled                  Boolean   @default(true)
+  /// { beforeCollection: { allowed, refundPercent }, afterCollection: ..., ... }
+  stages                   Json
+  cancellationFee          Decimal
+  refundWindowDays         Decimal
+  fullRefundOnLabRejection Boolean
+  allowAdminOverride       Boolean
+  policyNote               String    @default("")
+  updatedById              String?
+  updatedByName            String?
+  updatedByRole            String?
+  updatedByAt              DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+}
+
+// ─── Patients & visits ───────────────────────────────────────────────────────
+
+model Patient {
+  id                String        @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder       Int           @unique @default(autoincrement())
+  uhid              String        @unique
+  patientName       String
+  gender            String
+  dateOfBirth       DateTime?     @db.Date
+  age               Decimal
+  mobile            String
+  address           String        @default("")
+  city              String        @default("")
+  state             String        @default("")
+  pinCode           String        @default("")
+  emergencyContact  String        @default("")
+  referringDoctorId String?
+  referringDoctor   Doctor?       @relation(fields: [referringDoctorId], references: [id])
+  organizationId    String?
+  organization      Organization? @relation(fields: [organizationId], references: [id])
+  registrationDate  DateTime      @default(now())
+  status            String        @default("Active")
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  appointments        Appointment[]
+  invoices            Invoice[]
+  payments            Payment[]
+  paymentTransactions PaymentTransaction[]
+  refunds             Refund[]
+  payouts             Expense[]
+  samples             Sample[]
+  results             Result[]
+  savedReports        SavedReport[]
+
+  @@index([patientName])
+  @@index([mobile])
+  @@index([referringDoctorId])
+  @@index([organizationId])
+  @@index([registrationDate])
+  @@index([status, registrationDate(sort: Desc)])
+}
+
+model Appointment {
+  id                 String            @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder        Int               @unique @default(autoincrement())
+  appointmentId      String            @unique
+  patientId          String?
+  patient            Patient?          @relation(fields: [patientId], references: [id])
+  patientName        String
+  mobile             String
+  doctorId           String?
+  doctor             Doctor?           @relation(fields: [doctorId], references: [id])
+  tests              AppointmentTest[]
+  date               DateTime
+  time               String
+  collectionType     String            @default("Lab Visit")
+  address            String            @default("")
+  phlebotomistUserId String?
+  phlebotomistName   String?
+  phlebotomistMobile String?
+  status             String            @default("Pending")
+  notes              String            @default("")
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([patientId])
+  @@index([date])
+  @@index([collectionType])
+  @@index([status])
+}
+
+/// Appointment ↔ test, in the order the tests were booked.
+model AppointmentTest {
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  testId        String
+  test          LabTest     @relation(fields: [testId], references: [id])
+  position      Int
+
+  @@id([appointmentId, position])
+}
+
+// ─── Billing ─────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id                  String        @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder         Int           @unique @default(autoincrement())
+  invoiceNumber       String        @unique
+  /// Unique, but bills raised before enquiry numbers existed have none -
+  /// Postgres unique allows any number of NULLs, which is what Mongo's
+  /// sparse index was standing in for.
+  enquiryNo           String?       @unique
+  patientId           String
+  patient             Patient       @relation(fields: [patientId], references: [id])
+  uhid                String
+  referringDoctorId   String?
+  referringDoctor     Doctor?       @relation("InvoiceReferringDoctor", fields: [referringDoctorId], references: [id])
+  referringDoctorName String        @default("")
+  organizationId      String?
+  organization        Organization? @relation(fields: [organizationId], references: [id])
+  chiefComplaint      String        @default("")
+  clinicalNotes       String        @default("")
+  priority            String        @default("Routine")
+  subtotal            Decimal
+  discountType        String        @default("Fixed")
+  discountValue       Decimal       @default(0)
+  discountReason      String        @default("")
+  discountDoctorId    String?
+  discountDoctor      Doctor?       @relation("InvoiceDiscountDoctor", fields: [discountDoctorId], references: [id])
+  discountDoctorName  String        @default("")
+  netAmount           Decimal
+  referralTotal       Decimal       @default(0)
+  paidAmount          Decimal       @default(0)
+  dueAmount           Decimal       @default(0)
+  paymentStatus       String        @default("Unpaid")
+  /// The tender the bill is filed under - the largest one when it was split.
+  paymentMethod       String        @default("Cash")
+  barcode             String
+  createdById         String
+  createdBy           User          @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  createdByName       String
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  items               InvoiceItem[]
+  paymentBreakdown    InvoicePaymentSplit[]
+  revisions           InvoiceRevision[]
+  payments            Payment[]
+  paymentTransactions PaymentTransaction[]
+  refunds             Refund[]
+  payouts             Expense[]
+  samples             Sample[]
+  results             Result[]
+  savedReports        SavedReport[]
+
+  @@index([patientId])
+  @@index([uhid])
+  @@index([referringDoctorId, createdAt(sort: Desc)])
+  @@index([organizationId])
+  @@index([discountDoctorId])
+  @@index([priority])
+  @@index([paymentStatus, createdAt(sort: Desc)])
+  @@index([paymentMethod])
+  @@index([barcode])
+}
+
+/// One line on a bill. Frozen copies of the test's name, code and department
+/// so the bill still reads correctly after the master changes.
+model InvoiceItem {
+  id                 String       @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder        Int          @unique @default(autoincrement())
+  invoiceId          String
+  invoice            Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  /// Array order in Mongo; the bill prints lines in this order.
+  position           Int
+  testId             String
+  test               LabTest      @relation(fields: [testId], references: [id])
+  testCode           String
+  testName           String
+  departmentId       String
+  department         Department   @relation(fields: [departmentId], references: [id])
+  departmentName     String
+  rate               Decimal
+  lineDiscountAmount Decimal      @default(0)
+  discountAmount     Decimal      @default(0)
+  netAmount          Decimal
+  processingMode     String       @default("In-house")
+  outsourceLab       String       @default("")
+  referralRate       Decimal      @default(0)
+  packageId          String?
+  package            TestPackage? @relation(fields: [packageId], references: [id])
+  packageName        String       @default("")
+  cancelled          Boolean      @default(false)
+  cancelledAt        DateTime?
+  cancellationReason String       @default("")
+  refundedAmount     Decimal      @default(0)
+  retainedAmount     Decimal      @default(0)
+  cancelledById      String?
+  cancelledByName    String?
+  cancelledByRole    String?
+
+  @@index([invoiceId, position])
+  @@index([testId])
+  @@index([departmentId])
+}
+
+/// What came in by each method on one bill. The Payment rows stay the ledger;
+/// this is the per-method running total the directory reads.
+model InvoicePaymentSplit {
+  id          String  @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder Int     @unique @default(autoincrement())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  /// Index in the Mongo array - the order it is read and printed in.
+  position    Int
+  method      String
+  amount      Decimal
+
+  @@index([invoiceId, position])
+  @@index([method])
+}
+
+model InvoiceRevision {
+  id          String   @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder Int      @unique @default(autoincrement())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  /// Index in the Mongo array - the order it is read and printed in.
+  position    Int
+  at          DateTime @default(now())
+  byUserId    String?
+  byName      String?
+  byRole      String?
+  summary     String   @default("")
+  testsAdded  String[] @default([])
+  netBefore   Decimal  @default(0)
+  netAfter    Decimal  @default(0)
+
+  @@index([invoiceId, at])
+}
+
+/// Money the centre has. Written only once a collection actually succeeds.
+model Payment {
+  id             String   @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder    Int      @unique @default(autoincrement())
+  receiptNumber  String   @unique
+  invoiceId      String
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id])
+  patientId      String
+  patient        Patient  @relation(fields: [patientId], references: [id])
+  amount         Decimal
+  paymentMethod  String
+  transactionRef String   @default("")
+  notes          String   @default("")
+  receivedById   String
+  receivedBy     User     @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
+  receivedByName String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  transaction PaymentTransaction?
+
+  @@index([invoiceId])
+  @@index([patientId])
+}
+
+/// One attempt at collecting through a machine (UPI / card). Separate from
+/// Payment so a declined card never lands in the day's takings.
+model PaymentTransaction {
+  id              String    @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder     Int       @unique @default(autoincrement())
+  txnId           String    @unique
+  invoiceId       String
+  invoice         Invoice   @relation(fields: [invoiceId], references: [id])
+  patientId       String
+  patient         Patient   @relation(fields: [patientId], references: [id])
+  amount          Decimal
+  method          String
+  status          String    @default("Pending")
+  vpa             String    @default("")
+  upiIntent       String    @default("")
+  utr             String    @default("")
+  cardLast4       String    @default("")
+  cardNetwork     String    @default("")
+  authCode        String    @default("")
+  rrn             String    @default("")
+  /// Secret for the payer's side - leave out of reads via Prisma `omit`.
+  payerToken      String
+  failureReason   String    @default("")
+  expiresAt       DateTime
+  completedAt     DateTime?
+  paymentId       String?   @unique
+  payment         Payment?  @relation(fields: [paymentId], references: [id])
+  initiatedById   String
+  initiatedBy     User      @relation("TransactionInitiatedBy", fields: [initiatedById], references: [id])
+  initiatedByName String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([invoiceId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+}
+
+model Refund {
+  id             String   @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder    Int      @unique @default(autoincrement())
+  refundId       String   @unique
+  invoiceId      String
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id])
+  patientId      String
+  patient        Patient  @relation(fields: [patientId], references: [id])
+  originalAmount Decimal
+  refundAmount   Decimal
+  reason         String
+  /// Never Credit - enforced in the service.
+  paymentMethod  String
+  approvedById   String
+  approvedByName String
+  approvedByRole String
+  date           DateTime @default(now())
+  remarks        String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([invoiceId])
+  @@index([patientId])
+}
+
+/// The outgoing-cash ledger (payouts): ambulance, courier, doctor cut, supplier.
+model Expense {
+  id              String    @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder     Int       @unique @default(autoincrement())
+  expenseId       String    @unique
+  payeeType       String    @default("Other")
+  payeeName       String
+  payeeContact    String    @default("")
+  category        String
+  description     String
+  amount          Decimal
+  /// Never Credit - enforced in the service.
+  paymentMethod   String    @default("Cash")
+  referenceNo     String    @default("")
+  expenseDate     DateTime  @default(now())
+  status          String    @default("Paid")
+  needsApproval   Boolean   @default(false)
+  patientId       String?
+  patient         Patient?  @relation(fields: [patientId], references: [id])
+  invoiceId       String?
+  invoice         Invoice?  @relation(fields: [invoiceId], references: [id])
+  doctorId        String?
+  doctor          Doctor?   @relation(fields: [doctorId], references: [id])
+  recordedById    String
+  recordedByName  String
+  recordedByRole  String?
+  approvedById    String?
+  approvedByName  String?
+  approvedByRole  String?
+  approvedAt      DateTime?
+  rejectionReason String    @default("")
+  receiptUrl      String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([payeeType])
+  @@index([payeeName])
+  @@index([category])
+  @@index([expenseDate])
+  @@index([status])
+  @@index([doctorId])
+}
+
+// ─── Lab workflow ────────────────────────────────────────────────────────────
+
+model Sample {
+  id                 String     @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder        Int        @unique @default(autoincrement())
+  sampleId           String     @unique
+  barcode            String
+  patientId          String
+  patient            Patient    @relation(fields: [patientId], references: [id])
+  uhid               String
+  enquiryNo          String?
+  invoiceId          String
+  invoice            Invoice    @relation(fields: [invoiceId], references: [id])
+  testId             String
+  test               LabTest    @relation(fields: [testId], references: [id])
+  testCode           String
+  testName           String
+  departmentId       String
+  department         Department @relation(fields: [departmentId], references: [id])
+  sampleType         String
+  sampleContainer    String
+  processingMode     String     @default("In-house")
+  outsourceLab       String     @default("")
+  collectionDate     DateTime?
+  collectionTime     String     @default("")
+  collector          String     @default("")
+  status             String     @default("Pending Collection")
+  priority           String     @default("Routine")
+  chiefComplaint     String     @default("")
+  rejectionReason    String     @default("")
+  rejectionRemarks   String     @default("")
+  rejectedById       String?
+  rejectedBy         User?      @relation("SampleRejectedBy", fields: [rejectedById], references: [id])
+  rejectedByName     String?
+  rejectedAt         DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String     @default("")
+  receivedAt         DateTime?
+  processingAt       DateTime?
+  completedAt        DateTime?
+  expectedAt         DateTime?
+  recollectionCount  Int        @default(0)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  statusHistory SampleStatusHistory[]
+  result        Result?
+
+  @@index([barcode])
+  @@index([patientId])
+  @@index([uhid])
+  @@index([enquiryNo])
+  @@index([invoiceId])
+  @@index([processingMode])
+  @@index([status])
+  @@index([priority])
+}
+
+model SampleStatusHistory {
+  id            String   @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder   Int      @unique @default(autoincrement())
+  sampleId      String
+  sample        Sample   @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  /// Index in the Mongo array - the order it is read and printed in.
+  position      Int
+  fromStatus    String?
+  toStatus      String
+  updatedById   String
+  updatedBy     User     @relation(fields: [updatedById], references: [id])
+  updatedByName String
+  updatedByRole String
+  timestamp     DateTime @default(now())
+  notes         String   @default("")
+
+  @@index([sampleId, timestamp])
+}
+
+model Result {
+  id              String     @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder     Int        @unique @default(autoincrement())
+  resultId        String     @unique
+  patientId       String
+  patient         Patient    @relation(fields: [patientId], references: [id])
+  uhid            String
+  enquiryNo       String?
+  invoiceId       String
+  invoice         Invoice    @relation(fields: [invoiceId], references: [id])
+  /// One result sheet per sample.
+  sampleId        String     @unique
+  sample          Sample     @relation(fields: [sampleId], references: [id])
+  testId          String
+  test            LabTest    @relation(fields: [testId], references: [id])
+  departmentId    String
+  department      Department @relation(fields: [departmentId], references: [id])
+  status          String     @default("Draft")
+  overallRemarks  String     @default("")
+  enteredById     String
+  enteredByName   String
+  enteredByRole   String
+  enteredAt       DateTime   @default(now())
+  verifiedById    String?
+  verifiedByName  String?
+  verifiedByRole  String?
+  verifiedAt      DateTime?
+  rejectionReason String     @default("")
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  results      ResultParameter[]
+  versions     ResultVersion[]
+  savedReports SavedReport[]
+
+  @@index([patientId])
+  @@index([uhid])
+  @@index([enquiryNo])
+  @@index([invoiceId])
+  @@index([testId])
+  @@index([departmentId])
+  @@index([status])
+}
+
+/// One line of a result sheet. Limits are copied off the test master so a
+/// re-flag on save uses the ranges the sheet was built with.
+model ResultParameter {
+  id              String   @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder     Int      @unique @default(autoincrement())
+  resultId        String
+  result          Result   @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  /// Index in the Mongo array - the order it is read and printed in.
+  position        Int
+  parameterId     String?
+  parameterName   String
+  shortName       String?
+  value           String   @default("")
+  unit            String   @default("")
+  referenceRange  String   @default("")
+  flag            String   @default("Normal")
+  flagManual      Boolean  @default(false)
+  method          String   @default("")
+  remarks         String   @default("")
+  resultType      String   @default("Numeric")
+  dropdownOptions String[] @default([])
+  criticalLow     String   @default("")
+  criticalHigh    String   @default("")
+  highRange       String   @default("")
+  lowRange        String   @default("")
+  displayOrder    Decimal  @default(1)
+  formula         String   @default("")
+  formulaOverride Boolean  @default(false)
+
+  @@index([resultId, displayOrder])
+}
+
+/// A snapshot of the sheet at each status change. Only ever read back whole,
+/// so the parameter lines are kept as JSONB rather than another child table.
+model ResultVersion {
+  id            String   @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder   Int      @unique @default(autoincrement())
+  resultId      String
+  result        Result   @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  /// Index in the Mongo array - the order it is read and printed in.
+  position      Int
+  version       Int
+  changedById   String
+  changedByName String
+  changedByRole String
+  results       Json
+  status        String
+  reason        String   @default("")
+  timestamp     DateTime @default(now())
+
+  @@unique([resultId, version])
+}
+
+/// A report PDF exactly as it was handed over. `data` should be left out of
+/// list reads via Prisma `omit`.
+model SavedReport {
+  id            String   @id @default(dbgenerated("gen_object_id()"))
+  /// Mongo's natural order: the order rows were inserted in. Rows that tie on a
+  /// sort, and queries with no sort at all, come back in this order, as they did.
+  insertOrder   Int      @unique @default(autoincrement())
+  resultId      String
+  result        Result   @relation(fields: [resultId], references: [id])
+  patientId     String?
+  patient       Patient? @relation(fields: [patientId], references: [id])
+  patientName   String   @default("")
+  uhid          String   @default("")
+  mobile        String   @default("")
+  invoiceId     String?
+  invoice       Invoice? @relation(fields: [invoiceId], references: [id])
+  invoiceNumber String   @default("")
+  enquiryNo     String   @default("")
+  reportNo      String   @default("")
+  status        String   @default("Final")
+  tests         String[] @default([])
+  fileName      String
+  size          Int      @default(0)
+  data          Bytes
+  savedById     String?
+  savedByName   String?
+  savedByRole   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([resultId])
+  @@index([patientId])
+  @@index([uhid])
+  @@index([invoiceId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+}

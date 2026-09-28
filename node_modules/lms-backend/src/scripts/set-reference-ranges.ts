@@ -16,8 +16,8 @@
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
-import mongoose from 'mongoose';
-import { LabTest } from '../models/test.model';
+import { prisma } from '../db/prisma';
+import { repo, NATURAL } from '../db/repo';
 
 type Sex = 'ALL' | 'MALE' | 'FEMALE';
 
@@ -257,9 +257,8 @@ const RANGES: Record<string, Band[]> = {
 
 const run = async () => {
   const dryRun = process.argv.includes('--dry-run');
-  await mongoose.connect(process.env.MONGODB_URI as string);
 
-  const all = await LabTest.find({}, { testName: 1, testCode: 1, parameters: 1 }).lean();
+  const all = await repo.find('labTest', { orderBy: NATURAL });
   if (!dryRun) {
     const dir = path.join(__dirname, '../../backups');
     fs.mkdirSync(dir, { recursive: true });
@@ -281,13 +280,13 @@ const run = async () => {
     const rows = toRows(bands);
     console.log(`${dryRun ? '[dry] ' : ''}${code.padEnd(9)} ${test.testName} -> ${rows.length} rows`);
     if (!dryRun) {
-      await LabTest.updateOne({ _id: test._id }, { $set: { parameters: rows } }, { runValidators: true });
+      await repo.updateById('labTest', test._id, { parameters: rows }, { runValidators: true });
       updated += 1;
     }
   }
 
   console.log(dryRun ? 'Dry run - nothing written.' : `Updated ${updated} tests.`);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
 };
 
 run().catch((err) => {

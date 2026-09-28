@@ -10,9 +10,9 @@
  *   npm run backfill:formulas              # write the formulas
  *   npm run backfill:formulas -- --dry-run # show what would change
  */
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { LabTest } from '../models/test.model';
+import { prisma, describeDatabase } from '../db/prisma';
+import { repo, NATURAL } from '../db/repo';
 import { withStandardFormulas } from '../constants/parameter-formulas';
 import { formulaKey, formulaProblem } from '../utils/formula.util';
 
@@ -20,15 +20,18 @@ dotenv.config();
 
 const run = async () => {
   const dryRun = process.argv.includes('--dry-run');
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/lms_db';
-  await mongoose.connect(uri);
+  // Prisma reads DATABASE_URL itself; connecting up front makes a bad URL fail
+  // here, before anything is read. The password is not printed.
+  const uri = describeDatabase();
+  await prisma.$connect();
   console.log(`Connected to ${uri}${dryRun ? ' (dry run)' : ''}`);
 
-  const tests = await LabTest.find({});
+  const tests = await repo.find('labTest', { orderBy: NATURAL });
   let changedTests = 0;
 
   for (const test of tests) {
-    const before = (test.parameters || []).map((p: any) => (typeof p.toObject === 'function' ? p.toObject() : p));
+    // A copy of each line, as toObject() gave, so `before` stays as it was read.
+    const before = (test.parameters || []).map((p: any) => ({ ...p }));
     const after = withStandardFormulas(before);
 
     const known = new Set<string>();
@@ -55,16 +58,16 @@ const run = async () => {
 
     if (!dryRun) {
       test.parameters = after as any;
-      await test.save();
+      await repo.save('labTest', test);
     }
   }
 
   console.log(`\n${changedTests} test(s) ${dryRun ? 'would get' : 'got'} formulas.`);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
 };
 
 run().catch(async (err) => {
   console.error(err);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
   process.exit(1);
 });

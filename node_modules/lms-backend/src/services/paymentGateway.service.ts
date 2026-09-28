@@ -1,12 +1,21 @@
-import { PaymentTransaction, TERMINAL_STATUSES, type TransactionMethod } from '../models/paymentTransaction.model';
-import { Invoice } from '../models/invoice.model';
-import { getNextTransactionId } from '../models/counter.model';
+import { prisma } from '../db/prisma';
+import { repo, mongoSort } from '../db/repo';
+import { TERMINAL_STATUSES, type TransactionMethod } from '../constants/payment-transactions';
+import { getNextTransactionId } from '../db/counters';
+
+/** `.select('+payerToken')`: the payer's secret, left out of every other read. */
+const WITH_TOKEN = { omit: { payerToken: false } };
+
+/** `PaymentTransaction.findOne({ txnId })`. */
+const byTxnId = (txnId: string, opts: { withToken?: boolean } = {}) =>
+  repo.findOne('paymentTransaction', { txnId: String(txnId) }, opts.withToken ? WITH_TOKEN : {});
 import { BillingService } from './billing.service';
 import { ApiError } from '../utils/api-error.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { JwtPayload } from '../types/auth.interface';
 import { logAuditAction } from '../utils/auditLogger';
 import { randomBytes, timingSafeEqual } from 'crypto';
+import { assertObjectId } from '../db/ids';
 
 /**
  * A stand-in for a payment gateway and a card terminal.
@@ -98,7 +107,7 @@ export class PaymentGatewayService {
   static async initiate(payload: InitiatePayload, currentUser: JwtPayload) {
     const { invoiceId, method } = payload;
 
-    const invoice = await Invoice.findById(invoiceId);
+    const invoice = await repo.findById('invoice', invoiceId);
     if (!invoice) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Invoice record not found');
     if (invoice.dueAmount <= 0) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'This invoice is already fully paid');
 
@@ -110,15 +119,16 @@ export class PaymentGatewayService {
      * would tap their card while the UPI request is still live and pay twice.
      * Any attempt still in flight is closed before a new one opens.
      */
-    await PaymentTransaction.updateMany(
-      { invoice: invoice._id, status: 'Pending' },
-      { $set: { status: 'Cancelled', failureReason: 'Superseded by a new attempt', completedAt: new Date() } }
-    );
+    await prisma.paymentTransaction.updateMany({
+      where: { invoiceId: invoice._id, status: 'Pending' },
+      data: { status: 'Cancelled', failureReason: 'Superseded by a new attempt', completedAt: new Date() },
+    });
 
     const txnId = await getNextTransactionId();
     const note = `${invoice.invoiceNumber} at ${CENTRE_NAME}`;
 
-    const transaction = await PaymentTransaction.create({
+    // A freshly created document carried every field, the secret included.
+    const transaction = await repo.create('paymentTransaction', {
       txnId,
       invoice: invoice._id,
       patient: invoice.patient,
@@ -130,7 +140,7 @@ export class PaymentGatewayService {
       payerToken: makePayerToken(),
       expiresAt: new Date(Date.now() + WINDOW_SECONDS[method] * 1000),
       initiatedBy: { userId: currentUser.userId as any, name: currentUser.name },
-    });
+    }, WITH_TOKEN);
 
     logAuditAction({
       action: 'PAYMENT_INITIATED',
@@ -149,7 +159,7 @@ export class PaymentGatewayService {
    * nothing has swept it up yet.
    */
   static async getStatus(txnId: string) {
-    const transaction = await PaymentTransaction.findOne({ txnId }).select('+payerToken');
+    let transaction: any = await byTxnId(txnId, { withToken: true });
     if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'No such payment attempt');
 
     if (transaction.status === 'Pending' && transaction.expiresAt.getTime() <= Date.now()) {
@@ -159,7 +169,7 @@ export class PaymentGatewayService {
           ? 'The patient did not approve the request in time'
           : 'The terminal timed out waiting for a card';
       transaction.completedAt = new Date();
-      await transaction.save();
+      transaction = { ...(await repo.save('paymentTransaction', transaction)), payerToken: transaction.payerToken };
     }
 
     return PaymentGatewayService.present(transaction);
@@ -180,7 +190,7 @@ export class PaymentGatewayService {
     outcome: 'success' | 'failure',
     options: { reason?: string; cardLast4?: string; cardNetwork?: string; vpa?: string } = {}
   ) {
-    const transaction = await PaymentTransaction.findOne({ txnId }).select('+payerToken');
+    let transaction: any = await byTxnId(txnId, { withToken: true });
     // The same answer for an unknown id and a wrong token, so this cannot be
     // used to find out which transaction ids exist.
     if (!transaction || !tokenMatches(token, transaction.payerToken)) {
@@ -202,7 +212,7 @@ export class PaymentGatewayService {
         options.reason ||
         (transaction.method === 'UPI' ? 'Declined by the payer' : 'Declined by the issuing bank');
       transaction.completedAt = new Date();
-      await transaction.save();
+      transaction = { ...(await repo.save('paymentTransaction', transaction)), payerToken: transaction.payerToken };
       return PaymentGatewayService.present(transaction);
     }
 
@@ -218,24 +228,24 @@ export class PaymentGatewayService {
 
     transaction.status = 'Success';
     transaction.completedAt = new Date();
-    await transaction.save();
+    await repo.save('paymentTransaction', transaction);
 
     await PaymentGatewayService.capture(transaction._id as any);
 
-    const settled = await PaymentTransaction.findById(transaction._id);
+    const settled = await repo.findById('paymentTransaction', transaction._id);
     return PaymentGatewayService.present(settled!);
   }
 
   /** The desk giving up on an attempt - the patient changed their mind. */
   static async cancel(txnId: string) {
-    const transaction = await PaymentTransaction.findOne({ txnId });
+    let transaction: any = await byTxnId(txnId);
     if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'No such payment attempt');
 
     if (!TERMINAL_STATUSES.includes(transaction.status)) {
       transaction.status = 'Cancelled';
       transaction.failureReason = 'Cancelled at the counter';
       transaction.completedAt = new Date();
-      await transaction.save();
+      transaction = await repo.save('paymentTransaction', transaction);
     }
 
     return PaymentGatewayService.present(transaction);
@@ -246,7 +256,7 @@ export class PaymentGatewayService {
    * a duplicated webhook or a double-clicked button all write one receipt.
    */
   private static async capture(transactionObjectId: string) {
-    const transaction = await PaymentTransaction.findById(transactionObjectId);
+    const transaction: any = await repo.findById('paymentTransaction', transactionObjectId);
     if (!transaction || transaction.status !== 'Success' || transaction.payment) return;
 
     const { paymentRecord } = await BillingService.addPayment(
@@ -267,7 +277,7 @@ export class PaymentGatewayService {
     );
 
     transaction.payment = paymentRecord?._id as any;
-    await transaction.save();
+    await repo.save('paymentTransaction', transaction);
 
     logAuditAction({
       action: 'PAYMENT_CAPTURED',
@@ -285,7 +295,11 @@ export class PaymentGatewayService {
 
   /** The attempts against one invoice, newest first - the desk's retry trail. */
   static async listForInvoice(invoiceId: string) {
-    return PaymentTransaction.find({ invoice: invoiceId }).sort({ createdAt: -1 }).limit(20);
+    return repo.find('paymentTransaction', {
+      where: { invoiceId: assertObjectId(invoiceId, 'invoice') },
+      orderBy: mongoSort('paymentTransaction', { createdAt: -1 }),
+      take: 20,
+    });
   }
 
   /**
@@ -294,8 +308,15 @@ export class PaymentGatewayService {
    * on them when this is swapped for a real provider.
    */
   private static async present(transaction: any) {
+    // `.populate({ path: 'payment', select: 'receiptNumber amount' })`
     const populated = transaction.payment
-      ? await transaction.populate({ path: 'payment', select: 'receiptNumber amount' })
+      ? {
+          ...transaction,
+          payment: await prisma.payment.findUnique({
+            where: { id: String(transaction.payment) },
+            select: { receiptNumber: true, amount: true },
+          }),
+        }
       : transaction;
 
     const secondsLeft = Math.max(0, Math.round((populated.expiresAt.getTime() - Date.now()) / 1000));
