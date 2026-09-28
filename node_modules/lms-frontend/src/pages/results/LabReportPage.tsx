@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { asList } from '../../utils/api-list';
@@ -56,6 +56,24 @@ export const LabReportPage: React.FC = () => {
   const [logoShown, setLogoShown] = useState(Boolean(CENTRE.logoUrl));
   const { showToast } = useToast();
   const [saving, setSaving] = useState(false);
+
+  /**
+   * Which copy is being printed. "plain" leaves the letterhead out - for the
+   * centre's own pre-printed stationery - but keeps its space, so the report
+   * lands below the printed header instead of running into it.
+   */
+  const [printMode, setPrintMode] = useState<'header' | 'plain' | null>(null);
+  useEffect(() => {
+    if (!printMode) return;
+    const clear = () => setPrintMode(null);
+    window.addEventListener('afterprint', clear);
+    // A frame for the letterhead to hide before the dialog freezes the page.
+    const timer = window.setTimeout(() => window.print(), 80);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('afterprint', clear);
+    };
+  }, [printMode]);
 
   const { data: opened, isLoading, isError, error } = useQuery({
     queryKey: ['lab-report', resultId],
@@ -266,8 +284,23 @@ export const LabReportPage: React.FC = () => {
 
         {standard.length > 0 && (
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => window.print()}>
-            <Printer className="mr-1 h-4 w-4" /> Print Report
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPrintMode('header')}
+            disabled={!!printMode}
+            title="Print with the centre's name and logo"
+          >
+            <Printer className="mr-1 h-4 w-4" /> Print with Header
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPrintMode('plain')}
+            disabled={!!printMode}
+            title="Print without the centre's name and logo - for pre-printed letterhead paper"
+          >
+            <Printer className="mr-1 h-4 w-4" /> Print without Header
           </Button>
           <Button
             size="sm"
@@ -311,47 +344,30 @@ export const LabReportPage: React.FC = () => {
 
       {standard.length > 0 && (
       <Card className="report-sheet relative space-y-5 overflow-hidden border-2 bg-card p-6 print:border-0 print:p-0 print:shadow-none">
-        {provisional && (
-          <>
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0 flex select-none items-center justify-center"
-            >
-              <span style={{ transform: 'rotate(-30deg)' }} className="text-6xl font-black uppercase tracking-widest text-amber-500/15">
-                Provisional
-              </span>
-            </div>
-          </>
-        )}
-        {/* What kind of copy this is, printed on the report itself. */}
-        {provisional ? (
-          <div className="rounded-md border border-amber-300 bg-amber-50 py-1.5 text-center">
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-amber-800">Provisional Report</p>
-            <p className="text-[10px] font-semibold text-amber-700">Not verified by the pathologist</p>
-          </div>
-        ) : (
-          <div className="rounded-md border border-emerald-300 bg-emerald-50 py-1.5 text-center">
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-emerald-800">Final Report</p>
-            <p className="text-[10px] font-semibold text-emerald-700">Verified and approved by the pathologist</p>
-          </div>
-        )}
         {/* Letterhead. Read from the same centre profile the bill prints, so
             the report a patient carries home names the centre that ran the
             test - not a placeholder, and not a different name to their bill. */}
-        <div className="flex min-h-[96px] items-center gap-4 border-b pb-4">
+        <div
+          className={`flex min-h-[96px] items-center gap-4 border-b pb-4 ${
+            printMode === 'plain' ? 'print:invisible' : ''
+          }`}
+        >
           {/* The logo keeps a cell of its own whether or not artwork is
               configured, so the header is the same height on every report -
               the centre can print on stationery that already carries its
               letterhead, and nothing below moves the day `logo.png` is
               dropped into `frontend/public`. */}
-          <div className="flex h-[72px] w-[120px] shrink-0 items-center justify-center overflow-hidden">
-            {logoShown && (
+          {/* Drawn as a box so the logo's place reads as intended, not as a gap. */}
+          <div className="flex h-[72px] w-[120px] shrink-0 items-center justify-center overflow-hidden rounded-md border border-slate-300 p-1">
+            {logoShown ? (
               <img
                 src={CENTRE.logoUrl}
                 alt=""
                 className="max-h-full max-w-full object-contain"
                 onError={() => setLogoShown(false)}
               />
+            ) : (
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-300">Logo</span>
             )}
           </div>
 
@@ -366,6 +382,19 @@ export const LabReportPage: React.FC = () => {
               sheet rather than sitting off to the right of it. */}
           <div className="h-[72px] w-[120px] shrink-0" aria-hidden />
         </div>
+
+        {/* What kind of copy this is - a short line under the letterhead, so it
+            prints on plain paper and on the centre's stationery alike. */}
+        <p
+          className={`-mt-2 text-center text-xs font-bold uppercase tracking-[0.2em] ${
+            provisional ? 'text-amber-700' : 'text-emerald-700'
+          }`}
+        >
+          {provisional ? 'Provisional Report' : 'Final Report'}
+          <span className="ml-2 text-[10px] font-medium normal-case tracking-normal text-muted-foreground">
+            {provisional ? '(not verified by the pathologist)' : '(verified by the pathologist)'}
+          </span>
+        </p>
 
         {/* Printed once for the whole visit: who it is for, who asked for it,
             and which bill it came off. Anything that belongs to one draw sits
