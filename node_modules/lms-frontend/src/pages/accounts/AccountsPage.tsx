@@ -54,9 +54,14 @@ export const AccountsPage: React.FC = () => {
     queryFn: () => accountsApi.getAllRefunds(),
   });
 
+  // The front desk can cancel and refund, but doctor commission is a report
+  // the API only serves to REPORT_VIEW - so the tab is not offered without it.
+  const canSeeCommissions = hasPermission(user, PERMISSIONS.REPORT_VIEW);
+
   const { data: commissionsData } = useQuery({
     queryKey: ['doctor-commissions'],
     queryFn: () => accountsApi.getDoctorCommissions(),
+    enabled: canSeeCommissions,
   });
 
   const { data: invoicesData } = useQuery({
@@ -130,7 +135,9 @@ export const AccountsPage: React.FC = () => {
             ['refunds', `Refund Registry (${refunds.length})`],
             ['commissions', 'Doctor Commissions'],
           ] as const
-        ).map(([key, label]) => (
+        )
+          .filter(([key]) => key !== 'commissions' || canSeeCommissions)
+          .map(([key, label]) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
@@ -274,7 +281,7 @@ export const AccountsPage: React.FC = () => {
         </Card>
       )}
 
-      {activeTab === 'commissions' && (
+      {activeTab === 'commissions' && canSeeCommissions && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base font-bold">Doctor Referral Commission Ledger</CardTitle>

@@ -110,6 +110,8 @@ const RECEPTIONIST_PERMISSIONS: Permission[] = [
   P.APPOINTMENT_MANAGE,
   P.PAYOUT_VIEW,
   P.PAYOUT_CREATE,
+  P.REFUND_VIEW,
+  P.REFUND_ISSUE,
   P.MASTER_VIEW,
   P.SAMPLE_VIEW,
   P.SAMPLE_COLLECT,
@@ -369,6 +371,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: IndianRupee,
     group: 'Finance',
     permissions: [P.REFUND_VIEW],
+    groupForRole: { Receptionist: 'Front Office' },
   },
   {
     label: 'Payment Ledger',

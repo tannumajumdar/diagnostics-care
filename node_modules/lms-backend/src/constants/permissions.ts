@@ -74,6 +74,11 @@ const RECEPTIONIST_PERMISSIONS: Permission[] = [
   // approving your own payout is not - that stays with the Admin.
   P.PAYOUT_VIEW,
   P.PAYOUT_CREATE,
+  // A patient who changes their mind is standing at the counter, so the desk
+  // can cancel a test and hand the money back. Writing the policy that prices
+  // it (REFUND_POLICY_MANAGE) stays with the Admin.
+  P.REFUND_VIEW,
+  P.REFUND_ISSUE,
   // Read-only on the catalogue, because a bill cannot be raised without
   // seeing tests, rates and referring doctors.
   P.MASTER_VIEW,

@@ -1,14 +1,119 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { refundPolicyApi, CancellationQuote } from '../../api/refundPolicy.api';
+import { billingApi } from '../../api/billing.api';
 import { Invoice } from '../../types';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { useToast } from '../../context/ToastContext';
 import { DISBURSEMENT_METHODS } from '../../config/payment-methods';
-import { X, Undo2, AlertTriangle, Info, ShieldAlert } from 'lucide-react';
+import { asList } from '../../utils/api-list';
+import { X, Undo2, AlertTriangle, Info, ShieldAlert, Search, ChevronDown } from 'lucide-react';
 
 const money = (value: number) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
+
+const billLabel = (inv: Invoice) =>
+  `${inv.invoiceNumber} - ${inv.patient?.patientName || 'N/A'} (paid ${money(inv.paidAmount)})`;
+
+/**
+ * Bill picker the counter can type into. Recent bills show straight away; a
+ * search goes to the server (bill no., UHID, name, mobile) so a bill older
+ * than the recent list can still be found.
+ */
+const BillSearchSelect: React.FC<{
+  recent: Invoice[];
+  value: string;
+  onChange: (id: string) => void;
+}> = ({ recent, value, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [picked, setPicked] = useState<Invoice | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(term.trim()), 300);
+    return () => clearTimeout(t);
+  }, [term]);
+
+  useEffect(() => {
+    if (!value) setPicked(null);
+  }, [value]);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  const { data, isFetching } = useQuery({
+    queryKey: ['invoices-refund-search', debounced],
+    queryFn: () => billingApi.getAllInvoices({ search: debounced, limit: 20 }),
+    enabled: open && debounced.length > 0,
+  });
+
+  const options = debounced ? asList<Invoice>(data, 'invoices') : recent;
+
+  const select = (inv: Invoice) => {
+    setPicked(inv);
+    onChange(inv._id);
+    setOpen(false);
+    setTerm('');
+  };
+
+  return (
+    <div ref={boxRef} className="relative">
+      {/* The field itself is the search box: typing searches, and once a bill
+          is picked its label sits in the field until the user types again. */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={open ? term : picked ? billLabel(picked) : ''}
+          onChange={(e) => {
+            setTerm(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={picked ? billLabel(picked) : 'Search bill no., UHID, patient name or mobile'}
+          className="pl-8 pr-8"
+        />
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      </div>
+
+      {open && (
+        <div className="absolute z-10 mt-1 w-full rounded-xl border bg-card shadow-lg">
+          <ul className="max-h-60 overflow-y-auto py-1">
+            {isFetching && debounced ? (
+              <li className="px-3 py-2 text-muted-foreground">Searching...</li>
+            ) : options.length === 0 ? (
+              <li className="px-3 py-2 text-muted-foreground">No bills found</li>
+            ) : (
+              options.map((inv) => (
+                <li key={inv._id}>
+                  <button
+                    type="button"
+                    onClick={() => select(inv)}
+                    className={`w-full px-3 py-2 text-left hover:bg-accent ${
+                      inv._id === value ? 'bg-accent font-semibold' : ''
+                    }`}
+                  >
+                    <span className="font-mono font-semibold text-blue-600">{inv.invoiceNumber}</span>
+                    {' - '}
+                    {inv.patient?.patientName || 'N/A'}
+                    <span className="text-muted-foreground"> (paid {money(inv.paidAmount)})</span>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface Props {
   isOpen: boolean;
@@ -158,19 +263,7 @@ export const CancelTestRefundModal: React.FC<Props> = ({
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div>
             <label className="mb-1 block font-semibold">The patient&rsquo;s bill *</label>
-            <select
-              value={invoiceId}
-              onChange={(e) => setInvoiceId(e.target.value)}
-              className="h-10 w-full rounded-xl border bg-background px-3"
-              required
-            >
-              <option value="">Select a bill</option>
-              {invoices.map((inv) => (
-                <option key={inv._id} value={inv._id}>
-                  {inv.invoiceNumber} - {inv.patient?.patientName} (paid {money(inv.paidAmount)})
-                </option>
-              ))}
-            </select>
+            <BillSearchSelect recent={invoices} value={invoiceId} onChange={setInvoiceId} />
           </div>
 
           {loadingQuote && (
