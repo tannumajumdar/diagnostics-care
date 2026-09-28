@@ -38,16 +38,39 @@ export const resultApi = {
  * every other call - opening the bare URL in a new tab carried no token, so
  * the server refused it and nothing was ever saved.
  */
-export const saveReportPdf = async (resultId: string, patientName?: string, reportNo?: string) => {
-  let blob: Blob;
+export const saveReportPdf = async (resultId: string, _patientName?: string, _reportNo?: string) => {
+  // Filed in the Saved Reports register first, then that very file is
+  // downloaded - so what the patient got is what the register holds.
+  const saved: any = await savedReportApi.saveFromResult(resultId);
+  await downloadSavedReport(saved._id, saved.fileName);
+  return saved.fileName as string;
+};
+
+/** Every saved report PDF, kept to be found and downloaded again. */
+export const savedReportApi = {
+  list: async (params?: any): Promise<any> => api.get('/saved-reports', { params }),
+  saveFromResult: async (resultId: string): Promise<any> => api.post(`/saved-reports/from-result/${resultId}`),
+  file: async (id: string): Promise<Blob> => api.get(`/saved-reports/${id}/file`, { responseType: 'blob' }),
+};
+
+const fetchSavedFile = async (id: string): Promise<Blob> => {
   try {
-    blob = await resultApi.downloadReport(resultId);
+    const blob = await savedReportApi.file(id);
+    return new Blob([blob], { type: 'application/pdf' });
   } catch (error) {
     throw new Error(await readBlobError(error));
   }
-  const safe = (s?: string) => String(s || '').trim().replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '');
-  const fileName = [safe(patientName) || 'Patient', safe(reportNo) || 'Report'].join('_') + '.pdf';
-  const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+};
+
+/** Opens a saved report in a new tab to view or print. */
+export const openSavedReport = async (id: string) => {
+  const url = URL.createObjectURL(await fetchSavedFile(id));
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+};
+
+export const downloadSavedReport = async (id: string, fileName: string) => {
+  const url = URL.createObjectURL(await fetchSavedFile(id));
   const a = document.createElement('a');
   a.href = url;
   a.download = fileName;

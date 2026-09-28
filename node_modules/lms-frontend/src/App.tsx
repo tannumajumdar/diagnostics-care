@@ -33,6 +33,7 @@ import { VerificationDashboardPage } from './pages/verification/VerificationDash
 import { ResultEntryPage } from './pages/results/ResultEntryPage';
 import { LabReportPage } from './pages/results/LabReportPage';
 import { PatientReportsPage } from './pages/results/PatientReportsPage';
+import { SavedReportsPage } from './pages/results/SavedReportsPage';
 import { LabWorkflowPage } from './pages/workflow/LabWorkflowPage';
 import { NewVisitPage } from './pages/visits/NewVisitPage';
 import { AppointmentsPage } from './pages/appointments/AppointmentsPage';
@@ -148,6 +149,10 @@ export default function App() {
                     <Route
                       path="/results/report/:resultId"
                       element={guarded([P.RESULT_VIEW, P.BILL_VIEW], <LabReportPage />)}
+                    />
+                    <Route
+                      path="/saved-reports"
+                      element={guarded([P.RESULT_VIEW, P.BILL_VIEW], <SavedReportsPage />)}
                     />
 
                     {/* Finance */}

@@ -18,6 +18,7 @@ import refundPolicyRoutes from './refundPolicy.routes';
 import reportsRoutes from './reports.routes';
 import auditRoutes from './audit.routes';
 import rolePermissionRoutes from './rolePermission.routes';
+import savedReportRoutes from './savedReport.routes';
 
 const router = Router();
 
@@ -51,5 +52,7 @@ router.use('/reports', reportsRoutes);
 router.use('/audit-logs', auditRoutes);
 // Which role may do what, as the Admin set it.
 router.use('/role-permissions', rolePermissionRoutes);
+// Every report PDF that was saved, kept to download again.
+router.use('/saved-reports', savedReportRoutes);
 
 export default router;

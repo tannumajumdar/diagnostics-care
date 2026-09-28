@@ -24,6 +24,7 @@ import {
   BookOpen,
   FileText,
   ShieldCheck,
+  FolderArchive,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -340,6 +341,15 @@ export const NAV_ITEMS: NavItem[] = [
     icon: FileText,
     group: 'Laboratory',
     permissions: [P.RESULT_VERIFY],
+  },
+  {
+    label: 'Saved Reports',
+    path: '/saved-reports',
+    icon: FolderArchive,
+    group: 'Laboratory',
+    // The desk hands reports over too, so it finds them here as well.
+    permissions: [P.RESULT_VIEW, P.BILL_VIEW],
+    groupForRole: { Receptionist: 'Front Office' },
   },
 
   // Masters - Admin territory
