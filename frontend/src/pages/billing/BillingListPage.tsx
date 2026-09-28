@@ -10,7 +10,7 @@ import { Badge } from '../../components/ui/badge';
 import { DATE_PRESETS, formatDay, relativeDayLabel, todayKey } from '../../utils/dates';
 import { exportToExcel } from '../../utils/excel-export';
 import { invoiceExportRows, paymentBreakdownOf, processingModeOf } from '../../utils/invoice-export';
-import { methodIcon, methodLabel } from '../../config/payment-methods';
+import { COLLECTION_METHODS, methodIcon, methodLabel } from '../../config/payment-methods';
 import { useToast } from '../../context/ToastContext';
 import {
   CreditCard,
@@ -86,6 +86,8 @@ export const BillingListPage: React.FC = () => {
   // as the search itself - the desk is looking for one bill or for the ones
   // it still has to collect on.
   const [paymentStatus, setPaymentStatus] = useState<PaymentFilter>('');
+  // How the money came in. A split bill shows under each method it used.
+  const [paymentMethod, setPaymentMethod] = useState('');
 
   const applyRange = (next: { from: string; to: string }) => {
     setFrom(next.from);
@@ -94,7 +96,7 @@ export const BillingListPage: React.FC = () => {
   };
 
   const { data, isLoading } = useQuery({
-    queryKey: ['invoices', searchTerm, from, to, processingMode, paymentStatus, page],
+    queryKey: ['invoices', searchTerm, from, to, processingMode, paymentStatus, paymentMethod, page],
     queryFn: () =>
       billingApi.getAllInvoices({
         search: searchTerm || undefined,
@@ -102,6 +104,7 @@ export const BillingListPage: React.FC = () => {
         to: to || undefined,
         processingMode: processingMode || undefined,
         paymentStatus: paymentStatus || undefined,
+        paymentMethod: paymentMethod || undefined,
         page,
         limit: 10,
       }),
@@ -144,6 +147,7 @@ export const BillingListPage: React.FC = () => {
         to: to || undefined,
         processingMode: processingMode || undefined,
         paymentStatus: paymentStatus || undefined,
+        paymentMethod: paymentMethod || undefined,
       });
 
       if (!invoices.length) {
@@ -157,7 +161,8 @@ export const BillingListPage: React.FC = () => {
       // other in the accountant's downloads folder.
       const modeSlug = processingMode ? `_${processingMode.toLowerCase()}` : '';
       const paidSlug = paymentStatus ? `_${paymentStatus.toLowerCase()}` : '';
-      await exportToExcel(`bills_${windowSlug}${modeSlug}${paidSlug}`, invoiceExportRows(invoices), {
+      const methodSlug = paymentMethod ? `_${paymentMethod.toLowerCase().replace(/\s+/g, '-')}` : '';
+      await exportToExcel(`bills_${windowSlug}${modeSlug}${paidSlug}${methodSlug}`, invoiceExportRows(invoices), {
         sheetName: 'Bills',
       });
 
@@ -261,6 +266,25 @@ export const BillingListPage: React.FC = () => {
                   </option>
                 ))}
               </select>
+
+              <select
+                value={paymentMethod}
+                onChange={(e) => {
+                  setPaymentMethod(e.target.value);
+                  setPage(1);
+                }}
+                aria-label="Payment method"
+                className={`h-9 rounded-lg border bg-background px-2 text-xs font-medium ${
+                  paymentMethod ? 'border-blue-300 text-blue-700' : 'text-slate-600'
+                }`}
+              >
+                <option value="">All methods</option>
+                {COLLECTION_METHODS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -339,6 +363,7 @@ export const BillingListPage: React.FC = () => {
               Bills · {rangeLabel}
               {processingMode ? ` · ${processingMode}` : ''}
               {paymentStatus ? ` · ${paymentStatus === 'Paid' ? 'Paid' : 'Unpaid'}` : ''}
+              {paymentMethod ? ` · ${methodLabel(paymentMethod)}` : ''}
             </p>
             <p className="text-sm font-bold text-foreground">{summary.invoices}</p>
           </div>
@@ -388,7 +413,7 @@ export const BillingListPage: React.FC = () => {
               ) : invoiceList.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="p-8 text-center text-muted-foreground">
-                    {from || to || searchTerm || processingMode
+                    {from || to || searchTerm || processingMode || paymentStatus || paymentMethod
                       ? 'No invoices match this filter.'
                       : 'No invoices generated yet.'}
                   </td>

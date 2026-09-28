@@ -1,0 +1,596 @@
+import React, { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import { billingApi } from '../../api/billing.api';
+import { departmentApi } from '../../api/department.api';
+import { doctorApi } from '../../api/doctor.api';
+import { organizationApi } from '../../api/organization.api';
+import { Card } from '../../components/ui/card';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Badge } from '../../components/ui/badge';
+import { CancelTestRefundModal } from '../../components/accounts/CancelTestRefundModal';
+import { useAuth } from '../../context/AuthContext';
+import { hasPermission, PERMISSIONS } from '../../config/roles';
+import { asList } from '../../utils/api-list';
+import { DATE_PRESETS, formatDay, relativeDayLabel, todayKey } from '../../utils/dates';
+import { COLLECTION_METHODS } from '../../config/payment-methods';
+import {
+  FlaskConical,
+  Search,
+  Eye,
+  Undo2,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  X,
+} from 'lucide-react';
+
+const money = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+
+/** One bill line as the server sends it. */
+interface BookedTest {
+  invoiceId: string;
+  invoiceNumber: string;
+  enquiryNo?: string;
+  barcode?: string;
+  uhid: string;
+  billedAt: string;
+  paymentStatus: string;
+  dueAmount: number;
+  patient?: { patientName?: string; uhid?: string; mobile?: string };
+  doctorName?: string;
+  organizationName?: string;
+  itemIndex: number;
+  testName: string;
+  testCode: string;
+  departmentName: string;
+  packageName?: string;
+  processingMode?: 'In-house' | 'Outsource';
+  rate: number;
+  netAmount: number;
+  cancelled: boolean;
+  cancelledAt?: string;
+  cancellationReason?: string;
+  refundedAmount: number;
+  sampleId?: string;
+  sampleStatus?: string;
+}
+
+/** Where the work is, in the buckets the server filters on. */
+const STATUS_FILTERS = [
+  { label: 'All statuses', value: '' },
+  { label: 'Pending collection', value: 'Pending' },
+  { label: 'Collected', value: 'Collected' },
+  { label: 'Processing', value: 'Processing' },
+  { label: 'Report ready', value: 'Completed' },
+  { label: 'Rejected', value: 'Rejected' },
+  { label: 'Cancelled', value: 'Cancelled' },
+];
+
+const PROCESSING_FILTERS = [
+  { label: 'All work', value: '' },
+  { label: 'In-house', value: 'In-house' },
+  { label: 'Outsource', value: 'Outsource' },
+];
+
+const PAYMENT_FILTERS = [
+  { label: 'Paid & unpaid', value: '' },
+  { label: 'Paid', value: 'Paid' },
+  { label: 'Unpaid / due', value: 'Unpaid' },
+];
+
+const statusBadge = (row: BookedTest) => {
+  if (row.cancelled) return { label: 'Cancelled', variant: 'destructive' as const };
+  switch (row.sampleStatus) {
+    case 'Collected':
+    case 'Received':
+      return { label: row.sampleStatus, variant: 'purple' as const };
+    case 'Processing':
+      return { label: 'Processing', variant: 'amber' as const };
+    case 'Completed':
+      return { label: 'Report ready', variant: 'success' as const };
+    case 'Rejected':
+      return { label: 'Rejected', variant: 'destructive' as const };
+    default:
+      return { label: 'Pending collection', variant: 'secondary' as const };
+  }
+};
+
+const selectClass = (active: boolean) =>
+  `h-9 rounded-lg border bg-background px-2 text-xs font-medium ${
+    active ? 'border-blue-300 text-blue-700' : 'text-slate-600'
+  }`;
+
+export const BookedTestsPage: React.FC = () => {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canCancel = hasPermission(user, PERMISSIONS.REFUND_ISSUE);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [status, setStatus] = useState('');
+  const [department, setDepartment] = useState('');
+  const [processingMode, setProcessingMode] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('');
+  const [organization, setOrganization] = useState('');
+  const [doctor, setDoctor] = useState('');
+  const [cancelPreset, setCancelPreset] = useState<{ invoiceId: string; label: string; itemIndex: number } | null>(
+    null
+  );
+
+  // Typing is debounced so every keystroke is not a round trip.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchTerm.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  const { data: departmentsData } = useQuery({
+    queryKey: ['departments-filter'],
+    queryFn: () => departmentApi.getAll({ limit: 200 }),
+  });
+  const departments = asList<any>(departmentsData, 'departments');
+
+  const { data: doctorsData } = useQuery({
+    queryKey: ['doctors-filter'],
+    queryFn: () => doctorApi.getAll({ limit: 500 }),
+  });
+  const doctors = asList<any>(doctorsData, 'doctors');
+
+  const { data: organizationsData } = useQuery({
+    queryKey: ['organizations-filter'],
+    queryFn: () => organizationApi.getAll({ limit: 500 }),
+  });
+  const organizations = asList<any>(organizationsData, 'organizations');
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['booked-tests', search, from, to, status, department, processingMode, paymentStatus, paymentMethod, organization, doctor, page],
+    queryFn: () =>
+      billingApi.getBookedTests({
+        search: search || undefined,
+        from: from || undefined,
+        to: to || undefined,
+        status: status || undefined,
+        department: department || undefined,
+        processingMode: processingMode || undefined,
+        paymentStatus: paymentStatus || undefined,
+        paymentMethod: paymentMethod || undefined,
+        organization: organization || undefined,
+        doctor: doctor || undefined,
+        page,
+        limit: 20,
+      }),
+    placeholderData: (prev: any) => prev,
+  });
+
+  const rows = asList<BookedTest>(data, 'tests');
+  const meta = data?.meta || data?.pagination || {};
+  const totalPages = meta.totalPages || 1;
+  const summary = meta.summary || { tests: 0, billed: 0, cancelled: 0, refunded: 0 };
+
+  const applyRange = (next: { from: string; to: string }) => {
+    setFrom(next.from);
+    setTo(next.to);
+    setPage(1);
+  };
+
+  const activePreset = DATE_PRESETS.find((preset) => {
+    const range = preset.range();
+    return range.from === from && range.to === to;
+  })?.label;
+
+  const rangeLabel = (() => {
+    if (!from && !to) return 'All time';
+    if (from && from === to) return relativeDayLabel(from);
+    if (from && to) return `${formatDay(`${from}T00:00:00`)} - ${formatDay(`${to}T00:00:00`)}`;
+    if (from) return `From ${formatDay(`${from}T00:00:00`)}`;
+    return `Up to ${formatDay(`${to}T00:00:00`)}`;
+  })();
+
+  const anyFilter = !!(search || from || to || status || department || processingMode || paymentStatus || paymentMethod || organization || doctor);
+
+  const clearAll = () => {
+    setSearchTerm('');
+    setSearch('');
+    setFrom('');
+    setTo('');
+    setStatus('');
+    setDepartment('');
+    setProcessingMode('');
+    setPaymentStatus('');
+    setPaymentMethod('');
+    setOrganization('');
+    setDoctor('');
+    setPage(1);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
+            <FlaskConical className="h-6 w-6 text-blue-600" />
+            <span>Booked Tests</span>
+          </h1>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Every test booked on a bill, with where its sample has got to. Cancel and refund a test from its row.
+          </p>
+        </div>
+      </div>
+
+      <Card className="space-y-3 p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:w-auto">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search test, invoice #, UHID, patient, mobile, doctor..."
+                className="pl-9 text-xs"
+                value={searchTerm}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={status}
+                onChange={(e) => {
+                  setStatus(e.target.value);
+                  setPage(1);
+                }}
+                aria-label="Test status"
+                className={selectClass(!!status)}
+              >
+                {STATUS_FILTERS.map((o) => (
+                  <option key={o.label} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={department}
+                onChange={(e) => {
+                  setDepartment(e.target.value);
+                  setPage(1);
+                }}
+                aria-label="Department"
+                className={selectClass(!!department)}
+              >
+                <option value="">All departments</option>
+                {departments.map((d: any) => (
+                  <option key={d._id} value={d._id}>
+                    {d.departmentName || d.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={processingMode}
+                onChange={(e) => {
+                  setProcessingMode(e.target.value);
+                  setPage(1);
+                }}
+                aria-label="In-house or outsourced"
+                className={selectClass(!!processingMode)}
+              >
+                {PROCESSING_FILTERS.map((o) => (
+                  <option key={o.label} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={paymentStatus}
+                onChange={(e) => {
+                  setPaymentStatus(e.target.value);
+                  setPage(1);
+                }}
+                aria-label="Paid or unpaid"
+                className={selectClass(!!paymentStatus)}
+              >
+                {PAYMENT_FILTERS.map((o) => (
+                  <option key={o.label} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={paymentMethod}
+                onChange={(e) => {
+                  setPaymentMethod(e.target.value);
+                  setPage(1);
+                }}
+                aria-label="Payment method"
+                className={selectClass(!!paymentMethod)}
+              >
+                <option value="">All methods</option>
+                {COLLECTION_METHODS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={organization}
+                onChange={(e) => {
+                  setOrganization(e.target.value);
+                  setPage(1);
+                }}
+                aria-label="Organization / TPA"
+                className={`${selectClass(!!organization)} max-w-[12rem]`}
+              >
+                <option value="">All organizations / TPA</option>
+                {organizations.map((o: any) => (
+                  <option key={o._id} value={o._id}>
+                    {o.organizationName}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={doctor}
+                onChange={(e) => {
+                  setDoctor(e.target.value);
+                  setPage(1);
+                }}
+                aria-label="Referring doctor"
+                className={`${selectClass(!!doctor)} max-w-[12rem]`}
+              >
+                <option value="">All doctors</option>
+                {doctors.map((d: any) => (
+                  <option key={d._id} value={d._id}>
+                    {d.doctorName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <Input
+              type="date"
+              value={from}
+              max={to || todayKey()}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setFrom(e.target.value);
+                setPage(1);
+              }}
+              className="h-9 w-[9.5rem] text-xs"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <Input
+              type="date"
+              value={to}
+              min={from || undefined}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setTo(e.target.value);
+                setPage(1);
+              }}
+              className="h-9 w-[9.5rem] text-xs"
+            />
+            {anyFilter && (
+              <Button variant="outline" size="sm" className="h-9 gap-1" onClick={clearAll}>
+                <X className="h-3.5 w-3.5" /> Clear
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {DATE_PRESETS.map((preset) => {
+            const isActive = activePreset === preset.label;
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => applyRange(preset.range())}
+                className={`rounded-full border px-2.5 py-1 text-[12px] font-medium transition ${
+                  isActive
+                    ? 'border-blue-300 bg-blue-50 text-blue-700'
+                    : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700'
+                }`}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => applyRange({ from: '', to: '' })}
+            className={`rounded-full border px-2.5 py-1 text-[12px] font-medium transition ${
+              !from && !to
+                ? 'border-blue-300 bg-blue-50 text-blue-700'
+                : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700'
+            }`}
+          >
+            All time
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 rounded-xl border bg-muted/30 p-3 sm:grid-cols-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Tests · {rangeLabel}</p>
+            <p className="text-sm font-bold text-foreground">{summary.tests}</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Billed (live tests)</p>
+            <p className="text-sm font-bold text-foreground">{money(summary.billed)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Cancelled</p>
+            <p className="text-sm font-bold text-red-600">{summary.cancelled}</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Refunded</p>
+            <p className="text-sm font-bold text-amber-600">{money(summary.refunded)}</p>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden border">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-left text-xs">
+            <thead className="border-b bg-muted/50 font-semibold text-muted-foreground">
+              <tr>
+                <th className="p-3">Date</th>
+                <th className="p-3">Test</th>
+                <th className="p-3">Patient</th>
+                <th className="p-3">Doctor / TPA</th>
+                <th className="p-3">Invoice #</th>
+                <th className="p-3">Sample</th>
+                <th className="p-3">Status</th>
+                <th className="p-3 text-right">Amount</th>
+                <th className="p-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                    Loading booked tests...
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                    {anyFilter ? 'No tests match this filter.' : 'No tests booked yet.'}
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => {
+                  const billed = new Date(row.billedAt);
+                  const badge = statusBadge(row);
+                  return (
+                    <tr
+                      key={`${row.invoiceId}-${row.itemIndex}`}
+                      className={`transition-colors hover:bg-muted/30 ${row.cancelled ? 'opacity-60' : ''}`}
+                    >
+                      <td className="whitespace-nowrap p-3">
+                        <div className="font-semibold text-foreground">{formatDay(billed)}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {billed.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className={`font-bold text-foreground ${row.cancelled ? 'line-through' : ''}`}>
+                          {row.testName}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {row.testCode} · {row.departmentName}
+                          {row.packageName ? ` · ${row.packageName}` : ''}
+                          {row.processingMode === 'Outsource' ? ' · Outsource' : ''}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="font-bold text-foreground">{row.patient?.patientName || 'N/A'}</div>
+                        <div className="font-mono text-[11px] text-muted-foreground">
+                          UHID: {row.uhid}
+                          {row.patient?.mobile ? ` · ${row.patient.mobile}` : ''}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="text-foreground">{row.doctorName || 'Self'}</div>
+                        <div className="text-[11px] text-muted-foreground">{row.organizationName || '—'}</div>
+                      </td>
+                      <td className="p-3 font-mono">
+                        <div className="font-bold text-blue-600">{row.invoiceNumber}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {row.dueAmount > 0 ? `Due ${money(row.dueAmount)}` : 'Paid'}
+                        </div>
+                      </td>
+                      <td className="p-3 font-mono text-[11px] text-muted-foreground">{row.sampleId || '—'}</td>
+                      <td className="p-3">
+                        <Badge variant={badge.variant}>{badge.label}</Badge>
+                        {row.cancelled && row.cancellationReason && (
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">{row.cancellationReason}</div>
+                        )}
+                      </td>
+                      <td className="p-3 text-right font-mono">
+                        <div className="font-bold text-foreground">{money(row.netAmount)}</div>
+                        {row.refundedAmount > 0 && (
+                          <div className="text-[11px] text-red-600">- {money(row.refundedAmount)} refunded</div>
+                        )}
+                      </td>
+                      <td className="p-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" onClick={() => navigate(`/billing/${row.invoiceId}`)}>
+                            <Eye className="mr-1 h-4 w-4" /> Bill
+                          </Button>
+                          {canCancel && !row.cancelled && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                              onClick={() =>
+                                setCancelPreset({
+                                  invoiceId: row.invoiceId,
+                                  label: `${row.invoiceNumber} - ${row.patient?.patientName || 'N/A'}`,
+                                  itemIndex: row.itemIndex,
+                                })
+                              }
+                            >
+                              <Undo2 className="mr-1 h-4 w-4" /> Cancel
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t p-4 text-xs">
+            <div className="text-muted-foreground">
+              Page <strong>{page}</strong> of <strong>{totalPages}</strong>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
+                <ChevronLeft className="mr-1 h-4 w-4" /> Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+              >
+                Next <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {canCancel && (
+        <CancelTestRefundModal
+          isOpen={!!cancelPreset}
+          onClose={() => setCancelPreset(null)}
+          invoices={[]}
+          preset={cancelPreset}
+          canOverride={hasPermission(user, PERMISSIONS.REFUND_POLICY_MANAGE)}
+          onDone={() => {
+            queryClient.invalidateQueries({ queryKey: ['booked-tests'] });
+            queryClient.invalidateQueries({ queryKey: ['refunds-list'] });
+            queryClient.invalidateQueries({ queryKey: ['invoices'] });
+          }}
+        />
+      )}
+    </div>
+  );
+};

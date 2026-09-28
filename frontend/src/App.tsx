@@ -21,6 +21,7 @@ import { PatientDetailsPage } from './pages/patients/PatientDetailsPage';
 import { PatientFormPage } from './pages/patients/PatientFormPage';
 import { PatientHistoryPage } from './pages/patients/PatientHistoryPage';
 import { BillingListPage } from './pages/billing/BillingListPage';
+import { BookedTestsPage } from './pages/billing/BookedTestsPage';
 import { NewBillingPage } from './pages/billing/NewBillingPage';
 import { InvoiceDetailsPage } from './pages/billing/InvoiceDetailsPage';
 import { SamplesListPage } from './pages/samples/SamplesListPage';
@@ -102,6 +103,7 @@ export default function App() {
                     <Route path="/patients/:id" element={guarded([P.PATIENT_VIEW], <PatientDetailsPage />)} />
 
                     <Route path="/billing" element={guarded([P.BILL_VIEW], <BillingListPage />)} />
+                    <Route path="/booked-tests" element={guarded([P.BILL_VIEW], <BookedTestsPage />)} />
                     <Route path="/billing/new" element={guarded([P.BILL_CREATE], <NewBillingPage />)} />
                     <Route path="/billing/:id" element={guarded([P.BILL_VIEW], <InvoiceDetailsPage />)} />
 

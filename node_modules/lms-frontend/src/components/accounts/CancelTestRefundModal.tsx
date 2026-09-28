@@ -24,22 +24,19 @@ const billLabel = (inv: Invoice) =>
 const BillSearchSelect: React.FC<{
   recent: Invoice[];
   value: string;
-  onChange: (id: string) => void;
-}> = ({ recent, value, onChange }) => {
+  /** What the field shows for the chosen bill. */
+  label: string;
+  onChange: (inv: Invoice) => void;
+}> = ({ recent, value, label, onChange }) => {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [picked, setPicked] = useState<Invoice | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(term.trim()), 300);
     return () => clearTimeout(t);
   }, [term]);
-
-  useEffect(() => {
-    if (!value) setPicked(null);
-  }, [value]);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -58,8 +55,7 @@ const BillSearchSelect: React.FC<{
   const options = debounced ? asList<Invoice>(data, 'invoices') : recent;
 
   const select = (inv: Invoice) => {
-    setPicked(inv);
-    onChange(inv._id);
+    onChange(inv);
     setOpen(false);
     setTerm('');
   };
@@ -71,13 +67,13 @@ const BillSearchSelect: React.FC<{
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
-          value={open ? term : picked ? billLabel(picked) : ''}
+          value={open ? term : label}
           onChange={(e) => {
             setTerm(e.target.value);
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
-          placeholder={picked ? billLabel(picked) : 'Search bill no., UHID, patient name or mobile'}
+          placeholder={label || 'Search bill no., UHID, patient name or mobile'}
           className="pl-8 pr-8"
         />
         <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -123,6 +119,11 @@ interface Props {
   /** Whether this user may hand back more than the policy allows. */
   canOverride: boolean;
   onDone: () => void;
+  /**
+   * Opened from a row in the test list: the bill is already chosen and that
+   * test ticked, so the counter only confirms.
+   */
+  preset?: { invoiceId: string; label: string; itemIndex?: number } | null;
 }
 
 /**
@@ -139,10 +140,12 @@ export const CancelTestRefundModal: React.FC<Props> = ({
   invoices,
   canOverride,
   onDone,
+  preset,
 }) => {
   const { showToast } = useToast();
 
   const [invoiceId, setInvoiceId] = useState('');
+  const [invoiceLabel, setInvoiceLabel] = useState('');
   const [quote, setQuote] = useState<CancellationQuote | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
   const [picked, setPicked] = useState<number[]>([]);
@@ -155,8 +158,13 @@ export const CancelTestRefundModal: React.FC<Props> = ({
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) return;
-    setInvoiceId('');
+    // Cleared on close so reopening on the same bill still fetches its quote.
+    if (!isOpen) {
+      setInvoiceId('');
+      return;
+    }
+    setInvoiceId(preset?.invoiceId || '');
+    setInvoiceLabel(preset?.label || '');
     setQuote(null);
     setPicked([]);
     setReason('');
@@ -165,6 +173,7 @@ export const CancelTestRefundModal: React.FC<Props> = ({
     setUseOverride(false);
     setOverrideAmount(0);
     setOverrideReason('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   useEffect(() => {
@@ -180,7 +189,12 @@ export const CancelTestRefundModal: React.FC<Props> = ({
         const data: CancellationQuote = await refundPolicyApi.getQuote(invoiceId);
         if (cancelled) return;
         setQuote(data);
-        setPicked([]);
+        // Tick the test the row was opened from, if it can still be cancelled.
+        const presetLine =
+          preset?.invoiceId === invoiceId && preset.itemIndex !== undefined
+            ? data.items.find((item) => item.index === preset.itemIndex && item.eligible)
+            : undefined;
+        setPicked(presetLine ? [presetLine.index] : []);
       } catch (error: any) {
         if (!cancelled) showToast(error?.message || 'Could not read this bill', 'error');
       } finally {
@@ -263,7 +277,15 @@ export const CancelTestRefundModal: React.FC<Props> = ({
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div>
             <label className="mb-1 block font-semibold">The patient&rsquo;s bill *</label>
-            <BillSearchSelect recent={invoices} value={invoiceId} onChange={setInvoiceId} />
+            <BillSearchSelect
+              recent={invoices}
+              value={invoiceId}
+              label={invoiceLabel}
+              onChange={(inv) => {
+                setInvoiceId(inv._id);
+                setInvoiceLabel(billLabel(inv));
+              }}
+            />
           </div>
 
           {loadingQuote && (

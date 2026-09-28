@@ -50,6 +50,21 @@ export class BillingController {
     }
   };
 
+  static getBookedTests = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const result = await BillingService.getBookedTests(req.query as any);
+      sendResponse({
+        res,
+        statusCode: HTTP_STATUS.OK,
+        message: 'Booked tests retrieved successfully',
+        data: result.tests,
+        meta: result.pagination,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   static getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;

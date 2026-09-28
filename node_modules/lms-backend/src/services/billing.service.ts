@@ -805,8 +805,29 @@ export class BillingService {
     };
   }
 
+  /**
+   * Bills paid by one method. A split bill counts under every method it was
+   * paid by, read off the per-method breakdown; an older bill with no
+   * breakdown falls back to its filed method, but only once money came in -
+   * an untouched bill defaults to Cash and would otherwise swell that bucket.
+   * Credit is the bill left to be collected later.
+   */
+  static paymentMethodFilter(method?: string): any | null {
+    if (!method || !(COLLECTION_METHODS as readonly string[]).includes(method)) return null;
+    if (method === 'Credit') {
+      return { $or: [{ paymentMethod: 'Credit' }, { paymentStatus: 'Credit' }] };
+    }
+    return {
+      $or: [
+        { 'paymentBreakdown.method': method },
+        { 'paymentBreakdown.0': { $exists: false }, paymentMethod: method, paidAmount: { $gt: 0 } },
+      ],
+    };
+  }
+
   static async getAllInvoices(query: {
     search?: string;
+    paymentMethod?: string;
     paymentStatus?: string;
     patient?: string;
     processingMode?: string;
@@ -815,8 +836,12 @@ export class BillingService {
     page?: number;
     limit?: number;
   }) {
-    const { search, paymentStatus, patient, processingMode, from, to, page = 1, limit = 10 } = query;
+    const { search, paymentMethod, paymentStatus, patient, processingMode, from, to, page = 1, limit = 10 } = query;
     const filter: any = {};
+
+    // Its own $or, so it goes under $and rather than clashing with the search's.
+    const methodFilter = BillingService.paymentMethodFilter(paymentMethod);
+    if (methodFilter) filter.$and = [methodFilter];
 
     // The directory reads ten rows at a time; an export asks for the whole
     // window at once. Both go through here, so the page size is clamped
@@ -940,6 +965,261 @@ export class BillingService {
           collected: summed.collected || 0,
           due: summed.due || 0,
           discount: summed.discount || 0,
+        },
+      },
+    };
+  }
+
+  /**
+   * Every test booked on every bill, one row per line - the same directory as
+   * the bill list, but read at the level the patient asks about ("my sugar
+   * test"). Each row carries where its sample has got to, so the desk can see
+   * at a glance whether a cancellation is still worth anything back.
+   */
+  static async getBookedTests(query: {
+    search?: string;
+    department?: string;
+    processingMode?: string;
+    status?: string;
+    paymentMethod?: string;
+    paymentStatus?: string;
+    organization?: string;
+    doctor?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const {
+      search,
+      department,
+      processingMode,
+      status,
+      paymentMethod,
+      paymentStatus,
+      organization,
+      doctor,
+      from,
+      to,
+      page = 1,
+      limit = 20,
+    } = query;
+    const pageSize = Math.min(Math.max(Number(limit) || 20, 1), BillingService.MAX_PAGE_SIZE);
+    const pageNumber = Math.max(Number(page) || 1, 1);
+
+    // Bill-level narrowing first, so the unwind only runs over bills in view.
+    const billFilter: any = {};
+    const billAnd: any[] = [];
+    const methodFilter = BillingService.paymentMethodFilter(paymentMethod);
+    if (methodFilter) billAnd.push(methodFilter);
+
+    // The TPA / corporate the bill was raised against.
+    if (organization && mongoose.isValidObjectId(organization)) {
+      billFilter.organization = new mongoose.Types.ObjectId(organization);
+    }
+
+    // The referring doctor. A paneled doctor is matched on the link, and also
+    // on the name typed at the counter, since a desk that typed the name in
+    // instead of picking it from the panel still means the same doctor.
+    if (doctor && mongoose.isValidObjectId(doctor)) {
+      const panelDoctor = await Doctor.findById(doctor).select('doctorName').lean();
+      const byName = panelDoctor?.doctorName
+        ? [
+            {
+              referringDoctorName: {
+                $regex: `^${panelDoctor.doctorName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+                $options: 'i',
+              },
+            },
+          ]
+        : [];
+      billAnd.push({ $or: [{ referringDoctor: new mongoose.Types.ObjectId(doctor) }, ...byName] });
+    }
+    if (billAnd.length) billFilter.$and = billAnd;
+    if (paymentStatus === 'Paid') billFilter.dueAmount = { $lte: 0 };
+    else if (paymentStatus === 'Unpaid') billFilter.dueAmount = { $gt: 0 };
+
+    if (from || to) {
+      const range: any = {};
+      if (from) {
+        const start = new Date(from);
+        start.setHours(0, 0, 0, 0);
+        if (!Number.isNaN(start.getTime())) range.$gte = start;
+      }
+      if (to) {
+        const end = new Date(to);
+        end.setHours(23, 59, 59, 999);
+        if (!Number.isNaN(end.getTime())) range.$lte = end;
+      }
+      if (Object.keys(range).length) billFilter.createdAt = range;
+    }
+
+    const lineFilter: any = {};
+    if (search) {
+      const rx = { $regex: String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+      const [matchingPatients, matchingDoctors] = await Promise.all([
+        Patient.find({ $or: [{ patientName: rx }, { mobile: rx }] }).select('_id'),
+        Doctor.find({ doctorName: rx }).select('_id'),
+      ]);
+      lineFilter.$or = [
+        { invoiceNumber: rx },
+        { uhid: rx },
+        { enquiryNo: rx },
+        { barcode: rx },
+        { 'items.testName': rx },
+        { 'items.testCode': rx },
+        // The referring doctor, whether picked from the panel or typed at the
+        // counter for a doctor who is not on it.
+        { referringDoctorName: rx },
+        ...(matchingDoctors.length ? [{ referringDoctor: { $in: matchingDoctors.map((d) => d._id) } }] : []),
+        ...(matchingPatients.length ? [{ patient: { $in: matchingPatients.map((p) => p._id) } }] : []),
+      ];
+    }
+    if (department && mongoose.isValidObjectId(department)) {
+      lineFilter['items.department'] = new mongoose.Types.ObjectId(department);
+    }
+    if (processingMode === 'Outsource' || processingMode === 'In-house') {
+      lineFilter['items.processingMode'] = processingMode;
+    }
+
+    // Where the work is, as the desk says it. A cancelled line is its own
+    // bucket whatever its sample says, so the others only count live lines.
+    const STATUS_BUCKETS: Record<string, string[]> = {
+      Pending: ['Registered', 'Pending Collection', 'Recollected'],
+      Collected: ['Collected', 'Received'],
+      Processing: ['Processing'],
+      Completed: ['Completed'],
+      Rejected: ['Rejected'],
+    };
+    const statusFilter: any = {};
+    if (status === 'Cancelled') {
+      statusFilter['items.cancelled'] = true;
+    } else if (status && STATUS_BUCKETS[status]) {
+      statusFilter['items.cancelled'] = { $ne: true };
+      statusFilter.$or = [
+        { 'sample.status': { $in: STATUS_BUCKETS[status] } },
+        // A line with no sample yet is still waiting for its draw.
+        ...(status === 'Pending' ? [{ sample: null }] : []),
+      ];
+    }
+
+    const [result] = await Invoice.aggregate([
+      { $match: billFilter },
+      { $unwind: { path: '$items', includeArrayIndex: 'itemIndex' } },
+      { $match: lineFilter },
+      {
+        $lookup: {
+          from: Sample.collection.name,
+          let: { inv: '$_id', test: '$items.test' },
+          pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ['$invoice', '$$inv'] }, { $eq: ['$test', '$$test'] }] } } },
+            { $project: { sampleId: 1, status: 1 } },
+            { $limit: 1 },
+          ],
+          as: 'sample',
+        },
+      },
+      { $set: { sample: { $ifNull: [{ $arrayElemAt: ['$sample', 0] }, null] } } },
+      { $match: statusFilter },
+      { $sort: { createdAt: -1, itemIndex: 1 } },
+      {
+        $facet: {
+          rows: [
+            { $skip: (pageNumber - 1) * pageSize },
+            { $limit: pageSize },
+            {
+              $lookup: {
+                from: Patient.collection.name,
+                localField: 'patient',
+                foreignField: '_id',
+                as: 'patient',
+              },
+            },
+            {
+              $lookup: {
+                from: Doctor.collection.name,
+                localField: 'referringDoctor',
+                foreignField: '_id',
+                as: 'doctorDoc',
+              },
+            },
+            {
+              $lookup: {
+                from: Organization.collection.name,
+                localField: 'organization',
+                foreignField: '_id',
+                as: 'organizationDoc',
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                invoiceId: '$_id',
+                // The panel's name wins over whatever was typed at the counter.
+                doctorName: {
+                  $ifNull: [{ $arrayElemAt: ['$doctorDoc.doctorName', 0] }, '$referringDoctorName'],
+                },
+                organizationName: { $arrayElemAt: ['$organizationDoc.organizationName', 0] },
+                invoiceNumber: 1,
+                enquiryNo: 1,
+                barcode: 1,
+                uhid: 1,
+                billedAt: '$createdAt',
+                paymentStatus: 1,
+                dueAmount: 1,
+                patient: {
+                  $let: {
+                    vars: { p: { $arrayElemAt: ['$patient', 0] } },
+                    in: { _id: '$$p._id', patientName: '$$p.patientName', uhid: '$$p.uhid', mobile: '$$p.mobile' },
+                  },
+                },
+                itemIndex: 1,
+                testName: '$items.testName',
+                testCode: '$items.testCode',
+                departmentName: '$items.departmentName',
+                packageName: '$items.packageName',
+                processingMode: '$items.processingMode',
+                rate: '$items.rate',
+                netAmount: '$items.netAmount',
+                cancelled: { $ifNull: ['$items.cancelled', false] },
+                cancelledAt: '$items.cancelledAt',
+                cancellationReason: '$items.cancellationReason',
+                refundedAmount: { $ifNull: ['$items.refundedAmount', 0] },
+                sampleId: '$sample.sampleId',
+                sampleStatus: '$sample.status',
+              },
+            },
+          ],
+          totals: [
+            {
+              $group: {
+                _id: null,
+                tests: { $sum: 1 },
+                billed: { $sum: { $cond: ['$items.cancelled', 0, '$items.netAmount'] } },
+                cancelled: { $sum: { $cond: ['$items.cancelled', 1, 0] } },
+                refunded: { $sum: { $ifNull: ['$items.refundedAmount', 0] } },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const summed = result?.totals?.[0] || {};
+    const total = summed.tests || 0;
+
+    return {
+      tests: result?.rows || [],
+      pagination: {
+        total,
+        page: pageNumber,
+        limit: pageSize,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        summary: {
+          tests: total,
+          billed: summed.billed || 0,
+          cancelled: summed.cancelled || 0,
+          refunded: summed.refunded || 0,
         },
       },
     };

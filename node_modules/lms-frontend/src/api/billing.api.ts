@@ -12,6 +12,8 @@ const EXPORT_ROW_CEILING = 20000;
 
 export const billingApi = {
   getAllInvoices: async (params?: any): Promise<any> => api.get('/billing', { params }),
+  /** Every booked test, one row per bill line, with where its sample is. */
+  getBookedTests: async (params?: any): Promise<any> => api.get('/billing/tests', { params }),
   getInvoiceById: async (id: string): Promise<any> => api.get(`/billing/${id}`),
   createInvoice: async (data: any): Promise<any> => api.post('/billing', data),
   /** Whole front-desk intake in one call: patient + bill + queued samples. */

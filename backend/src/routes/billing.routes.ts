@@ -17,6 +17,8 @@ router.use(authenticate);
 router.get('/', requirePermission(PERMISSIONS.BILL_VIEW), BillingController.getAll);
 // Literal segments must precede '/:id', otherwise "barcode" is parsed as an
 // ObjectId and the lookup fails with a CastError.
+// Every booked test, one row per bill line.
+router.get('/tests', requirePermission(PERMISSIONS.BILL_VIEW), BillingController.getBookedTests);
 router.get('/barcode/:barcode', requirePermission(PERMISSIONS.BILL_VIEW), BillingController.getByBarcode);
 router.get('/:id', requirePermission(PERMISSIONS.BILL_VIEW), BillingController.getById);
 

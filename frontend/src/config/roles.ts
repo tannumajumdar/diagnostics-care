@@ -261,6 +261,14 @@ export const NAV_ITEMS: NavItem[] = [
     groupForRole: { Admin: 'Finance' },
   },
   {
+    label: 'Booked Tests',
+    path: '/booked-tests',
+    icon: FlaskConical,
+    group: 'Front Office',
+    permissions: [P.BILL_VIEW],
+    groupForRole: { Admin: 'Operations' },
+  },
+  {
     label: 'Appointments',
     path: '/appointments',
     icon: Calendar,
