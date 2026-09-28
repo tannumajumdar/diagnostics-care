@@ -766,6 +766,29 @@ export class ResultService {
   static generatePDFReport = ResultService.generateReportPDF;
 
   /**
+   * The visit's report as it stands: the final report once every test is
+   * released, otherwise a provisional one of the tests saved so far - unsigned
+   * and marked as such.
+   */
+  static generateCurrentReportPDF = async (id: string): Promise<{ buffer: Buffer; provisional: boolean }> => {
+    const result = await ResultService.getById(id);
+    const sampleId = (result as any)?.sample?._id || (result as any)?.sample;
+    const sheets = sampleId ? await ResultService.getVisitBySampleId(String(sampleId)) : [result];
+
+    if (visitReadiness(sheets).isReady) {
+      return { buffer: await ResultService.generateReportPDF(id), provisional: false };
+    }
+
+    const hasValues = (sheet: any) =>
+      (sheet?.results || []).some((p: any) => p.resultType !== 'Header' && String(p.value ?? '').trim() !== '');
+    const standard = sheets.filter((sheet: any) => hasValues(sheet) && !sheet?.test?.reportTemplate);
+    if (standard.length === 0) {
+      throw new ApiError(400, 'No results have been saved on this visit yet');
+    }
+    return { buffer: await generateDiagnosticReportPDF(standard, { provisional: true }), provisional: true };
+  };
+
+  /**
    * One test's report printed from the Word file uploaded on that test, with
    * the patient's details and results filled into its #PLACEHOLDERS#. Only a
    * released result is printed, as with the standard report.

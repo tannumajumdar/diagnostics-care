@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { asList } from '../../utils/api-list';
 import { LAB_QUERY_KEYS } from '../../utils/query-options';
-import { resultApi } from '../../api/result.api';
+import { resultApi, savedReportApi } from '../../api/result.api';
 import { ParameterResult } from '../../types';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -290,19 +290,52 @@ export const ResultEntryPage: React.FC = () => {
     return targets;
   };
 
+  /**
+   * Files the report as it now stands in Saved Reports - final once every test
+   * on the visit is approved, provisional until then. One copy per visit,
+   * whichever tests were saved; the server drops the visit's older provisional
+   * copy when a new one is filed.
+   */
+  const fileProvisionalReports = async (targets: any[]) => {
+    const perVisit = new Map<string, any>();
+    for (const sheet of targets) {
+      const invoice = typeof sheet.invoice === 'object' ? sheet.invoice?._id : sheet.invoice;
+      const key = String(invoice || sheet._id);
+      if (!perVisit.has(key)) perVisit.set(key, sheet);
+    }
+    for (const sheet of perVisit.values()) {
+      await savedReportApi.saveFromResult(sheet._id, { provisional: true });
+    }
+  };
+
   // One Save: the values are kept and the report goes to the pathologist. Until
   // they approve it the report can be viewed, but without their signature.
   const submitMutation = useMutation({
-    mutationFn: () => saveAll('submit'),
-    onSuccess: (targets) => {
+    mutationFn: async () => {
+      const targets = await saveAll('submit');
+      if (!targets.length) return { targets, filed: false };
+      // The values are saved either way; a report that could not be filed is
+      // only worth a warning, not a failed save.
+      const filed = await fileProvisionalReports(targets).then(
+        () => true,
+        () => false
+      );
+      return { targets, filed };
+    },
+    onSuccess: ({ targets, filed }) => {
       invalidate();
+      queryClient.invalidateQueries({ queryKey: ['saved-reports'] });
       if (!targets.length) return;
       setValues({});
       setRemarks({});
       setFlagEdits({});
       setOverrides({});
+      if (!filed) {
+        showToast(`${targets.length} test(s) saved, but the provisional report could not be added to Saved Reports`, 'error');
+        return;
+      }
       showToast(
-        `${targets.length} test(s) saved - the report can be viewed now, and is signed once the pathologist approves it`,
+        `${targets.length} test(s) saved - the provisional report is in Saved Reports, and is signed once the pathologist approves it`,
         'success'
       );
     },
@@ -325,16 +358,30 @@ export const ResultEntryPage: React.FC = () => {
       for (const sheet of targets) {
         await resultApi.verify(sheet._id, { action });
       }
-      return targets;
-    },
-    onSuccess: (targets, action) => {
-      invalidate();
-      showToast(
+      // The approved report goes into Saved Reports; a failure there is only a
+      // warning, the approval itself stands.
+      const filed =
         action === 'Approve'
-          ? `${targets.length} test(s) approved and released`
-          : `${targets.length} test(s) sent back to the bench`,
-        'success'
-      );
+          ? await fileProvisionalReports(targets).then(
+              () => true,
+              () => false
+            )
+          : true;
+      return { targets, filed };
+    },
+    onSuccess: ({ targets, filed }, action) => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['saved-reports'] });
+      if (!filed) {
+        showToast(`${targets.length} test(s) approved, but the report could not be added to Saved Reports`, 'error');
+      } else {
+        showToast(
+          action === 'Approve'
+            ? `${targets.length} test(s) approved and released - the report is in Saved Reports`
+            : `${targets.length} test(s) sent back to the bench`,
+          'success'
+        );
+      }
       navigate('/results/pending');
     },
     onError: (err: any) => showToast(err?.message || 'Could not update the verification', 'error'),

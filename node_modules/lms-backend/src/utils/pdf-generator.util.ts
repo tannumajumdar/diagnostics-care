@@ -34,7 +34,11 @@ const flagColour = (flag: string) => {
  * section. Handed a single record it prints a report of one, which is what an
  * older caller expects.
  */
-export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer> => {
+export const generateDiagnosticReportPDF = async (
+  records: any,
+  options: { provisional?: boolean } = {}
+): Promise<Buffer> => {
+  const provisional = !!options.provisional;
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40 });
     const buffers: Buffer[] = [];
@@ -161,10 +165,18 @@ export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer>
     rule(doc);
     doc.moveDown(0.5);
 
-    // A PDF is only ever made of a report the pathologist has approved - the
-    // saved, unsigned copy is a provisional report and stays on screen.
-    doc.font('Helvetica-Bold').fontSize(12).fillColor('#065f46')
-      .text('FINAL REPORT', LEFT, doc.y, { width: RIGHT - LEFT, align: 'center', characterSpacing: 2 });
+    // A provisional copy is what the bench saved before the pathologist signed
+    // off: marked as such and printed without anyone's signature.
+    doc.font('Helvetica-Bold').fontSize(12).fillColor(provisional ? '#b45309' : '#065f46')
+      .text(provisional ? 'PROVISIONAL REPORT' : 'FINAL REPORT', LEFT, doc.y, {
+        width: RIGHT - LEFT,
+        align: 'center',
+        characterSpacing: 2,
+      });
+    if (provisional) {
+      doc.font('Helvetica').fontSize(8).fillColor('#b45309')
+        .text('Not verified by the pathologist', LEFT, doc.y, { width: RIGHT - LEFT, align: 'center' });
+    }
     doc.font('Helvetica').fillColor('#111827');
     doc.moveDown(0.6);
 
@@ -373,9 +385,9 @@ export const generateDiagnosticReportPDF = async (records: any): Promise<Buffer>
 
     // Usually one pathologist signs the whole visit; where two signed different
     // tests, both names go on it rather than crediting the report to one.
-    const verifiers = Array.from(
-      new Set(sheets.map((sheet: any) => sheet.verifiedBy?.name).filter(Boolean))
-    ) as string[];
+    const verifiers = provisional
+      ? []
+      : (Array.from(new Set(sheets.map((sheet: any) => sheet.verifiedBy?.name).filter(Boolean))) as string[]);
     const verifiedAt = sheets.find((sheet: any) => sheet.verifiedBy?.date)?.verifiedBy?.date;
 
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#111827').text(

@@ -14,14 +14,22 @@ const safe = (s?: string) =>
 
 export class SavedReportService {
   /**
-   * Generates the visit's report PDF and files it. The same checks as a plain
-   * download apply - only a released report is generated - so nothing
-   * provisional ever lands in the saved register.
+   * Generates the visit's report PDF and files it. A released visit is filed
+   * as the final report; with `provisional` allowed, a visit still awaiting the
+   * pathologist is filed as a provisional copy of what has been saved so far.
+   * Only the latest provisional copy of a visit is kept - an older one is
+   * replaced by the next save, final or provisional.
    */
-  static async saveFromResult(resultId: string, currentUser: JwtPayload) {
+  static async saveFromResult(resultId: string, currentUser: JwtPayload, options: { provisional?: boolean } = {}) {
     if (!mongoose.isValidObjectId(resultId)) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid result id');
 
-    const pdf: Buffer = await ResultService.generatePDFReport(resultId);
+    let pdf: Buffer;
+    let provisional = false;
+    if (options.provisional) {
+      ({ buffer: pdf, provisional } = await ResultService.generateCurrentReportPDF(resultId));
+    } else {
+      pdf = await ResultService.generatePDFReport(resultId);
+    }
 
     const result: any = await Result.findById(resultId)
       .populate('patient', 'patientName uhid mobile')
@@ -40,7 +48,14 @@ export class SavedReportService {
       new Set(visitResults.map((r) => (typeof r.test === 'object' ? r.test?.testName : '')).filter(Boolean))
     ) as string[];
 
-    const fileName = `${safe(patient.patientName) || 'Patient'}_${safe(result.resultId) || 'Report'}.pdf`;
+    const fileName = `${safe(patient.patientName) || 'Patient'}_${safe(result.resultId) || 'Report'}${
+      provisional ? '_Provisional' : ''
+    }.pdf`;
+
+    await SavedReport.deleteMany({
+      status: 'Provisional',
+      ...(invoice._id ? { invoice: invoice._id } : { result: result._id }),
+    });
 
     const saved = await SavedReport.create({
       result: result._id,
@@ -52,6 +67,7 @@ export class SavedReportService {
       invoiceNumber: invoice.invoiceNumber || '',
       enquiryNo: result.enquiryNo || invoice.enquiryNo || '',
       reportNo: result.resultId || '',
+      status: provisional ? 'Provisional' : 'Final',
       tests,
       fileName,
       size: pdf.length,
@@ -78,6 +94,7 @@ export class SavedReportService {
         { invoiceNumber: rx },
         { enquiryNo: rx },
         { reportNo: rx },
+        { status: rx },
         { tests: rx },
         { 'savedBy.name': rx },
       ];

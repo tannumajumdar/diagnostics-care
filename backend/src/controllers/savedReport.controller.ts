@@ -13,7 +13,9 @@ export class SavedReportController {
   static save = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const currentUser = (req as any).user as JwtPayload;
-      const data = await SavedReportService.saveFromResult(idParam(req, 'resultId'), currentUser);
+      const data = await SavedReportService.saveFromResult(idParam(req, 'resultId'), currentUser, {
+        provisional: req.body?.provisional === true,
+      });
       sendResponse({ res, statusCode: HTTP_STATUS.CREATED, message: 'Report saved', data });
     } catch (error) {
       next(error);

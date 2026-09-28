@@ -49,7 +49,8 @@ export const saveReportPdf = async (resultId: string, _patientName?: string, _re
 /** Every saved report PDF, kept to be found and downloaded again. */
 export const savedReportApi = {
   list: async (params?: any): Promise<any> => api.get('/saved-reports', { params }),
-  saveFromResult: async (resultId: string): Promise<any> => api.post(`/saved-reports/from-result/${resultId}`),
+  saveFromResult: async (resultId: string, options?: { provisional?: boolean }): Promise<any> =>
+    api.post(`/saved-reports/from-result/${resultId}`, options),
   file: async (id: string): Promise<Blob> => api.get(`/saved-reports/${id}/file`, { responseType: 'blob' }),
 };
 

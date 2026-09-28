@@ -18,6 +18,7 @@ interface SavedReport {
   invoiceNumber?: string;
   enquiryNo?: string;
   reportNo: string;
+  status?: 'Provisional' | 'Final';
   tests: string[];
   fileName: string;
   size: number;
@@ -190,7 +191,7 @@ export const SavedReportsPage: React.FC = () => {
                   <td colSpan={6} className="p-8 text-center text-muted-foreground">
                     {search || from || to
                       ? 'No saved reports match this filter.'
-                      : 'No reports saved yet. Use "Save PDF" on a final report to file it here.'}
+                      : 'No reports saved yet. Saving results files a provisional report here; "Save PDF" on a final report files the final one.'}
                   </td>
                 </tr>
               ) : (
@@ -212,7 +213,16 @@ export const SavedReportsPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="p-3 font-mono">
-                        <div className="font-bold text-blue-600">{r.reportNo}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-blue-600">{r.reportNo}</span>
+                          <span
+                            className={`rounded-full px-1.5 py-0.5 font-sans text-[10px] font-semibold ${
+                              r.status === 'Provisional' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                            }`}
+                          >
+                            {r.status === 'Provisional' ? 'Provisional' : 'Final'}
+                          </span>
+                        </div>
                         <div className="text-[11px] text-muted-foreground">
                           {r.invoiceNumber}
                           {r.enquiryNo ? ` · ${r.enquiryNo}` : ''}

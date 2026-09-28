@@ -16,6 +16,7 @@ export interface ISavedReportDocument extends Document {
   invoiceNumber?: string;
   enquiryNo?: string;
   reportNo: string;
+  status: 'Provisional' | 'Final';
   tests: string[];
   fileName: string;
   size: number;
@@ -36,6 +37,8 @@ const savedReportSchema = new Schema<ISavedReportDocument>(
     invoiceNumber: { type: String, trim: true, default: '' },
     enquiryNo: { type: String, trim: true, default: '' },
     reportNo: { type: String, trim: true, default: '' },
+    // Provisional: saved from result entry before the pathologist approved it.
+    status: { type: String, enum: ['Provisional', 'Final'], default: 'Final', index: true },
     tests: { type: [String], default: [] },
     fileName: { type: String, required: true },
     size: { type: Number, default: 0 },

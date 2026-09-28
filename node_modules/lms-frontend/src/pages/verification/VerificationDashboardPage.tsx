@@ -1,7 +1,7 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { resultApi } from '../../api/result.api';
+import { resultApi, savedReportApi } from '../../api/result.api';
 import { asList } from '../../utils/api-list';
 import { LAB_QUERY_KEYS } from '../../utils/query-options';
 import { useToast } from '../../context/ToastContext';
@@ -105,16 +105,28 @@ export const VerificationDashboardPage: React.FC = () => {
       for (const sheet of report.sheets) {
         await resultApi.verify(sheet._id, { action: 'Approve' });
       }
-      return report;
+      // The released report is filed in Saved Reports - final, or provisional
+      // if another test on the visit is still waiting. A failure there is only
+      // a warning; the approval stands.
+      const filed = await savedReportApi.saveFromResult(report.sheets[0]._id, { provisional: true }).then(
+        () => true,
+        () => false
+      );
+      return { report, filed };
     },
-    onSuccess: (report) => {
+    onSuccess: ({ report, filed }) => {
       // Releasing a report takes the specimen to Completed, so every bench
       // queue it was sitting in has to be re-read alongside this one.
       LAB_QUERY_KEYS.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
+      queryClient.invalidateQueries({ queryKey: ['saved-reports'] });
+      if (!filed) {
+        showToast(`${report.patientName}'s report approved, but it could not be added to Saved Reports`, 'error');
+        return;
+      }
       showToast(
         `${report.patientName}'s report approved and released (${report.sheets.length} test${
           report.sheets.length === 1 ? '' : 's'
-        })`,
+        }) - saved in Saved Reports`,
         'success'
       );
     },
