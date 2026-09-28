@@ -445,6 +445,9 @@ export class ResultService {
       return {
         _id: String(row._id),
         invoiceNumber: invoice.invoiceNumber,
+        // What the patient still owes on the bill, so the desk can ask for it
+        // when the report is collected.
+        dueAmount: Number(invoice.dueAmount) || 0,
         enquiryNo: first.enquiryNo || invoice.enquiryNo,
         uhid: first.uhid,
         patient: first.patient,

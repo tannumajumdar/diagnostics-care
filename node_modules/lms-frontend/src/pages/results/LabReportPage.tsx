@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { asList } from '../../utils/api-list';
 import { resultApi, saveReportPdf } from '../../api/result.api';
@@ -7,6 +7,8 @@ import { useToast } from '../../context/ToastContext';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { ArrowLeft, Printer, Download, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { WhatsAppIcon } from '../../components/common/WhatsAppIcon';
+import { buildPatientMessage, openWhatsApp } from '../../utils/whatsapp';
 import { resultMarker } from '../../utils/result-flag';
 import { CENTRE, contactLine } from '../../config/centre';
 import { WordReportPreview } from '../../components/results/WordReportPreview';
@@ -25,6 +27,18 @@ const commentLines = (text: string) =>
     .filter(Boolean);
 
 /** A labelled line in one of the header blocks. Blank values print as a dash. */
+/**
+ * Opens the print dialog once, on mount - for a report opened straight to
+ * print from another list (Booked Tests), after the sheet has rendered.
+ */
+const PrintOnMount: React.FC<{ onReady: () => void }> = ({ onReady }) => {
+  useEffect(() => {
+    onReady();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+};
+
 const Line: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
   <div className="flex gap-2">
     <span className="w-28 shrink-0 font-semibold text-muted-foreground">{label}</span>
@@ -46,6 +60,8 @@ export const LabReportPage: React.FC = () => {
   // disabled and the page rendered "Report not found" for every result.
   const { resultId } = useParams<{ resultId: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const printOnOpen = searchParams.get('print') === '1';
 
   // The logo's space in the header is held either way; this only decides
   // whether artwork is drawn in it, so an unconfigured `logo.png` leaves the
@@ -187,6 +203,19 @@ export const LabReportPage: React.FC = () => {
     ? []
     : Array.from(new Set(standard.map((s) => s.verifiedBy?.name).filter(Boolean) as string[]));
 
+  const handleWhatsApp = () => {
+    const sent = openWhatsApp(
+      patient.mobile,
+      buildPatientMessage({
+        patientName: patient.patientName,
+        invoiceNumber: invoice.invoiceNumber,
+        reportReady: !provisional,
+        dueAmount: invoice.dueAmount,
+      })
+    );
+    if (!sent) showToast('This patient has no valid mobile number on record', 'error');
+  };
+
   const handleDownloadPDF = async () => {
     setSaving(true);
     try {
@@ -267,6 +296,16 @@ export const LabReportPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 py-4 print:max-w-none print:py-0">
+      {/* Only the final report goes straight to the printer; the flag is
+          dropped so a refresh does not print it again. */}
+      {printOnOpen && !provisional && standard.length > 0 && (
+        <PrintOnMount
+          onReady={() => {
+            setSearchParams({}, { replace: true });
+            setPrintMode('header');
+          }}
+        />
+      )}
       <div className="flex items-center justify-between" data-print="hide">
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => navigate('/results')}>
@@ -301,6 +340,15 @@ export const LabReportPage: React.FC = () => {
             title="Print without the centre's name and logo - for pre-printed letterhead paper"
           >
             <Printer className="mr-1 h-4 w-4" /> Print without Header
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleWhatsApp}
+            className="border-green-300 text-green-700 hover:bg-green-50"
+            title="Message the patient on WhatsApp that the report is ready, with any balance due"
+          >
+            <WhatsAppIcon className="mr-1 h-4 w-4" /> WhatsApp
           </Button>
           <Button
             size="sm"

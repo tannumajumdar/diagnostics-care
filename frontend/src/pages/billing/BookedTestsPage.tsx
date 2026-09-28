@@ -19,7 +19,6 @@ import { exportToExcel } from '../../utils/excel-export';
 import { useToast } from '../../context/ToastContext';
 import { usePrintTarget } from '../../hooks/usePrintTarget';
 import { ListPrintSheet } from '../../components/billing/ListPrintSheet';
-import { TestSlipPrint } from '../../components/billing/TestSlipPrint';
 import {
   FlaskConical,
   Search,
@@ -32,12 +31,16 @@ import {
   Download,
   Printer,
 } from 'lucide-react';
+import { WhatsAppIcon } from '../../components/common/WhatsAppIcon';
+import { buildPatientMessage, openWhatsApp, toWhatsAppNumber } from '../../utils/whatsapp';
 
 const money = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
 
 /** One bill line as the server sends it. */
 interface BookedTest {
   invoiceId: string;
+  /** Set once the visit's final report is out - the result to open it by. */
+  reportResultId?: string | null;
   invoiceNumber: string;
   enquiryNo?: string;
   barcode?: string;
@@ -63,6 +66,36 @@ interface BookedTest {
   sampleId?: string;
   sampleStatus?: string;
 }
+
+/** How many of one test were booked on one day. */
+interface DayCount {
+  day: string;
+  testName: string;
+  testCode?: string;
+  departmentName?: string;
+  count: number;
+}
+
+/** The day-wise counts, one entry per day with its tests, newest day first. */
+const groupByDay = (counts: DayCount[]) => {
+  const days: Array<{ day: string; total: number; tests: DayCount[] }> = [];
+  for (const c of counts) {
+    let entry = days[days.length - 1];
+    if (!entry || entry.day !== c.day) {
+      entry = { day: c.day, total: 0, tests: [] };
+      days.push(entry);
+    }
+    entry.tests.push(c);
+    entry.total += c.count;
+  }
+  return days;
+};
+
+const dayHeading = (key: string) => {
+  const label = relativeDayLabel(key);
+  const date = formatDay(`${key}T00:00:00`);
+  return label === date ? date : `${label} · ${date}`;
+};
 
 /** Where the work is, in the buckets the server filters on. */
 const STATUS_FILTERS = [
@@ -178,10 +211,22 @@ export const BookedTestsPage: React.FC = () => {
     placeholderData: (prev: any) => prev,
   });
 
+  // The same filters, read as "how many of each test on each day".
+  const [view, setView] = useState<'list' | 'count'>('list');
+  const { data: countData, isLoading: countLoading } = useQuery({
+    queryKey: ['booked-tests-daycount', filters],
+    queryFn: () => billingApi.getBookedTests({ ...filters, view: 'daycount', page: 1, limit: 1 }),
+    enabled: view === 'count',
+    placeholderData: (prev: any) => prev,
+  });
+  const dayCounts: DayCount[] = (countData?.meta || countData?.pagination || {}).dayCounts || [];
+  const countDays = groupByDay(dayCounts);
+  const countTotal = dayCounts.reduce((n, c) => n + c.count, 0);
+
   const { showToast } = useToast();
   const [busy, setBusy] = useState<'' | 'export' | 'print'>('');
   const [printTarget, setPrintTarget] = usePrintTarget<
-    { kind: 'list'; tests: BookedTest[]; truncated: boolean } | { kind: 'slip'; test: BookedTest }
+    { kind: 'list'; tests: BookedTest[]; truncated: boolean } | { kind: 'count'; counts: DayCount[] }
   >();
 
   const rows = asList<BookedTest>(data, 'tests');
@@ -297,6 +342,14 @@ export const BookedTestsPage: React.FC = () => {
   };
 
   const handlePrintList = async () => {
+    if (view === 'count') {
+      if (!dayCounts.length) {
+        showToast('No tests match this filter', 'error');
+        return;
+      }
+      setPrintTarget({ kind: 'count', counts: dayCounts });
+      return;
+    }
     setBusy('print');
     try {
       const { tests, truncated } = await loadAll();
@@ -356,7 +409,7 @@ export const BookedTestsPage: React.FC = () => {
             className="gap-2"
           >
             <Printer className="h-4 w-4" />
-            <span>Print</span>
+            <span>{view === 'count' ? 'Print Count' : 'Print'}</span>
           </Button>
         </div>
       </div>
@@ -575,7 +628,78 @@ export const BookedTestsPage: React.FC = () => {
         </div>
       </Card>
 
-      <Card className="overflow-hidden border">
+      <div className="inline-flex rounded-lg border bg-muted/40 p-1 text-xs font-semibold">
+        {(
+          [
+            ['list', 'Test list'],
+            ['count', 'Day-wise count'],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setView(key)}
+            className={`rounded-md px-3 py-1.5 transition-colors ${
+              view === key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'count' && (
+        <Card className="overflow-hidden border">
+          <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-3 text-xs">
+            <span className="font-semibold text-foreground">
+              {rangeLabel} · {countTotal} test{countTotal === 1 ? '' : 's'}
+              {countDays.length > 1 ? ` over ${countDays.length} days` : ''}
+            </span>
+            <span className="text-muted-foreground">
+              {status === 'Cancelled' ? 'Cancelled tests only' : 'Cancelled tests are not counted'}
+            </span>
+          </div>
+          {countLoading ? (
+            <div className="p-8 text-center text-xs text-muted-foreground">Counting tests...</div>
+          ) : countDays.length === 0 ? (
+            <div className="p-8 text-center text-xs text-muted-foreground">No tests match this filter.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead className="border-b bg-muted/50 font-semibold text-muted-foreground">
+                  <tr>
+                    <th className="p-3">Test</th>
+                    <th className="p-3">Code</th>
+                    <th className="p-3">Department</th>
+                    <th className="p-3 text-right">Count</th>
+                  </tr>
+                </thead>
+                {countDays.map((d) => (
+                  <tbody key={d.day} className="divide-y divide-border border-b">
+                    <tr className="bg-blue-50/60">
+                      <td colSpan={3} className="p-3 font-bold text-blue-700">
+                        <CalendarDays className="mr-1.5 inline h-4 w-4 align-[-3px]" />
+                        {dayHeading(d.day)}
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-blue-700">{d.total}</td>
+                    </tr>
+                    {d.tests.map((t) => (
+                      <tr key={t.testName} className="hover:bg-muted/30">
+                        <td className="p-3 pl-9 font-semibold text-foreground">{t.testName}</td>
+                        <td className="p-3 font-mono text-muted-foreground">{t.testCode || '—'}</td>
+                        <td className="p-3 text-muted-foreground">{t.departmentName || '—'}</td>
+                        <td className="p-3 text-right font-mono font-bold text-foreground">{t.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                ))}
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      <Card className={`overflow-hidden border ${view === 'count' ? 'hidden' : ''}`}>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left text-xs">
             <thead className="border-b bg-muted/50 font-semibold text-muted-foreground">
@@ -664,19 +788,42 @@ export const BookedTestsPage: React.FC = () => {
                           <Button variant="outline" size="sm" onClick={() => navigate(`/billing/${row.invoiceId}`)}>
                             <Eye className="mr-1 h-4 w-4" /> Bill
                           </Button>
+                          {/* Always rendered, so the row's buttons line up down the column. */}
                           <Button
                             variant="outline"
                             size="sm"
-                            title="Print this test"
-                            onClick={() => setPrintTarget({ kind: 'slip', test: row })}
+                            className="border-green-300 text-green-700 hover:bg-green-50"
+                            disabled={row.cancelled || !toWhatsAppNumber(row.patient?.mobile)}
+                            title={
+                              row.cancelled
+                                ? 'This test was cancelled'
+                                : !toWhatsAppNumber(row.patient?.mobile)
+                                ? 'No valid mobile number on record'
+                                : row.reportResultId
+                                ? 'WhatsApp the patient: report ready' + (row.dueAmount > 0 ? ' + due amount' : '')
+                                : 'WhatsApp the patient: tests in progress' + (row.dueAmount > 0 ? ' + due amount' : '')
+                            }
+                            onClick={() =>
+                              openWhatsApp(
+                                row.patient?.mobile,
+                                buildPatientMessage({
+                                  patientName: row.patient?.patientName,
+                                  invoiceNumber: row.invoiceNumber,
+                                  reportReady: !!row.reportResultId,
+                                  dueAmount: row.dueAmount,
+                                })
+                              )
+                            }
                           >
-                            <Printer className="h-4 w-4" />
+                            <WhatsAppIcon className="h-4 w-4" />
                           </Button>
-                          {canCancel && !row.cancelled && (
+                          {canCancel && (
                             <Button
                               variant="outline"
                               size="sm"
                               className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                              disabled={row.cancelled}
+                              title={row.cancelled ? 'Already cancelled' : undefined}
                               onClick={() =>
                                 setCancelPreset({
                                   invoiceId: row.invoiceId,
@@ -736,6 +883,40 @@ export const BookedTestsPage: React.FC = () => {
       )}
     </div>
 
+      {printTarget?.kind === 'count' && (
+        <div className="hidden print:block">
+          <ListPrintSheet
+            title="Day-wise Test Count"
+            filterLines={[
+              ...filterLines,
+              status === 'Cancelled' ? 'Cancelled tests only' : 'Cancelled tests not counted',
+            ]}
+            countLabel={`${printTarget.counts.reduce((n, c) => n + c.count, 0)} tests`}
+            columns={[
+              { header: 'Date', nowrap: true },
+              { header: 'Test' },
+              { header: 'Code', nowrap: true },
+              { header: 'Department' },
+              { header: 'Count', numeric: true },
+            ]}
+            rows={groupByDay(printTarget.counts).flatMap((d) =>
+              d.tests.map((t, i) => [
+                // The day and its total head the day's first line only.
+                i === 0 ? <b key="d">{`${formatDay(`${d.day}T00:00:00`)} (${d.total})`}</b> : '',
+                t.testName,
+                t.testCode || '',
+                t.departmentName || '',
+                String(t.count),
+              ])
+            )}
+            totals={[
+              ['Days', String(groupByDay(printTarget.counts).length)],
+              ['Total tests', String(printTarget.counts.reduce((n, c) => n + c.count, 0))],
+            ]}
+          />
+        </div>
+      )}
+
       {printTarget?.kind === 'list' && (
         <div className="hidden print:block">
           <ListPrintSheet
@@ -779,12 +960,6 @@ export const BookedTestsPage: React.FC = () => {
             ]}
             note={printTarget.truncated ? 'Only the newest tests are printed - narrow the dates to print the rest.' : undefined}
           />
-        </div>
-      )}
-
-      {printTarget?.kind === 'slip' && (
-        <div className="hidden print:block">
-          <TestSlipPrint test={{ ...printTarget.test, statusLabel: statusBadge(printTarget.test).label }} />
         </div>
       )}
     </>

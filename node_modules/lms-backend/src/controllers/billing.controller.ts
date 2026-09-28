@@ -58,7 +58,8 @@ export class BillingController {
         statusCode: HTTP_STATUS.OK,
         message: 'Booked tests retrieved successfully',
         data: result.tests,
-        meta: result.pagination,
+        // The day-wise count rides with the page data when it was asked for.
+        meta: 'dayCounts' in result ? { ...result.pagination, dayCounts: result.dayCounts } : result.pagination,
       });
     } catch (error) {
       next(error);

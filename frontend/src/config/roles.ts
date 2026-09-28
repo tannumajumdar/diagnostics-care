@@ -402,6 +402,13 @@ export const NAV_ITEMS: NavItem[] = [
     groupForRole: { Receptionist: 'Front Office' },
   },
   { label: 'Analytics Reports', path: '/reports', icon: BarChart3, group: 'Finance', permissions: [P.REPORT_VIEW] },
+  {
+    label: 'Doctor Referrals',
+    path: '/doctor-referrals',
+    icon: Stethoscope,
+    group: 'Finance',
+    permissions: [P.REPORT_VIEW],
+  },
 ];
 
 export const GROUP_ORDER = ['Overview', 'Front Office', 'Operations', 'Laboratory', 'Masters', 'Finance'];

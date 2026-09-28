@@ -7,6 +7,8 @@ import { Doctor } from '../models/doctor.model';
 import { Organization } from '../models/organization.model';
 import { LabTest } from '../models/test.model';
 import { TestPackage } from '../models/package.model';
+import { Result } from '../models/result.model';
+import { SAMPLE_STATUS } from '../constants/workflow';
 import {
   getNextInvoiceNumber,
   getNextReceiptNumber,
@@ -504,6 +506,8 @@ export class BillingService {
    * naming a page size of its own.
    */
   static readonly MAX_PAGE_SIZE = 500;
+  /** The timezone the date filters' setHours() works in. */
+  static readonly SERVER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
 
   /**
    * One front-desk intake. The receptionist takes the patient's details, what
@@ -989,8 +993,11 @@ export class BillingService {
     to?: string;
     page?: number;
     limit?: number;
+    /** 'daycount' also returns how many of each test were booked on each day. */
+    view?: string;
   }) {
     const {
+      view,
       search,
       department,
       processingMode,
@@ -1151,10 +1158,76 @@ export class BillingService {
                 as: 'organizationDoc',
               },
             },
+            // The line's own result sheet, and whether any other live test on
+            // the visit is still short of release. The patient is handed one
+            // report per visit, so it only counts as final once every test on
+            // the bill has been completed and approved - the same rule the
+            // report page itself applies.
+            {
+              $lookup: {
+                from: Result.collection.name,
+                let: { s: '$sample._id' },
+                pipeline: [
+                  { $match: { $expr: { $eq: ['$sample', '$$s'] } } },
+                  { $project: { status: 1 } },
+                  { $limit: 1 },
+                ],
+                as: 'resultDoc',
+              },
+            },
+            {
+              $lookup: {
+                from: Sample.collection.name,
+                let: { inv: '$_id' },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: {
+                        $and: [{ $eq: ['$invoice', '$$inv'] }, { $ne: ['$status', SAMPLE_STATUS.CANCELLED] }],
+                      },
+                    },
+                  },
+                  {
+                    $lookup: {
+                      from: Result.collection.name,
+                      let: { s: '$_id' },
+                      pipeline: [{ $match: { $expr: { $eq: ['$sample', '$$s'] } } }, { $project: { status: 1 } }],
+                      as: 'r',
+                    },
+                  },
+                  {
+                    $match: {
+                      $nor: [{ status: SAMPLE_STATUS.COMPLETED, 'r.status': { $in: ['Approved', 'Final'] } }],
+                    },
+                  },
+                  { $limit: 1 },
+                  { $project: { _id: 1 } },
+                ],
+                as: 'unreleased',
+              },
+            },
+            {
+              $set: {
+                reportResultId: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $eq: ['$sample.status', SAMPLE_STATUS.COMPLETED] },
+                        { $in: [{ $arrayElemAt: ['$resultDoc.status', 0] }, ['Approved', 'Final']] },
+                        { $eq: [{ $size: '$unreleased' }, 0] },
+                      ],
+                    },
+                    { $arrayElemAt: ['$resultDoc._id', 0] },
+                    null,
+                  ],
+                },
+              },
+            },
             {
               $project: {
                 _id: 0,
                 invoiceId: '$_id',
+                reportResultId: 1,
                 // The panel's name wins over whatever was typed at the counter.
                 doctorName: {
                   $ifNull: [{ $arrayElemAt: ['$doctorDoc.doctorName', 0] }, '$referringDoctorName'],
@@ -1201,6 +1274,39 @@ export class BillingService {
               },
             },
           ],
+          // How many of each test went through on each day, under the same
+          // filters. A cancelled booking is not work done, so it is left out -
+          // unless the desk is looking at cancellations on purpose.
+          ...(view === 'daycount'
+            ? {
+                dayCounts: [
+                  ...(status === 'Cancelled' ? [] : [{ $match: { 'items.cancelled': { $ne: true } } }]),
+                  {
+                    $group: {
+                      _id: {
+                        // The server's own day, the same one the from/to filter above cuts on.
+                        day: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: BillingService.SERVER_TZ } },
+                        testName: '$items.testName',
+                      },
+                      testCode: { $first: '$items.testCode' },
+                      departmentName: { $first: '$items.departmentName' },
+                      count: { $sum: 1 },
+                    },
+                  },
+                  { $sort: { '_id.day': -1, count: -1, '_id.testName': 1 } },
+                  {
+                    $project: {
+                      _id: 0,
+                      day: '$_id.day',
+                      testName: '$_id.testName',
+                      testCode: 1,
+                      departmentName: 1,
+                      count: 1,
+                    },
+                  },
+                ],
+              }
+            : {}),
         },
       },
     ]);
@@ -1210,6 +1316,7 @@ export class BillingService {
 
     return {
       tests: result?.rows || [],
+      ...(view === 'daycount' ? { dayCounts: result?.dayCounts || [] } : {}),
       pagination: {
         total,
         page: pageNumber,

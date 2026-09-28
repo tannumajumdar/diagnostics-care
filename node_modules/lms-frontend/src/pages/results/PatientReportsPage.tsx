@@ -22,6 +22,8 @@ import {
   X,
   Download,
 } from 'lucide-react';
+import { WhatsAppIcon } from '../../components/common/WhatsAppIcon';
+import { buildPatientMessage, openWhatsApp, toWhatsAppNumber } from '../../utils/whatsapp';
 
 const STATUSES = ['Draft', 'Submitted', 'Approved', 'Rejected', 'Final'];
 
@@ -222,6 +224,9 @@ export const PatientReportsPage: React.FC = () => {
                     <Badge variant="outline">
                       {readiness.total || tests.length} test{(readiness.total || tests.length) === 1 ? '' : 's'}
                     </Badge>
+                    {visit.dueAmount > 0 && (
+                      <Badge variant="destructive">Due ₹{Number(visit.dueAmount).toLocaleString('en-IN')}</Badge>
+                    )}
                     {abnormal > 0 && <Badge variant="destructive">{abnormal} abnormal</Badge>}
                     {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </div>
@@ -242,6 +247,32 @@ export const PatientReportsPage: React.FC = () => {
                       </span>
                     )}
                     <div className="flex gap-2">
+                      {toWhatsAppNumber(patient.mobile) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-green-300 text-green-700 hover:bg-green-50"
+                          title={
+                            (readiness.isReady
+                              ? 'WhatsApp the patient that the report is ready to collect'
+                              : 'WhatsApp the patient that the tests are in progress') +
+                            (visit.dueAmount > 0 ? ', with the balance due' : '')
+                          }
+                          onClick={() =>
+                            openWhatsApp(
+                              patient.mobile,
+                              buildPatientMessage({
+                                patientName: patient.patientName,
+                                invoiceNumber: visit.invoiceNumber,
+                                reportReady: readiness.isReady,
+                                dueAmount: visit.dueAmount,
+                              })
+                            )
+                          }
+                        >
+                          <WhatsAppIcon className="mr-1 h-4 w-4" /> WhatsApp
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"

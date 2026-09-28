@@ -12,5 +12,7 @@ export const reportsApi = {
   getReportCompletionStats: async (): Promise<any> => api.get('/reports/reports/completion'),
   getSampleRejections: async (): Promise<any> => api.get('/reports/samples/rejections'),
   getCorporateRevenue: async (): Promise<any> => api.get('/reports/corporate/revenue'),
+  getDoctorReferrals: async (params?: { from?: string; to?: string; doctor?: string }): Promise<any> =>
+    api.get('/reports/doctors/referrals', { params }),
 };
 

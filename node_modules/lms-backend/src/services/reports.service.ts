@@ -3,6 +3,8 @@ import { Payment } from '../models/payment.model';
 import { Patient } from '../models/patient.model';
 import { Sample } from '../models/sample.model';
 import { Result } from '../models/result.model';
+import { Doctor } from '../models/doctor.model';
+import mongoose from 'mongoose';
 
 export class ReportsService {
   static getDailyRevenueTrend = async () => {
@@ -162,5 +164,108 @@ export class ReportsService {
         },
       },
     ]);
+  };
+
+  /**
+   * Every bill a doctor referred, visit by visit: the day, the patient, the
+   * tests that were run and what the doctor's referral charges on it come to.
+   *
+   * The charge is the doctor's-copy arrangement, line by line: the doctor's
+   * patient is billed the test's referral rate, the centre keeps its own rate,
+   * and the difference is the doctor's. Both rates are the ones frozen on the
+   * bill, so an old month reads at the rates agreed on the day. A test the
+   * patient cancelled earns nothing.
+   */
+  static getDoctorReferralReport = async (query: { from?: string; to?: string; doctor?: string }) => {
+    const { from, to, doctor } = query;
+    const match: any = { status: { $ne: 'Cancelled' } };
+
+    if (from || to) {
+      const range: any = {};
+      if (from) {
+        const start = new Date(from);
+        start.setHours(0, 0, 0, 0);
+        if (!Number.isNaN(start.getTime())) range.$gte = start;
+      }
+      if (to) {
+        const end = new Date(to);
+        end.setHours(23, 59, 59, 999);
+        if (!Number.isNaN(end.getTime())) range.$lte = end;
+      }
+      if (Object.keys(range).length) match.createdAt = range;
+    }
+
+    if (doctor && mongoose.isValidObjectId(doctor)) {
+      // The paneled doctor, and the same name typed in by hand at the counter.
+      const panelDoctor = await Doctor.findById(doctor).select('doctorName').lean();
+      const byName = panelDoctor?.doctorName
+        ? [
+            {
+              referringDoctorName: {
+                $regex: `^${panelDoctor.doctorName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+                $options: 'i',
+              },
+            },
+          ]
+        : [];
+      match.$or = [{ referringDoctor: new mongoose.Types.ObjectId(doctor) }, ...byName];
+    } else {
+      // Only bills that name a referring doctor at all.
+      match.$or = [
+        { referringDoctor: { $ne: null } },
+        { referringDoctorName: { $nin: [null, ''] } },
+      ];
+    }
+
+    const invoices: any[] = await Invoice.find(match)
+      .select('invoiceNumber uhid createdAt patient referringDoctor referringDoctorName items netAmount')
+      .populate('patient', 'patientName uhid age gender mobile')
+      .populate('referringDoctor', 'doctorName specialty')
+      .sort({ createdAt: 1 })
+      .lean();
+
+    return invoices
+      .map((inv) => {
+        const panel = inv.referringDoctor && typeof inv.referringDoctor === 'object' ? inv.referringDoctor : null;
+        const tests = (inv.items || [])
+          .filter((item: any) => !item.cancelled)
+          .map((item: any) => {
+            const rate = Number(item.rate) || 0;
+            // Unset on a line means the doctor's copy printed the centre's own rate.
+            const referralRate = Number(item.referralRate) || rate;
+            return {
+              testName: item.testName,
+              testCode: item.testCode,
+              rate,
+              referralRate,
+              charges: Math.max(0, referralRate - rate),
+            };
+          });
+        const sum = (key: 'rate' | 'referralRate' | 'charges') =>
+          tests.reduce((total: number, t: any) => total + t[key], 0);
+        return {
+          invoiceId: inv._id,
+          invoiceNumber: inv.invoiceNumber,
+          billedAt: inv.createdAt,
+          uhid: inv.uhid,
+          patient: inv.patient
+            ? {
+                patientName: inv.patient.patientName,
+                age: inv.patient.age,
+                gender: inv.patient.gender,
+                mobile: inv.patient.mobile,
+              }
+            : null,
+          doctorId: panel?._id || null,
+          // The panel's name wins over whatever was typed at the counter.
+          doctorName: panel?.doctorName || inv.referringDoctorName || 'Unknown',
+          onPanel: !!panel,
+          tests,
+          rate: sum('rate'),
+          referralRate: sum('referralRate'),
+          charges: sum('charges'),
+        };
+      })
+      .filter((row) => row.tests.length > 0);
   };
 }

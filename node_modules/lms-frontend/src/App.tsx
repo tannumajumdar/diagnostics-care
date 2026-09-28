@@ -40,6 +40,7 @@ import { PayoutsPage } from './pages/accounts/PayoutsPage';
 import { AccountsPage } from './pages/accounts/AccountsPage';
 import { PaymentLedgerPage } from './pages/accounts/PaymentLedgerPage';
 import { ReportsPage } from './pages/reports/ReportsPage';
+import { DoctorReferralReportPage } from './pages/reports/DoctorReferralReportPage';
 import { RefundPolicyPage } from './pages/settings/RefundPolicyPage';
 
 const P = PERMISSIONS;
@@ -152,6 +153,10 @@ export default function App() {
                     <Route path="/accounts" element={guarded([P.REFUND_VIEW], <AccountsPage />)} />
                     <Route path="/ledger" element={guarded([P.BILL_VIEW], <PaymentLedgerPage />)} />
                     <Route path="/reports" element={guarded([P.REPORT_VIEW], <ReportsPage />)} />
+                    <Route
+                      path="/doctor-referrals"
+                      element={guarded([P.REPORT_VIEW], <DoctorReferralReportPage />)}
+                    />
 
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>

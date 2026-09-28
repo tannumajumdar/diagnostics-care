@@ -94,6 +94,15 @@ export class ReportsController {
     }
   };
 
+  static getDoctorReferralReport = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const data = await ReportsService.getDoctorReferralReport(req.query as any);
+      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Doctor referral report', data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   static getCorporateRevenue = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const data = await ReportsService.getCorporateRevenue();

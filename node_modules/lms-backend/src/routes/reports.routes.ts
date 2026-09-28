@@ -21,5 +21,7 @@ router.get('/payments/pending', ReportsController.getPendingDuePayments);
 router.get('/reports/completion', ReportsController.getReportCompletionStats);
 router.get('/samples/rejections', ReportsController.getSampleRejectionAnalytics);
 router.get('/corporate/revenue', ReportsController.getCorporateRevenue);
+// Visit by visit, what each referring doctor sent in and their cut on it.
+router.get('/doctors/referrals', ReportsController.getDoctorReferralReport);
 
 export default router;
