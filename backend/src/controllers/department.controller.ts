@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { Department } from '../models/department.model';
+import { repo, regexAny, mongoSort } from '../db/repo';
 import { sendResponse } from '../utils/api-response.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { ApiError } from '../utils/api-error.util';
@@ -8,19 +8,19 @@ export class DepartmentController {
   static getAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { search, status, page = 1, limit = 10 } = req.query;
-      const filter: any = {};
-      if (search) {
-        filter.$or = [
-          { departmentName: { $regex: search, $options: 'i' } },
-          { departmentCode: { $regex: search, $options: 'i' } },
-        ];
-      }
+      const filter: any = { AND: [] };
+      if (search) filter.AND.push(await regexAny('department', ['departmentName', 'departmentCode'], String(search)));
       if (status) filter.status = status;
 
       const skip = (Number(page) - 1) * Number(limit);
       const [departments, total] = await Promise.all([
-        Department.find(filter).sort({ departmentName: 1 }).skip(skip).limit(Number(limit)),
-        Department.countDocuments(filter),
+        repo.find('department', {
+          where: filter,
+          orderBy: mongoSort('department', { departmentName: 1 }),
+          skip,
+          take: Number(limit),
+        }),
+        repo.count('department', filter),
       ]);
 
       sendResponse({
@@ -38,7 +38,7 @@ export class DepartmentController {
   static getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const dept = await Department.findById(id);
+      const dept = await repo.findById('department', id);
       if (!dept) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Department not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Department retrieved', data: dept });
     } catch (error) {
@@ -48,7 +48,7 @@ export class DepartmentController {
 
   static create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const dept = await Department.create(req.body);
+      const dept = await repo.create('department', req.body);
       sendResponse({ res, statusCode: HTTP_STATUS.CREATED, message: 'Department created', data: dept });
     } catch (error) {
       next(error);
@@ -58,7 +58,7 @@ export class DepartmentController {
   static update = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const dept = await Department.findByIdAndUpdate(id, req.body, { new: true });
+      const dept = await repo.updateById('department', id, req.body);
       if (!dept) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Department not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Department updated', data: dept });
     } catch (error) {
@@ -69,10 +69,10 @@ export class DepartmentController {
   static toggleStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const dept = await Department.findById(id);
-      if (!dept) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Department not found');
-      dept.status = dept.status === 'Active' ? 'Inactive' : 'Active';
-      await dept.save();
+      const found = await repo.findById('department', id);
+      if (!found) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Department not found');
+      found.status = found.status === 'Active' ? 'Inactive' : 'Active';
+      const dept = await repo.save('department', found);
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Status updated', data: dept });
     } catch (error) {
       next(error);

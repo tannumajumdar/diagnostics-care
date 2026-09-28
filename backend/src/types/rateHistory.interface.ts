@@ -1,14 +1,14 @@
-import { Document, Schema } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 
-export interface IRateHistoryDocument extends Document {
-  test: Schema.Types.ObjectId;
+export interface IRateHistoryDocument extends StoredDocument {
+  test: Ref;
   testCode?: string;
   testName?: string;
   previousRates: Record<string, number>;
   newRates: Record<string, number>;
   reason?: string;
   changedBy: {
-    userId: Schema.Types.ObjectId;
+    userId: Ref;
     name: string;
   };
 }

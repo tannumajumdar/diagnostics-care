@@ -1,4 +1,4 @@
-import { RolePermission } from '../models/rolePermission.model';
+import { repo } from '../db/repo';
 import { ALL_ROLES } from '../constants/roles';
 import {
   DEFAULT_ROLE_PERMISSIONS,
@@ -20,14 +20,14 @@ export class RolePermissionService {
    * defaults for their role, so older accounts keep exactly the access they had.
    */
   static async loadIntoMemory(): Promise<void> {
-    const saved = await RolePermission.find().lean();
-    saved.forEach((row) => setRolePermissions(row.role, row.permissions || []));
+    const saved = await repo.find('rolePermission');
+    saved.forEach((row: any) => setRolePermissions(row.role, row.permissions || []));
     if (saved.length) console.log(`[LMS Server] Loaded saved permissions for ${saved.length} role(s)`);
   }
 
   static async getMatrix() {
-    const saved = await RolePermission.find().lean();
-    const savedByRole = new Map(saved.map((row) => [row.role, row]));
+    const saved = await repo.find('rolePermission');
+    const savedByRole = new Map<string, any>(saved.map((row: any) => [row.role, row]));
 
     return {
       catalog: PERMISSION_CATALOG,

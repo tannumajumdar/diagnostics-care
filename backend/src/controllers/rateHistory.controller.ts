@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { RateHistory } from '../models/rateHistory.model';
+import { repo, mongoSort, refFilter } from '../db/repo';
 import { sendResponse } from '../utils/api-response.util';
 import { HTTP_STATUS } from '../constants/messages';
 
@@ -8,12 +8,17 @@ export class RateHistoryController {
     try {
       const { testId, page = 1, limit = 10 } = req.query;
       const filter: any = {};
-      if (testId) filter.test = testId;
+      if (testId) filter.testId = refFilter(testId, 'test');
 
       const skip = (Number(page) - 1) * Number(limit);
       const [history, total] = await Promise.all([
-        RateHistory.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
-        RateHistory.countDocuments(filter),
+        repo.find('rateHistory', {
+          where: filter,
+          orderBy: mongoSort('rateHistory', { createdAt: -1 }),
+          skip,
+          take: Number(limit),
+        }),
+        repo.count('rateHistory', filter),
       ]);
 
       sendResponse({
@@ -31,7 +36,10 @@ export class RateHistoryController {
   static getByTestId = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const testId = Array.isArray(req.params.testId) ? req.params.testId[0] : req.params.testId;
-      const history = await RateHistory.find({ test: testId }).sort({ createdAt: -1 });
+      const history = await repo.find('rateHistory', {
+        where: { testId: refFilter(testId, 'test') },
+        orderBy: mongoSort('rateHistory', { createdAt: -1 }),
+      });
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Test rate history retrieved', data: history });
     } catch (error) {
       next(error);

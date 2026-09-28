@@ -1,6 +1,6 @@
-import { Document, Schema } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 
-export interface IPatientDocument extends Document {
+export interface IPatientDocument extends StoredDocument {
   uhid: string;
   patientName: string;
   gender: 'Male' | 'Female' | 'Male Child' | 'Female Child' | 'Other' | 'Child';
@@ -12,8 +12,8 @@ export interface IPatientDocument extends Document {
   state?: string;
   pinCode?: string;
   emergencyContact?: string;
-  referringDoctor?: Schema.Types.ObjectId;
-  organization?: Schema.Types.ObjectId;
+  referringDoctor?: Ref;
+  organization?: Ref;
   registrationDate: Date;
   status: string;
 }

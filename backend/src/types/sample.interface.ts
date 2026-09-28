@@ -1,17 +1,17 @@
-import { Document, Schema } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 
-export interface ISampleDocument extends Document {
+export interface ISampleDocument extends StoredDocument {
   sampleId: string;
   barcode: string;
-  invoice: Schema.Types.ObjectId;
-  patient: Schema.Types.ObjectId;
+  invoice: Ref;
+  patient: Ref;
   uhid: string;
   /** The visit's enquiry number, copied off the invoice. */
   enquiryNo?: string;
-  test: Schema.Types.ObjectId;
+  test: Ref;
   testCode: string;
   testName: string;
-  department: Schema.Types.ObjectId;
+  department: Ref;
   sampleType: string;
   sampleContainer: string;
   processingMode?: 'In-house' | 'Outsource';

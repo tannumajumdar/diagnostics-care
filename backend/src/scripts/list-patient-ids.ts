@@ -13,9 +13,10 @@
  *   npm run list:patients -- --csv             # comma-separated, for a sheet
  *   npm run list:patients -- --csv > ids.csv   # save it
  */
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { Patient } from '../models/patient.model';
+import { prisma, describeDatabase } from '../db/prisma';
+import { mongoSort } from '../db/repo';
+import { toDoc } from '../db/mappers';
 
 dotenv.config();
 
@@ -31,18 +32,31 @@ const run = async () => {
   const asCsv = process.argv.includes('--csv');
   const status = argValue('status');
 
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/lms_db';
-  await mongoose.connect(uri);
+  const uri = describeDatabase();
+  await prisma.$connect();
   if (!asCsv) console.log(`Connected to ${uri}\n`);
 
   const query: Record<string, unknown> = {};
   if (status) query.status = status;
 
   // Oldest first, so the list reads in the order the UHIDs were handed out.
-  const patients = await Patient.find(query)
-    .sort({ registrationDate: 1 })
-    .select('uhid patientName gender age mobile status registrationDate')
-    .lean();
+  // toDoc leaves an unset field out rather than null, as a lean read did.
+  const patients = (
+    await prisma.patient.findMany({
+      where: query,
+      orderBy: mongoSort('patient', { registrationDate: 1 }),
+      select: {
+        id: true,
+        uhid: true,
+        patientName: true,
+        gender: true,
+        age: true,
+        mobile: true,
+        status: true,
+        registrationDate: true,
+      },
+    })
+  ).map((row) => toDoc('patient', row));
 
   const asDate = (d: Date | undefined) =>
     d ? new Date(d).toISOString().slice(0, 10) : '-';
@@ -87,11 +101,11 @@ const run = async () => {
     }
   }
 
-  await mongoose.disconnect();
+  await prisma.$disconnect();
 };
 
 run().catch(async (err) => {
   console.error('Listing failed:', err);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
   process.exit(1);
 });

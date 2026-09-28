@@ -1,50 +1,61 @@
-import mongoose from 'mongoose';
-import { User } from '../models/user.model';
-import { Department } from '../models/department.model';
-import { Doctor } from '../models/doctor.model';
-import { LabTest } from '../models/test.model';
+import { prisma } from '../db/prisma';
+import { repo } from '../db/repo';
+import { ModelName } from '../db/mappers';
+import { hashIfSet } from '../db/passwords';
 import { parametersForTest } from '../constants/test-parameters';
-import { Organization } from '../models/organization.model';
-import { Patient } from '../models/patient.model';
-import { Invoice } from '../models/invoice.model';
-import { Payment } from '../models/payment.model';
-import { Sample } from '../models/sample.model';
-import { Result } from '../models/result.model';
-import { Appointment } from '../models/appointment.model';
-import { Refund } from '../models/refund.model';
-import { Payout } from '../models/expense.model';
-import { Counter } from '../models/counter.model';
+
+/** `Model.create([...])`: each document through the model's rules, in order. */
+const createEach = async (model: ModelName, docs: any[]) => {
+  const created: any[] = [];
+  for (const doc of docs) {
+    created.push(
+      await repo.create(model, doc, model === 'user' ? { transform: hashIfSet(doc.password) } : {})
+    );
+  }
+  return created;
+};
 
 export async function seedDatabase() {
   try {
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/lms_db';
-    if (mongoose.connection.readyState === 0) {
-      await mongoose.connect(mongoUri);
-    }
-
     console.log('🌱 Seeding database collections...');
 
-    await Promise.all([
-      User.deleteMany({}),
-      Department.deleteMany({}),
-      Doctor.deleteMany({}),
-      LabTest.deleteMany({}),
-      Organization.deleteMany({}),
-      Patient.deleteMany({}),
-      Invoice.deleteMany({}),
-      Payment.deleteMany({}),
-      Sample.deleteMany({}),
-      Result.deleteMany({}),
-      Appointment.deleteMany({}),
-      Refund.deleteMany({}),
-      Payout.deleteMany({}),
+    // Children before parents, so no foreign key is left pointing at a row
+    // that is gone. Mongo let the rows below outlive what they referenced;
+    // Postgres does not, so the ones that cannot stand alone go with them:
+    // saved report PDFs (their result), gateway transactions (their invoice),
+    // rate history and package lines (their test), and the test attachments,
+    // which cascade with their test. A package itself is kept, with its
+    // department cleared - what populating the dangling ref used to show.
+    // Invoice lines, splits and revisions, appointment tests, sample status
+    // history and result parameters/versions cascade with their parent.
+    await prisma.$transaction([
+      prisma.savedReport.deleteMany({}),
+      prisma.paymentTransaction.deleteMany({}),
+      prisma.rateHistory.deleteMany({}),
+      prisma.testPackageItem.deleteMany({}),
+      prisma.testPackage.updateMany({ data: { departmentId: null } }),
+      prisma.result.deleteMany({}),
+      prisma.sample.deleteMany({}),
+      prisma.refund.deleteMany({}),
+      prisma.payment.deleteMany({}),
+      prisma.expense.deleteMany({}),
+      prisma.appointment.deleteMany({}),
+      prisma.invoice.deleteMany({}),
+      prisma.patient.deleteMany({}),
+      prisma.labTest.updateMany({ data: { reportTemplateAttachmentId: null } }),
+      prisma.testAttachment.deleteMany({}),
+      prisma.labTest.deleteMany({}),
+      prisma.doctor.deleteMany({}),
+      prisma.organization.deleteMany({}),
+      prisma.department.deleteMany({}),
+      prisma.user.deleteMany({}),
       // Sequence numbers are reset with the data they number. Leaving them
       // behind meant the demo records below, which carry fixed ids, collided
       // with the first real invoice or payout the counter handed out.
-      Counter.deleteMany({}),
+      prisma.counter.deleteMany({}),
     ]);
 
-    const users: any[] = await User.create([
+    const users: any[] = await createEach('user', [
       {
         name: 'Centre Admin',
         email: 'admin@lms.com',
@@ -100,7 +111,7 @@ export async function seedDatabase() {
     const receptionUser = users[3];
     const techUser = users[2];
 
-    const depts: any[] = await Department.create([
+    const depts: any[] = await createEach('department', [
       { departmentName: 'Pathology', departmentCode: 'PATH', description: 'General Pathology', status: 'Active' },
       { departmentName: 'Biochemistry', departmentCode: 'BIO', description: 'Clinical Biochemistry', status: 'Active' },
       { departmentName: 'Hematology', departmentCode: 'HEMA', description: 'Blood Cell Studies', status: 'Active' },
@@ -112,7 +123,7 @@ export async function seedDatabase() {
     // diabetologist, a gynaecologist, a paediatrician - so the front desk has
     // a usable panel to pick from on day one. Any other doctor's name can
     // still be typed straight onto the bill.
-    const doctorPanel: any[] = await Doctor.create([
+    const doctorPanel: any[] = await createEach('doctor', [
       {
         doctorName: 'Dr. Anjali Mehra',
         department: depts[0]._id,
@@ -187,7 +198,7 @@ export async function seedDatabase() {
 
     const doctor: any = doctorPanel[0];
 
-    const tests: any[] = await LabTest.create([
+    const tests: any[] = await createEach('labTest', [
       {
         testName: 'Complete Blood Count (CBC)',
         testCode: 'CBC001',
@@ -282,7 +293,8 @@ export async function seedDatabase() {
       { testName: 'Widal Test (Typhoid)', testCode: 'WID001', dept: 3, sampleType: 'Serum', sampleContainer: 'Yellow Top (SST) Vial', rate: 400, fasting: false, tat: '12 Hours' },
     ];
 
-    await LabTest.create(
+    await createEach(
+      'labTest',
       routineMenu.map((t) => ({
         testName: t.testName,
         testCode: t.testCode,
@@ -303,7 +315,7 @@ export async function seedDatabase() {
       }))
     );
 
-    const org: any = await Organization.create({
+    const org: any = await repo.create('organization', {
       organizationName: 'MetroCare Health TPA',
       contactPerson: 'David Miller',
       mobile: '9899887766',
@@ -315,7 +327,7 @@ export async function seedDatabase() {
       status: 'Active',
     });
 
-    const patient: any = await Patient.create({
+    const patient: any = await repo.create('patient', {
       uhid: 'UHID-2026-000001',
       patientName: 'Jane Doe',
       gender: 'Female',
@@ -326,7 +338,7 @@ export async function seedDatabase() {
       status: 'Active',
     });
 
-    const invoice: any = await Invoice.create({
+    const invoice: any = await repo.create('invoice', {
       invoiceNumber: 'INV-2026-000001',
       patient: patient._id,
       uhid: patient.uhid,
@@ -359,7 +371,7 @@ export async function seedDatabase() {
       },
     });
 
-    await Payment.create({
+    await repo.create('payment', {
       receiptNumber: 'REC-2026-000001',
       invoice: invoice._id,
       patient: patient._id,
@@ -371,7 +383,7 @@ export async function seedDatabase() {
       },
     });
 
-    await Sample.create([
+    await createEach('sample', [
       {
         sampleId: 'SMP-2026-000001',
         barcode: 'BAR-2026-000001',
@@ -391,7 +403,7 @@ export async function seedDatabase() {
       },
     ]);
 
-    await Appointment.create([
+    await createEach('appointment', [
       {
         appointmentId: 'APT-2026-000001',
         patient: patient._id,
@@ -427,7 +439,7 @@ export async function seedDatabase() {
 
     // Outgoing cash: the ambulance run the front desk settled from the drawer
     // alongside a routine supplier payment the Admin cleared.
-    await Payout.create([
+    await createEach('expense', [
       {
         expenseId: 'EXP-2026-000001',
         payeeType: 'Reagents & Consumables',
@@ -460,17 +472,19 @@ export async function seedDatabase() {
     // The demo rows above were written with hand-picked ids; advance every
     // sequence past them so the first record a user creates gets a fresh
     // number rather than a duplicate-key error.
-    await Counter.insertMany([
-      { name: 'uhid', seq: 1 },
-      { name: 'invoice', seq: 1 },
-      { name: 'receipt', seq: 1 },
-      { name: 'sample', seq: 1 },
-      { name: 'barcode', seq: 1 },
-      { name: 'result', seq: 1 },
-      { name: 'appointment', seq: 1 },
-      { name: 'refund', seq: 0 },
-      { name: 'expense', seq: 2 },
-    ]);
+    await prisma.counter.createMany({
+      data: [
+        { name: 'uhid', seq: 1 },
+        { name: 'invoice', seq: 1 },
+        { name: 'receipt', seq: 1 },
+        { name: 'sample', seq: 1 },
+        { name: 'barcode', seq: 1 },
+        { name: 'result', seq: 1 },
+        { name: 'appointment', seq: 1 },
+        { name: 'refund', seq: 0 },
+        { name: 'expense', seq: 2 },
+      ],
+    });
 
     console.log('🎉 Seeding completed successfully!');
   } catch (error) {

@@ -1,4 +1,6 @@
-import { User } from '../models/user.model';
+import { repo } from '../db/repo';
+import { comparePassword, hashIfSet } from '../db/passwords';
+import { queryValue } from '../db/rules';
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/jwt.util';
 import { ApiError } from '../utils/api-error.util';
 import { HTTP_STATUS, MESSAGES } from '../constants/messages';
@@ -8,9 +10,13 @@ import { effectivePermissions } from '../constants/permissions';
 export class AuthService {
   static async login(credentials: LoginCredentials) {
     const { email, password } = credentials;
-    const user = await User.findOne({ email }).select('+password');
+    // Mongoose ran the schema's lowercase + trim on the query value as well.
+    const user =
+      typeof email === 'string'
+        ? await repo.findOne('user', { email: queryValue('user', 'email', email) }, { omit: { password: false } })
+        : null;
 
-    if (!user || !(await user.comparePassword(password || ''))) {
+    if (!user || !(await comparePassword(password || '', user.password))) {
       throw new ApiError(HTTP_STATUS.UNAUTHORIZED, MESSAGES.AUTH.INVALID_CREDENTIALS);
     }
 
@@ -29,9 +35,7 @@ export class AuthService {
     const refreshToken = generateRefreshToken(payload);
 
     user.refreshToken = refreshToken;
-    await user.save();
-
-    const userObject = user.toObject();
+    const userObject = await repo.save('user', user);
     delete userObject.password;
     delete userObject.refreshToken;
 
@@ -46,7 +50,7 @@ export class AuthService {
 
   static async refreshToken(token: string) {
     const payload = verifyRefreshToken(token);
-    const user = await User.findById(payload.userId).select('+refreshToken');
+    const user = await repo.findById('user', payload.userId, { omit: { refreshToken: false } });
 
     if (!user || user.refreshToken !== token) {
       throw new ApiError(HTTP_STATUS.UNAUTHORIZED, MESSAGES.AUTH.TOKEN_INVALID);
@@ -63,7 +67,7 @@ export class AuthService {
     const newRefreshToken = generateRefreshToken(newPayload);
 
     user.refreshToken = newRefreshToken;
-    await user.save();
+    await repo.save('user', user);
 
     return {
       accessToken,
@@ -72,25 +76,25 @@ export class AuthService {
   }
 
   static async logout(userId: string) {
-    await User.findByIdAndUpdate(userId, { $unset: { refreshToken: 1 } });
+    await repo.updateById('user', userId, { refreshToken: undefined });
   }
 
   static async getCurrentUser(userId: string) {
-    const user = await User.findById(userId);
+    const user = await repo.findById('user', userId);
     if (!user) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
     }
-    return { ...user.toObject(), permissions: effectivePermissions(user) };
+    return { ...user, permissions: effectivePermissions(user) };
   }
 
   static async changePassword(userId: string, oldPass: string, newPass: string) {
-    const user = await User.findById(userId).select('+password');
+    const user = await repo.findById('user', userId, { omit: { password: false } });
     if (!user) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
-    if (!(await user.comparePassword(oldPass))) {
+    if (!(await comparePassword(oldPass, user.password))) {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Current password is incorrect');
     }
     user.password = newPass;
-    await user.save();
+    await repo.save('user', user, { transform: hashIfSet(newPass) });
   }
 }
 

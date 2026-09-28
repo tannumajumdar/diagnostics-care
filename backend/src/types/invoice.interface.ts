@@ -1,4 +1,4 @@
-import { Document, Schema } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 import { CollectionMethod } from '../constants/payment-methods';
 
 /** How much of a bill came in by one method. */
@@ -8,10 +8,10 @@ export interface IPaymentSplit {
 }
 
 export interface IInvoiceItem {
-  test: Schema.Types.ObjectId;
+  test: Ref;
   testCode: string;
   testName: string;
-  department: Schema.Types.ObjectId;
+  department: Ref;
   departmentName: string;
   rate: number;
   /** What the desk knocked off this line before any bill-wide discount. */
@@ -21,7 +21,7 @@ export interface IInvoiceItem {
   processingMode?: 'In-house' | 'Outsource';
   outsourceLab?: string;
   referralRate?: number;
-  packageId?: Schema.Types.ObjectId;
+  packageId?: Ref;
   packageName?: string;
   /**
    * Set when the patient decided against this test. The line stays on the
@@ -42,14 +42,14 @@ export interface IInvoiceItem {
   };
 }
 
-export interface IInvoiceDocument extends Document {
+export interface IInvoiceDocument extends StoredDocument {
   invoiceNumber: string;
-  patient: Schema.Types.ObjectId;
+  patient: Ref;
   uhid: string;
   /** The visit's enquiry number, e.g. ENQ-2026-000045. */
   enquiryNo?: string;
-  referringDoctor?: Schema.Types.ObjectId;
-  organization?: Schema.Types.ObjectId;
+  referringDoctor?: Ref;
+  organization?: Ref;
   referringDoctorName?: string;
   chiefComplaint?: string;
   clinicalNotes?: string;
@@ -60,7 +60,7 @@ export interface IInvoiceDocument extends Document {
   discountValue: number;
   discountReason?: string;
   /** The doctor the concession came through - not necessarily the referrer. */
-  discountDoctor?: Schema.Types.ObjectId;
+  discountDoctor?: Ref;
   discountDoctorName?: string;
   netAmount: number;
   /** What the referring doctor's own copy of this bill comes to. */
@@ -74,7 +74,7 @@ export interface IInvoiceDocument extends Document {
   paymentBreakdown: IPaymentSplit[];
   barcode: string;
   createdBy: {
-    userId: Schema.Types.ObjectId;
+    userId: Ref;
     name: string;
   };
   /** Every revision the bill has been through since it was raised. */

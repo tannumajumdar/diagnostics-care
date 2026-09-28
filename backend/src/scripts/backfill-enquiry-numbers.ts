@@ -7,7 +7,7 @@
  * because they are all the same visit.
  *
  * Numbers are handed out oldest visit first, so they run in the order the
- * visits actually happened rather than in whatever order Mongo returns.
+ * visits actually happened rather than in whatever order the database returns.
  *
  * Safe to re-run: an invoice that already has a number is left alone, and so
  * are its samples and results.
@@ -15,36 +15,33 @@
  *   npm run backfill:enquiry              # fill in the missing ones
  *   npm run backfill:enquiry -- --dry-run # show what would change
  */
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { Invoice } from '../models/invoice.model';
-import { Sample } from '../models/sample.model';
-import { Result } from '../models/result.model';
-import { getNextEnquiryNumber } from '../models/counter.model';
+import { prisma, describeDatabase } from '../db/prisma';
+import { mongoSort } from '../db/repo';
+import { getNextEnquiryNumber } from '../db/counters';
 
 dotenv.config();
 
 const run = async () => {
   const dryRun = process.argv.includes('--dry-run');
 
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/lms_db';
-  await mongoose.connect(uri);
+  const uri = describeDatabase();
+  await prisma.$connect();
   console.log(`Connected to ${uri}\n`);
 
-  const missing = await Invoice.find({
-    $or: [{ enquiryNo: { $exists: false } }, { enquiryNo: null }, { enquiryNo: '' }],
-  })
-    .sort({ createdAt: 1 })
-    .select('_id invoiceNumber uhid createdAt')
-    .lean();
+  const missing = await prisma.invoice.findMany({
+    where: { OR: [{ enquiryNo: null }, { enquiryNo: '' }] },
+    orderBy: mongoSort('invoice', { createdAt: 1 }),
+    select: { id: true, invoiceNumber: true, uhid: true, createdAt: true },
+  });
 
-  const total = await Invoice.countDocuments();
+  const total = await prisma.invoice.count();
   console.log(`Invoices on record      : ${total}`);
   console.log(`Without enquiry number  : ${missing.length}\n`);
 
   if (!missing.length) {
     console.log('Nothing to do - every visit already has an enquiry number.');
-    await mongoose.disconnect();
+    await prisma.$disconnect();
     return;
   }
 
@@ -56,8 +53,7 @@ const run = async () => {
     // Drawn even on a dry run would burn numbers out of the counter, so the
     // preview shows the bill it would stamp rather than the number it is given.
     if (dryRun) {
-      // `timestamps: true` adds createdAt at runtime but not to the interface.
-      const raisedOn = (invoice as { createdAt?: Date }).createdAt;
+      const raisedOn: Date | null = invoice.createdAt;
       const day = raisedOn ? new Date(raisedOn).toISOString().slice(0, 10) : 'date unknown';
       console.log(`  would number ${invoice.invoiceNumber} (${day})`);
       filled += 1;
@@ -65,13 +61,13 @@ const run = async () => {
     }
 
     const enquiryNo = await getNextEnquiryNumber();
-    await Invoice.updateOne({ _id: invoice._id }, { $set: { enquiryNo } });
+    await prisma.invoice.update({ where: { id: invoice.id }, data: { enquiryNo } });
 
-    const sampleWrite = await Sample.updateMany({ invoice: invoice._id }, { $set: { enquiryNo } });
-    const resultWrite = await Result.updateMany({ invoice: invoice._id }, { $set: { enquiryNo } });
+    const sampleWrite = await prisma.sample.updateMany({ where: { invoiceId: invoice.id }, data: { enquiryNo } });
+    const resultWrite = await prisma.result.updateMany({ where: { invoiceId: invoice.id }, data: { enquiryNo } });
 
-    stampedSamples += sampleWrite.modifiedCount;
-    stampedResults += resultWrite.modifiedCount;
+    stampedSamples += sampleWrite.count;
+    stampedResults += resultWrite.count;
     filled += 1;
 
     console.log(`  ${invoice.invoiceNumber} -> ${enquiryNo}`);
@@ -83,11 +79,11 @@ const run = async () => {
     console.log(`Results stamped        : ${stampedResults}`);
   }
 
-  await mongoose.disconnect();
+  await prisma.$disconnect();
 };
 
 run().catch(async (err) => {
   console.error('Backfill failed:', err);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
   process.exit(1);
 });

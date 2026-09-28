@@ -1,13 +1,11 @@
-import mongoose from 'mongoose';
+import { prisma, describeDatabase } from '../db/prisma';
 
 export const connectDB = async (): Promise<void> => {
-  const mongoURI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/lms_db';
   try {
-    const conn = await mongoose.connect(mongoURI);
-    console.log(`[MongoDB] Connected successfully: ${conn.connection.host}`);
+    await prisma.$connect();
+    console.log(`[PostgreSQL] Connected successfully: ${describeDatabase().split('?')[0]}`);
   } catch (error) {
-    console.error('[MongoDB] Connection failure:', error);
+    console.error('[PostgreSQL] Connection failure:', error);
     process.exit(1);
   }
 };
-

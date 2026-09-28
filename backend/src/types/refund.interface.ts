@@ -1,9 +1,9 @@
-import { Document, Types } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 
-export interface IRefundDocument extends Document {
+export interface IRefundDocument extends StoredDocument {
   refundId: string;
-  invoice: Types.ObjectId;
-  patient: Types.ObjectId;
+  invoice: Ref;
+  patient: Ref;
   originalAmount: number;
   refundAmount: number;
   reason: string;

@@ -5,7 +5,8 @@ import { HTTP_STATUS, MESSAGES } from '../constants/messages';
 import { UserRole } from '../types/user.interface';
 import { JwtPayload } from '../types/auth.interface';
 import { Permission, can, effectivePermissions } from '../constants/permissions';
-import { User } from '../models/user.model';
+import { prisma } from '../db/prisma';
+import { isObjectId } from '../db/ids';
 
 declare global {
   namespace Express {
@@ -33,9 +34,23 @@ export const authenticate = async (req: Request, _res: Response, next: NextFunct
     const token = authHeader.split(' ')[1];
     const decoded = verifyAccessToken(token);
 
-    const account = await User.findById(decoded.userId)
-      .select('name email role status permissions sessionsValidFrom')
-      .lean();
+    // A token whose id is not an ObjectId made Mongoose throw a CastError,
+    // which the catch below answers as an expired token.
+    if (!isObjectId(decoded.userId)) throw new Error('Invalid user id in token');
+    const row = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { id: true, name: true, email: true, role: true, status: true, permissions: true, sessionsValidFrom: true },
+    });
+    // `.lean()` left an unset field out; a NULL column is the same absence.
+    const account = row && {
+      _id: row.id,
+      name: row.name,
+      email: row.email,
+      role: row.role,
+      status: row.status,
+      permissions: (row.permissions ?? undefined) as string[] | undefined,
+      sessionsValidFrom: row.sessionsValidFrom ?? undefined,
+    };
 
     if (!account) {
       throw new ApiError(HTTP_STATUS.UNAUTHORIZED, MESSAGES.AUTH.UNAUTHORIZED);

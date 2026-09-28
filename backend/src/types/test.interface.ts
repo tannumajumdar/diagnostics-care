@@ -1,4 +1,4 @@
-import { Document, Schema } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 
 export interface ITestParameter {
   parameterName: string;
@@ -23,10 +23,10 @@ export interface ITestParameter {
   formula?: string;
 }
 
-export interface ILabTestDocument extends Document {
+export interface ILabTestDocument extends StoredDocument {
   testName: string;
   testCode: string;
-  department: Schema.Types.ObjectId;
+  department: Ref;
   testType: string;
   sampleType: string;
   sampleContainer: string;
@@ -41,14 +41,14 @@ export interface ILabTestDocument extends Document {
   outsourceLab?: string;
   outsourceCost?: number;
   /** The TPA this test belongs to - null for the centre's own catalogue. */
-  tpa?: Schema.Types.ObjectId | null;
+  tpa?: Ref | null;
   discountAllowed?: boolean;
   fastingRequired?: boolean;
   preparationRequired?: string;
   interpretationTitle?: string;
   interpretation?: string;
   reportTemplate?: {
-    attachment: Schema.Types.ObjectId;
+    attachment: Ref;
     fileName: string;
     size?: number;
     uploadedAt?: Date;

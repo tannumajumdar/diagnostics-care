@@ -1,10 +1,13 @@
-import mongoose from 'mongoose';
-import { SavedReport } from '../models/savedReport.model';
-import { Result } from '../models/result.model';
+import { prisma } from '../db/prisma';
+import { repo, mongoSort } from '../db/repo';
+import { isObjectId } from '../db/ids';
 import { ResultService } from './result.service';
 import { ApiError } from '../utils/api-error.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { JwtPayload } from '../types/auth.interface';
+
+/** Text for a LIKE pattern, its own % and _ taken literally. */
+const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 const safe = (s?: string) =>
   String(s || '')
@@ -21,7 +24,7 @@ export class SavedReportService {
    * replaced by the next save, final or provisional.
    */
   static async saveFromResult(resultId: string, currentUser: JwtPayload, options: { provisional?: boolean } = {}) {
-    if (!mongoose.isValidObjectId(resultId)) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid result id');
+    if (!isObjectId(resultId)) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid result id');
 
     let pdf: Buffer;
     let provisional = false;
@@ -31,10 +34,12 @@ export class SavedReportService {
       pdf = await ResultService.generatePDFReport(resultId);
     }
 
-    const result: any = await Result.findById(resultId)
-      .populate('patient', 'patientName uhid mobile')
-      .populate('invoice', 'invoiceNumber enquiryNo')
-      .lean();
+    const result: any = await repo.findById('result', resultId, {
+      include: {
+        patient: { select: { id: true, patientName: true, uhid: true, mobile: true } },
+        invoice: { select: { id: true, invoiceNumber: true, enquiryNo: true } },
+      },
+    });
     if (!result) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Result not found');
 
     const patient = result.patient || {};
@@ -42,7 +47,13 @@ export class SavedReportService {
 
     // Every test on the visit the report covers, not only the one it was opened from.
     const visitResults: any[] = invoice._id
-      ? await Result.find({ invoice: invoice._id }).populate('test', 'testName').select('test').lean()
+      ? await prisma.result
+          .findMany({
+            where: { invoiceId: invoice._id },
+            select: { id: true, test: { select: { id: true, testName: true } } },
+            orderBy: { insertOrder: 'asc' },
+          })
+          .then((rows) => rows.map((r) => ({ _id: r.id, test: { _id: r.test.id, testName: r.test.testName } })))
       : [result];
     const tests = Array.from(
       new Set(visitResults.map((r) => (typeof r.test === 'object' ? r.test?.testName : '')).filter(Boolean))
@@ -52,12 +63,14 @@ export class SavedReportService {
       provisional ? '_Provisional' : ''
     }.pdf`;
 
-    await SavedReport.deleteMany({
-      status: 'Provisional',
-      ...(invoice._id ? { invoice: invoice._id } : { result: result._id }),
+    await prisma.savedReport.deleteMany({
+      where: {
+        status: 'Provisional',
+        ...(invoice._id ? { invoiceId: invoice._id } : { resultId: result._id }),
+      },
     });
 
-    const saved = await SavedReport.create({
+    const saved = await repo.create('savedReport', {
       result: result._id,
       patient: patient._id,
       patientName: patient.patientName || '',
@@ -75,7 +88,7 @@ export class SavedReportService {
       savedBy: { userId: String(currentUser?.userId || ''), name: currentUser?.name, role: currentUser?.role },
     });
 
-    const { data: _file, ...meta } = saved.toObject();
+    const { data: _file, ...meta } = saved;
     return meta;
   }
 
@@ -86,8 +99,15 @@ export class SavedReportService {
 
     const filter: any = {};
     if (search) {
-      const rx = { $regex: String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
-      filter.$or = [
+      // Escaped, so the text is matched literally: a case-insensitive contains.
+      const q = String(search);
+      const rx = { contains: q, mode: 'insensitive' as const };
+      // `tests` is a list; Mongo matched it when any entry did. Prisma has no
+      // "contains" over the entries of a text array, so those ids are found first.
+      const byTest = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "SavedReport"
+        WHERE EXISTS (SELECT 1 FROM unnest(tests) AS t WHERE t ILIKE '%' || ${escapeLike(q)} || '%')`;
+      filter.OR = [
         { patientName: rx },
         { uhid: rx },
         { mobile: rx },
@@ -95,8 +115,8 @@ export class SavedReportService {
         { enquiryNo: rx },
         { reportNo: rx },
         { status: rx },
-        { tests: rx },
-        { 'savedBy.name': rx },
+        { id: { in: byTest.map((r) => r.id) } },
+        { savedByName: rx },
       ];
     }
     if (from || to) {
@@ -104,23 +124,24 @@ export class SavedReportService {
       if (from) {
         const start = new Date(from);
         start.setHours(0, 0, 0, 0);
-        if (!Number.isNaN(start.getTime())) range.$gte = start;
+        if (!Number.isNaN(start.getTime())) range.gte = start;
       }
       if (to) {
         const end = new Date(to);
         end.setHours(23, 59, 59, 999);
-        if (!Number.isNaN(end.getTime())) range.$lte = end;
+        if (!Number.isNaN(end.getTime())) range.lte = end;
       }
       if (Object.keys(range).length) filter.createdAt = range;
     }
 
     const [reports, total] = await Promise.all([
-      SavedReport.find(filter)
-        .sort({ createdAt: -1 })
-        .skip((pageNumber - 1) * pageSize)
-        .limit(pageSize)
-        .lean(),
-      SavedReport.countDocuments(filter),
+      repo.find('savedReport', {
+        where: filter,
+        orderBy: mongoSort('savedReport', { createdAt: -1 }),
+        skip: (pageNumber - 1) * pageSize,
+        take: pageSize,
+      }),
+      repo.count('savedReport', filter),
     ]);
 
     return {
@@ -130,10 +151,14 @@ export class SavedReportService {
   }
 
   static async getFile(id: string) {
-    if (!mongoose.isValidObjectId(id)) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid saved report id');
-    const report = await SavedReport.findById(id).select('+data fileName').lean();
+    if (!isObjectId(id)) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid saved report id');
+
+    const report = await prisma.savedReport.findUnique({
+      where: { id: id.toLowerCase() },
+      select: { data: true, fileName: true },
+    });
     if (!report) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Saved report not found');
-    // A lean read hands the bytes back as a BSON Binary, not a Buffer.
+
     const raw: any = report.data;
     const buffer = Buffer.isBuffer(raw) ? raw : Buffer.from(raw?.buffer ?? raw);
     return { buffer, fileName: report.fileName };

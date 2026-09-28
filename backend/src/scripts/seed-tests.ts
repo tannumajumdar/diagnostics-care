@@ -17,10 +17,9 @@
  *   npm run seed:tests              # add whatever is missing
  *   npm run seed:tests -- --dry-run # show what would be added
  */
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { Department } from '../models/department.model';
-import { LabTest } from '../models/test.model';
+import { prisma, describeDatabase } from '../db/prisma';
+import { repo } from '../db/repo';
 import { parametersForTest } from '../constants/test-parameters';
 
 dotenv.config();
@@ -141,8 +140,8 @@ const MENU: MenuEntry[] = [
 const run = async () => {
   const dryRun = process.argv.includes('--dry-run');
 
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/lms_db';
-  await mongoose.connect(uri);
+  const uri = describeDatabase();
+  await prisma.$connect();
   console.log(`Connected to ${uri}`);
 
   // Departments first - a test cannot be saved without one, and a centre that
@@ -150,12 +149,12 @@ const run = async () => {
   const deptIds = new Map<Dept, any>();
   for (const code of Object.keys(DEPARTMENTS) as Dept[]) {
     const meta = DEPARTMENTS[code];
-    let dept: any = await Department.findOne({ departmentCode: code });
+    let dept: any = await repo.findOne('department', { departmentCode: code });
     if (!dept) {
       if (dryRun) {
         console.log(`[dry-run] would create department ${meta.departmentName} (${code})`);
       } else {
-        dept = await Department.create({
+        dept = await repo.create('department', {
           departmentName: meta.departmentName,
           departmentCode: code,
           description: meta.description,
@@ -167,7 +166,7 @@ const run = async () => {
     if (dept) deptIds.set(code, dept._id);
   }
 
-  const existing = await LabTest.find({}, 'testCode testName');
+  const existing = await prisma.labTest.findMany({ select: { testCode: true, testName: true } });
   const haveCode = new Set(existing.map((t) => String(t.testCode).trim().toUpperCase()));
   // A centre that typed a test by hand under its own code should not end up
   // with the same test on the menu twice under ours.
@@ -213,7 +212,7 @@ const run = async () => {
   }
 
   if (!dryRun && toCreate.length) {
-    await LabTest.create(toCreate);
+    for (const doc of toCreate) await repo.create('labTest', doc);
   }
 
   toCreate.forEach((t) =>
@@ -226,13 +225,13 @@ const run = async () => {
   console.log(`Menu in this script    : ${MENU.length}`);
   console.log(`Already on the master  : ${skipped}`);
   console.log(`${dryRun ? 'Would add' : 'Added'}              : ${toCreate.length}`);
-  console.log(`Tests on the master now: ${await LabTest.countDocuments({})}`);
+  console.log(`Tests on the master now: ${await repo.count('labTest')}`);
 
-  await mongoose.disconnect();
+  await prisma.$disconnect();
 };
 
 run().catch(async (err) => {
   console.error('Seeding the test menu failed:', err);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
   process.exit(1);
 });

@@ -13,9 +13,9 @@
  *   npm run backfill:parameters -- --dry-run # show what would change
  *   npm run backfill:parameters -- --generic # also give unmatched tests a line
  */
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { LabTest } from '../models/test.model';
+import { prisma, describeDatabase } from '../db/prisma';
+import { repo, NATURAL } from '../db/repo';
 import { findParameterTemplate, parametersForTest } from '../constants/test-parameters';
 
 dotenv.config();
@@ -24,11 +24,13 @@ const run = async () => {
   const dryRun = process.argv.includes('--dry-run');
   const useGeneric = process.argv.includes('--generic');
 
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/lms_db';
-  await mongoose.connect(uri);
+  // Prisma reads DATABASE_URL itself; connecting up front makes a bad URL fail
+  // here, before anything is read. The password is not printed.
+  const uri = describeDatabase();
+  await prisma.$connect();
   console.log(`Connected to ${uri}`);
 
-  const tests = await LabTest.find({});
+  const tests = await repo.find('labTest', { orderBy: NATURAL });
   let filled = 0;
   let skipped = 0;
   const unmatched: string[] = [];
@@ -54,7 +56,7 @@ const run = async () => {
 
     if (!dryRun) {
       test.parameters = sheet as any;
-      await test.save();
+      await repo.save('labTest', test);
     }
     filled += 1;
   }
@@ -73,11 +75,11 @@ const run = async () => {
     console.log('or re-run with --generic to give each a single free-text result line.');
   }
 
-  await mongoose.disconnect();
+  await prisma.$disconnect();
 };
 
 run().catch(async (err) => {
   console.error('Backfill failed:', err);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
   process.exit(1);
 });
