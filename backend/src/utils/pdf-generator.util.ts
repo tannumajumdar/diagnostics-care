@@ -146,6 +146,17 @@ export const generateDiagnosticReportPDF = async (
       doc.y,
       { width: 250, align: 'right' }
     );
+    const packageNames = Array.from(
+      new Set(
+        [
+          ...sheets.map((s: any) => s.packageName),
+          ...(invoice?.items || []).map((it: any) => it.packageName || it.package?.packageName),
+        ].filter(Boolean)
+      )
+    );
+    if (packageNames.length > 0) {
+      doc.text(`Package: ${packageNames.join(', ')}`, 320, doc.y, { width: 250, align: 'right' });
+    }
     if (invoice.createdAt) {
       doc.text(`Registered: ${stamp(invoice.createdAt)}`, 320, doc.y, { width: 250, align: 'right' });
     }
@@ -209,8 +220,9 @@ export const generateDiagnosticReportPDF = async (
       }
       lastDepartment = departmentName;
 
+      const titleWithPackage = `${test.testName || 'Diagnostic Test'}${test.testCode ? ` (${test.testCode})` : ''}${sheet.packageName ? `  [${sheet.packageName}]` : ''}`;
       doc.fillColor('#111827').font('Helvetica-Bold').fontSize(11).text(
-        `${test.testName || 'Diagnostic Test'}${test.testCode ? ` (${test.testCode})` : ''}`,
+        titleWithPackage,
         LEFT,
         doc.y
       );

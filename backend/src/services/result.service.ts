@@ -178,6 +178,29 @@ const RELEASED = ['Approved', 'Final'];
 const departmentNameOf = (sheet: any): string =>
   (typeof sheet?.department === 'object' && sheet.department?.departmentName) || '';
 
+const attachPackageInfo = (sheet: any) => {
+  if (!sheet) return sheet;
+  if (!sheet.packageName) {
+    const items = sheet.invoice?.items || [];
+    const testId = String(sheet.test?._id || sheet.test?.id || sheet.testId || '');
+    const testName = sheet.test?.testName || sheet.sample?.testName;
+    const match = items.find(
+      (item: any) =>
+        (item.testId && String(item.testId) === testId) ||
+        (item.test && String(item.test?._id || item.test?.id || item.test) === testId) ||
+        (testName && item.testName === testName)
+    );
+    if (match) {
+      const pkgName = match.packageName || match.package?.packageName;
+      if (pkgName) {
+        sheet.packageName = pkgName;
+        sheet.packageId = match.packageId || match.package?._id || match.package?.id;
+      }
+    }
+  }
+  return sheet;
+};
+
 /**
  * The visit's tests laid out the way the report reads them: grouped by
  * department (Haematology together, Biochemistry together), and in the order
@@ -185,14 +208,16 @@ const departmentNameOf = (sheet: any): string =>
  * department's tests across the report whenever the desk added them out of
  * turn.
  */
-const organizeSheets = <T>(sheets: T[]): T[] =>
-  sheets
+const organizeSheets = <T>(sheets: T[]): T[] => {
+  sheets.forEach(attachPackageInfo);
+  return sheets
     .map((sheet, index) => ({ sheet, index }))
     .sort(
       (a, b) =>
         departmentNameOf(a.sheet).localeCompare(departmentNameOf(b.sheet)) || a.index - b.index
     )
     .map(({ sheet }) => sheet);
+};
 
 /**
  * A patient is handed one report for the visit, so it is only ready once
@@ -227,13 +252,31 @@ const visitReadiness = (sheets: any[]) => {
 /** A whole test, parameter sheet included - what `.populate('test')` loaded. */
 const FULL_TEST = { include: { parameters: true } };
 
-/** `.populate('patient').populate('sample').populate('test').populate('department')` */
-const SHEET_REFS = { patient: true, sample: true, test: FULL_TEST, department: true };
+const INVOICE_INCLUDE = {
+  include: {
+    referringDoctor: true,
+    organization: true,
+    items: {
+      include: {
+        package: true,
+      },
+    },
+  },
+};
+
+/** `.populate('patient').populate('sample').populate('test').populate('department').populate('invoice')` */
+const SHEET_REFS = {
+  patient: true,
+  sample: true,
+  test: FULL_TEST,
+  department: true,
+  invoice: INVOICE_INCLUDE,
+};
 
 /** Everything a sheet printed on a report needs, the bill's doctor and organisation included. */
 const REPORT_REFS = {
   ...SHEET_REFS,
-  invoice: { include: { referringDoctor: true, organization: true } },
+  invoice: INVOICE_INCLUDE,
 };
 
 export class ResultService {
@@ -280,7 +323,7 @@ export class ResultService {
       result = await repo.findById('result', result._id, { include: SHEET_REFS });
     }
 
-    return result;
+    return attachPackageInfo(result);
   };
 
   static getResultBySampleId = ResultService.getBySampleId;
@@ -516,7 +559,7 @@ export class ResultService {
     // who asked for the test, not just who ran it.
     const result = await repo.findById('result', id, { include: REPORT_REFS });
     if (!result) throw new ApiError(404, 'Result record not found');
-    return result;
+    return attachPackageInfo(result);
   };
 
   static getResultById = ResultService.getById;
