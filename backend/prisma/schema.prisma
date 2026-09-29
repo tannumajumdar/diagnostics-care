@@ -1,6 +1,6 @@
-// PostgreSQL schema for the LMS, translated from the Mongoose models in
-// src/models. It is a design draft for the SQL migration - nothing reads it
-// yet, the running app still talks to MongoDB.
+// PostgreSQL schema for the LMS - the app's database. It was translated from
+// the old Mongoose models, which are kept in migration/legacy-models for the
+// one-off Mongo import (npm run db:import-mongo).
 //
 // Conventions used throughout:
 //

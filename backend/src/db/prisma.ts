@@ -16,7 +16,20 @@ export const OMITTED: Record<string, Record<string, true>> = {
   testAttachment: { data: true },
 };
 
-export const prisma = new PrismaClient({ omit: OMITTED as any });
+const logSql = process.env.LOG_SQL === 'true';
+
+export const prisma = new PrismaClient({
+  omit: OMITTED as any,
+  log: logSql ? [{ emit: 'event', level: 'query' }] : [],
+});
+
+// LOG_SQL=true in .env prints every query the app runs, with its values, to
+// watch what it writes.
+if (logSql) {
+  (prisma as any).$on('query', (e: { query: string; params: string; duration: number }) => {
+    console.log(`[sql ${e.duration}ms] ${e.query}\n  params: ${e.params}`);
+  });
+}
 
 export type Tx = Omit<
   typeof prisma,
