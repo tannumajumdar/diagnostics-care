@@ -185,6 +185,29 @@ export const LabReportPage: React.FC = () => {
 
   const address = [patient.address, patient.city, patient.state, patient.pinCode].filter(Boolean).join(', ');
 
+  // Find any packages associated with these tests or invoice
+  const packageNames = Array.from(
+    new Set(
+      [
+        ...standard.map((s: any) => s.packageName),
+        ...(invoice?.items || []).map((it: any) => it.packageName || it.package?.packageName),
+      ].filter(Boolean)
+    )
+  );
+
+  const standaloneTests = standard
+    .filter((s: any) => {
+      if (s.packageName) return false;
+      const matchingItem = (invoice?.items || []).find(
+        (it: any) =>
+          String(it.testId || it.test?._id || it.test) === String(s.test?._id || s.test?.id || s.testId) ||
+          it.testName === s.test?.testName
+      );
+      return !matchingItem?.packageName && !matchingItem?.package?.packageName;
+    })
+    .map((s: any) => (typeof s.test === 'object' ? s.test?.testName : s.testName || ''))
+    .filter(Boolean);
+
   // Both letterhead lines drop out when the centre has not been configured,
   // rather than printing an empty separator or a placeholder number.
   const subtitle = [CENTRE.accreditation, CENTRE.address].filter(Boolean).join(' | ');
@@ -483,13 +506,27 @@ export const LabReportPage: React.FC = () => {
           <Line label="Tests on report" value={String(standard.length)} />
 
           <Line label="Address" value={address} />
-          <Line
-            label="Tests"
-            value={standard
-              .map((s) => (typeof s.test === 'object' ? s.test?.testName : ''))
-              .filter(Boolean)
-              .join(', ')}
-          />
+          {packageNames.length > 0 ? (
+            <Line
+              label="Package"
+              value={<span className="font-semibold text-foreground">{packageNames.join(', ')}</span>}
+            />
+          ) : (
+            <Line
+              label="Tests"
+              value={standard
+                .map((s) => (typeof s.test === 'object' ? s.test?.testName : ''))
+                .filter(Boolean)
+                .join(', ')}
+            />
+          )}
+
+          {packageNames.length > 0 && standaloneTests.length > 0 && (
+            <>
+              <div />
+              <Line label="Other Tests" value={standaloneTests.join(', ')} />
+            </>
+          )}
         </div>
 
         {invoice.clinicalNotes && (
@@ -539,6 +576,9 @@ export const LabReportPage: React.FC = () => {
                     )}
                     {sample.collectionDate && (
                       <span className="ml-2">Collected {dateTime(sample.collectionDate)}</span>
+                    )}
+                    {sheet.packageName && (
+                      <span className="ml-2 font-medium text-blue-600">· Part of {sheet.packageName}</span>
                     )}
                   </p>
                   {sample.priority === 'Urgent' && (
