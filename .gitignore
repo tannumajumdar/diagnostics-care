@@ -5,8 +5,7 @@ node_modules/
 
 # Local settings and secrets - copy .env.example to .env
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
 
 # Logs and OS clutter
