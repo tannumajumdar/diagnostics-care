@@ -13,6 +13,7 @@
     "db:import-mongo": "npx ts-node --transpile-only migration/mongo-to-postgres.ts",
     "db:verify-import": "npx ts-node --transpile-only migration/roundtrip-check.ts",
     "db:studio": "prisma studio",
+    "db:view": "npx ts-node --transpile-only src/scripts/view-db.ts",
     "seed": "npx ts-node --transpile-only src/scripts/seed.ts",
     "migrate": "npx ts-node --transpile-only src/scripts/migrate-roles.ts",
     "backfill:parameters": "npx ts-node --transpile-only src/scripts/backfill-parameters.ts",
