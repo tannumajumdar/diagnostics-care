@@ -70,10 +70,18 @@ export const errorHandler = (
 ): void => {
   const friendly = readable(err);
   const statusCode = friendly?.statusCode || err.statusCode || 500;
-  const message = friendly?.message || err.message || 'Internal Server Error';
+  const isProduction = process.env.NODE_ENV === 'production';
+  // In production an unexpected failure's own text (a database error, a file
+  // path) stays in the server log; the client gets a plain message.
+  const message =
+    friendly?.message ||
+    (isProduction && statusCode >= 500 ? 'Something went wrong. Please try again.' : err.message) ||
+    'Internal Server Error';
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (!isProduction) {
     console.error(`[Error ${statusCode}] ${req.method} ${req.originalUrl}:`, err);
+  } else if (statusCode >= 500) {
+    console.error(`[Error ${statusCode}] ${req.method} ${req.originalUrl}: ${err?.stack || err}`);
   }
 
   res.status(statusCode).json({
