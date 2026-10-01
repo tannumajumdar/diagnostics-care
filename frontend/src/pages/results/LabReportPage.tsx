@@ -234,7 +234,8 @@ export const LabReportPage: React.FC = () => {
         invoiceNumber: invoice.invoiceNumber,
         reportReady: !provisional,
         dueAmount: invoice.dueAmount,
-      })
+      }),
+          showToast
     );
     if (!sent) showToast('This patient has no valid mobile number on record', 'error');
   };

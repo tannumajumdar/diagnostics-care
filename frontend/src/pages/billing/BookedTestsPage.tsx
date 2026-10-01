@@ -546,7 +546,7 @@ export const BookedTestsPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
             <CalendarDays className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
             <Input
               type="date"
@@ -813,7 +813,8 @@ export const BookedTestsPage: React.FC = () => {
                                   invoiceNumber: row.invoiceNumber,
                                   reportReady: !!row.reportResultId,
                                   dueAmount: row.dueAmount,
-                                })
+                                }),
+          showToast
                               )
                             }
                           >

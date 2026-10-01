@@ -116,6 +116,8 @@ export class SavedReportService {
         { reportNo: rx },
         { status: rx },
         { id: { in: byTest.map((r) => r.id) } },
+        // The package the tests were billed under, as the list now shows it.
+        { invoice: { items: { some: { packageName: rx } } } },
         { savedByName: rx },
       ];
     }
@@ -143,6 +145,34 @@ export class SavedReportService {
       }),
       repo.count('savedReport', filter),
     ]);
+
+    // A package is billed as its own tests, so the stored list reads as a long
+    // run of test names. The bill's lines say which of them came in a package:
+    // those are shown as the package, and only the rest as tests.
+    const invoiceIds = Array.from(new Set(reports.map((r: any) => r.invoice?._id || r.invoice).filter(Boolean))).map(String);
+    const lines = invoiceIds.length
+      ? await prisma.invoiceItem.findMany({
+          where: { invoiceId: { in: invoiceIds }, packageName: { not: '' } },
+          select: { invoiceId: true, testName: true, packageName: true },
+        })
+      : [];
+    const packageOf = new Map<string, Map<string, string>>();
+    for (const line of lines) {
+      if (!packageOf.has(line.invoiceId)) packageOf.set(line.invoiceId, new Map());
+      packageOf.get(line.invoiceId)!.set(line.testName, line.packageName);
+    }
+    reports.forEach((report: any) => {
+      const byTest = packageOf.get(String(report.invoice?._id || report.invoice || '')) ?? new Map<string, string>();
+      const packages: string[] = [];
+      const otherTests: string[] = [];
+      for (const test of report.tests || []) {
+        const pkg = byTest.get(test);
+        if (!pkg) otherTests.push(test);
+        else if (!packages.includes(pkg)) packages.push(pkg);
+      }
+      report.packages = packages;
+      report.otherTests = otherTests;
+    });
 
     return {
       reports,

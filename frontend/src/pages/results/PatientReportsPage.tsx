@@ -266,7 +266,8 @@ export const PatientReportsPage: React.FC = () => {
                                 invoiceNumber: visit.invoiceNumber,
                                 reportReady: readiness.isReady,
                                 dueAmount: visit.dueAmount,
-                              })
+                              }),
+          showToast
                             )
                           }
                         >

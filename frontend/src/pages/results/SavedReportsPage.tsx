@@ -7,7 +7,7 @@ import { Input } from '../../components/ui/input';
 import { useToast } from '../../context/ToastContext';
 import { asList } from '../../utils/api-list';
 import { DATE_PRESETS, formatDay, todayKey } from '../../utils/dates';
-import { FolderArchive, Search, Eye, Download, ChevronLeft, ChevronRight, CalendarDays, X } from 'lucide-react';
+import { FolderArchive, Search, Eye, Download, ChevronLeft, ChevronRight, CalendarDays, X, Package } from 'lucide-react';
 
 interface SavedReport {
   _id: string;
@@ -20,6 +20,10 @@ interface SavedReport {
   reportNo: string;
   status?: 'Provisional' | 'Final';
   tests: string[];
+  /** Packages the visit's tests were billed under, shown in place of those tests. */
+  packages?: string[];
+  /** The tests billed on their own, outside any package. */
+  otherTests?: string[];
   fileName: string;
   size: number;
   savedBy?: { name?: string; role?: string };
@@ -114,7 +118,7 @@ export const SavedReportsPage: React.FC = () => {
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
             <CalendarDays className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
             <Input
               type="date"
@@ -231,7 +235,22 @@ export const SavedReportsPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="max-w-[18rem] p-3">
-                        <div className="text-foreground">{r.tests.join(', ') || '-'}</div>
+                        {r.packages?.length ? (
+                          <div className="flex flex-wrap gap-1">
+                            {r.packages.map((pkg) => (
+                              <span
+                                key={pkg}
+                                className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-1.5 py-0.5 text-[12px] font-semibold text-violet-700"
+                              >
+                                <Package className="h-3 w-3" /> {pkg}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        {(r.otherTests ?? (r.packages?.length ? [] : r.tests)).length > 0 && (
+                          <div className="text-foreground">{(r.otherTests ?? r.tests).join(', ')}</div>
+                        )}
+                        {!r.packages?.length && !(r.otherTests ?? r.tests).length && <div className="text-foreground">-</div>}
                         <div className="text-[11px] text-muted-foreground">{fileSize(r.size)}</div>
                       </td>
                       <td className="p-3">

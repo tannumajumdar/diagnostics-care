@@ -269,7 +269,7 @@ export const LabWorkflowPage: React.FC = () => {
       )}
 
       {/* Pipeline board */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         {lanes.map(({ meta, query }) => {
           const samples = asList<any>(query.data, 'samples');
           const visits = groupByVisit(samples);
@@ -337,17 +337,14 @@ export const LabWorkflowPage: React.FC = () => {
                           {visit.samples.map((s: any) => (
                             <li key={s.id} className="flex items-center gap-1">
                               <div className="min-w-0 flex-1">
-                                <p className="flex items-center gap-1.5 text-xs font-medium text-slate-800">
-                                  <span className={`h-2 w-2 shrink-0 rounded-full ${processState(s.status).dot}`} />
-                                  <span className="truncate">{s.testName}</span>
+                                <p className="flex items-start gap-1.5 text-xs font-medium text-slate-800">
                                   <span
-                                    className={`ml-auto shrink-0 rounded border px-1 text-[9px] font-semibold uppercase ${
-                                      processState(s.status).className
-                                    }`}
-                                  >
-                                    {processState(s.status).label}
-                                  </span>
+                                    className={`mt-1 h-2 w-2 shrink-0 rounded-full ${processState(s.status).dot}`}
+                                    title={processState(s.status).label}
+                                  />
+                                  <span className="min-w-0 break-words">{s.testName}</span>
                                 </p>
+                                {/* The dot's colour is the state - see the legend at the top. */}
                                 <p className="font-mono text-[10px] text-slate-400">
                                   {s.sampleId}
                                   {(s.recollectionCount ?? 0) > 0 && (
@@ -402,13 +399,8 @@ export const LabWorkflowPage: React.FC = () => {
                               const state = processState(s.status);
                               return (
                                 <li key={s.id} className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${state.dot}`} />
+                                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${state.dot}`} title={state.label} />
                                   <span className="truncate">{s.testName}</span>
-                                  <span
-                                    className={`ml-auto shrink-0 rounded border px-1 text-[9px] font-semibold uppercase ${state.className}`}
-                                  >
-                                    {state.label}
-                                  </span>
                                 </li>
                               );
                             })}

@@ -149,11 +149,33 @@ const emptyPatient = {
   patientName: '',
   gender: '',
   age: '',
+  // A baby's age is told in months and days, not years. Typed without a date
+  // of birth, the three together stand for one (see estimatedDateOfBirth).
+  ageMonths: '',
+  ageDays: '',
   mobile: '',
   dateOfBirth: '',
   address: '',
   state: '',
   pinCode: '',
+};
+
+/**
+ * A date of birth worked back from an age typed as months and days - so the
+ * bill, the report and the paediatric reference range read "3 months 10 days"
+ * rather than "0 years". A whole-years age stays as it was, with no date.
+ */
+const estimatedDateOfBirth = (p: { age: string; ageMonths: string; ageDays: string }): string | null => {
+  const months = Number(p.ageMonths || 0);
+  const days = Number(p.ageDays || 0);
+  if (!months && !days) return null;
+  const today = new Date();
+  // Step back whole months from the 1st, then put the day back - capped at the
+  // month's length, so 31 March less one month is 28 February, not 3 March.
+  const d = new Date(today.getFullYear() - Number(p.age || 0), today.getMonth() - months, 1);
+  d.setDate(Math.min(today.getDate(), new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  d.setDate(d.getDate() - days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
 export interface VisitDraft {
@@ -294,7 +316,7 @@ export const NewVisitPage: React.FC = () => {
   const applyDraftToState = (draft: VisitDraft) => {
     setMode(draft.mode || 'new');
     setSelectedPatient(draft.selectedPatient || null);
-    setNewPatient(draft.newPatient ? { ...draft.newPatient } : { ...emptyPatient });
+    setNewPatient(draft.newPatient ? { ...emptyPatient, ...draft.newPatient } : { ...emptyPatient });
     setClinicalNotes(draft.clinicalNotes || '');
     setPriority(draft.priority || 'Routine');
     setDoctorId(draft.doctorId || '');
@@ -1043,8 +1065,12 @@ export const NewVisitPage: React.FC = () => {
     } else {
       if (newPatient.patientName.trim().length < 2) next.patientName = 'Patient name is required';
       if (!newPatient.gender) next.gender = 'Gender is required';
-      if (newPatient.age === '' || Number(newPatient.age) < 0 || Number.isNaN(Number(newPatient.age))) {
-        next.age = 'Enter a valid age';
+      if (!newPatient.dateOfBirth) {
+        const parts = [newPatient.age, newPatient.ageMonths, newPatient.ageDays];
+        const bad = parts.some((v) => v !== '' && (Number.isNaN(Number(v)) || Number(v) < 0 || !Number.isInteger(Number(v))));
+        if (bad || parts.every((v) => v === '')) next.age = 'Enter the age in years, months or days';
+        else if (Number(newPatient.ageMonths || 0) > 11) next.age = 'Months go up to 11 - add a year instead';
+        else if (Number(newPatient.ageDays || 0) > 30) next.age = 'Days go up to 30 - add a month instead';
       }
       if (newPatient.mobile.trim().length < 10) next.mobile = 'Valid 10-digit mobile is required';
     }
@@ -1100,9 +1126,12 @@ export const NewVisitPage: React.FC = () => {
         payload.patient = {
           patientName: newPatient.patientName.trim(),
           gender: newPatient.gender,
-          age: Number(newPatient.age),
+          age: Number(newPatient.age || 0),
           mobile: newPatient.mobile.trim(),
-          ...(newPatient.dateOfBirth ? { dateOfBirth: newPatient.dateOfBirth } : {}),
+          ...(() => {
+            const dob = newPatient.dateOfBirth || estimatedDateOfBirth(newPatient);
+            return dob ? { dateOfBirth: dob } : {};
+          })(),
           ...(newPatient.address ? { address: newPatient.address.trim() } : {}),
           ...(newPatient.state ? { state: newPatient.state.trim() } : {}),
           ...(newPatient.pinCode ? { pinCode: newPatient.pinCode.trim() } : {}),
@@ -1458,7 +1487,11 @@ export const NewVisitPage: React.FC = () => {
                   label="Age"
                   required
                   error={errors.age}
-                  hint={newPatient.dateOfBirth ? 'From the date of birth. Clear the date to type an age.' : undefined}
+                  hint={
+                    newPatient.dateOfBirth
+                      ? 'From the date of birth. Clear the date to type an age.'
+                      : 'For a baby, fill the months and days - leave years at 0.'
+                  }
                 >
                   {newPatient.dateOfBirth ? (
                     <div className="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-input bg-muted/40 px-3">
@@ -1468,14 +1501,33 @@ export const NewVisitPage: React.FC = () => {
                       </span>
                     </div>
                   ) : (
-                    <Input
-                      type="number"
-                      min={0}
-                      value={newPatient.age}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setField('age', e.target.value)}
-                      placeholder="Years"
-                      error={errors.age}
-                    />
+                    <div className="grid grid-cols-3 gap-2">
+                      {(
+                        [
+                          ['age', 'Years', undefined],
+                          ['ageMonths', 'Months', 11],
+                          ['ageDays', 'Days', 30],
+                        ] as const
+                      ).map(([key, label, max]) => (
+                        <div key={key}>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={max}
+                            inputMode="numeric"
+                            value={newPatient[key]}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                              setField(key, e.target.value);
+                              setErrors((prev) => ({ ...prev, age: '' }));
+                            }}
+                            placeholder="0"
+                            aria-label={`Age in ${label.toLowerCase()}`}
+                            className={`px-2 text-center ${errors.age ? 'border-red-500' : ''}`}
+                          />
+                          <span className="mt-0.5 block text-center text-[11px] text-muted-foreground">{label}</span>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </Field>
 

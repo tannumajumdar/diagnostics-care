@@ -360,7 +360,7 @@ export const BillingListPage: React.FC = () => {
           {/* A bill belongs to a day, and the day is how the desk closes its
               books - so the window is picked here and the totals below answer
               for that window rather than for whatever is on this page. */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
             <CalendarDays className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
             <Input
               type="date"

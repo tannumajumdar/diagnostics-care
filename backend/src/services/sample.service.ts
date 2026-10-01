@@ -4,6 +4,7 @@ import {
   SAMPLE_STATUS,
   SAMPLE_PIPELINE,
   SAMPLE_STAGE_TIMESTAMP,
+  pipelineIndex,
   canTransition,
   nextStatuses,
   type SampleStatus,
@@ -227,7 +228,7 @@ export class SampleService {
     // One pass per stage at most - a lifecycle that somehow loops must not
     // take the request with it.
     for (let step = 0; step <= SAMPLE_PIPELINE.length; step += 1) {
-      const currentIndex = SAMPLE_PIPELINE.indexOf(sample.status as SampleStatus);
+      const currentIndex = pipelineIndex(sample.status);
 
       // Rejected and Recollected sit off the happy path on purpose. A rejected
       // specimen has no result to release - the desk orders a fresh draw.
@@ -285,7 +286,7 @@ export class SampleService {
       [SAMPLE_STATUS.COMPLETED]: sample.completedAt,
     };
 
-    const currentIndex = SAMPLE_PIPELINE.indexOf(sample.status as SampleStatus);
+    const currentIndex = pipelineIndex(sample.status);
     const stages = SAMPLE_PIPELINE.map((stage, index) => ({
       stage,
       reachedAt: reachedAt[stage] ?? null,
