@@ -13,8 +13,10 @@ services:
     region: singapore
     rootDir: backend
     # devDependencies (typescript, prisma) are needed to build; NODE_ENV is
-    # production here, which would otherwise skip them.
-    buildCommand: npm ci --include=dev && npm run build && npx prisma migrate deploy
+    # production here, which would otherwise skip them. --workspaces=false
+    # installs from this folder's own package-lock.json - the root workspace
+    # lock only lists the Windows builds of some native packages.
+    buildCommand: npm ci --include=dev --workspaces=false && npm run build && npx prisma migrate deploy
     startCommand: npm start
     healthCheckPath: /health
     envVars:
@@ -38,7 +40,7 @@ services:
     name: lms-frontend
     runtime: static
     rootDir: frontend
-    buildCommand: npm ci --include=dev && npm run build
+    buildCommand: npm ci --include=dev --workspaces=false && npm run build
     staticPublishPath: dist
     # A single-page app: every path is served index.html and React routes it.
     routes:
