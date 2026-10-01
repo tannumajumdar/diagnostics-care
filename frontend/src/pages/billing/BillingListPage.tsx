@@ -242,7 +242,7 @@ export const BillingListPage: React.FC = () => {
     <div className="space-y-6 print:hidden">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+          <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl [&>svg]:shrink-0">
             <CreditCard className="h-6 w-6 text-blue-600" />
             <span>Billing &amp; Invoices Directory</span>
           </h1>
@@ -299,7 +299,7 @@ export const BillingListPage: React.FC = () => {
               />
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <select
                 value={processingMode}
                 onChange={(e) => {
@@ -361,7 +361,7 @@ export const BillingListPage: React.FC = () => {
               books - so the window is picked here and the totals below answer
               for that window rather than for whatever is on this page. */}
           <div className="flex flex-wrap items-center gap-2">
-            <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <CalendarDays className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
             <Input
               type="date"
               value={from}
@@ -370,7 +370,8 @@ export const BillingListPage: React.FC = () => {
                 setFrom(e.target.value);
                 setPage(1);
               }}
-              className="h-9 w-[9.5rem] text-xs"
+              className="h-9 text-xs"
+              wrapperClassName="min-w-0 flex-1 sm:w-[9.5rem] sm:flex-none"
             />
             <span className="text-xs text-muted-foreground">to</span>
             <Input
@@ -381,7 +382,8 @@ export const BillingListPage: React.FC = () => {
                 setTo(e.target.value);
                 setPage(1);
               }}
-              className="h-9 w-[9.5rem] text-xs"
+              className="h-9 text-xs"
+              wrapperClassName="min-w-0 flex-1 sm:w-[9.5rem] sm:flex-none"
             />
             {(from || to) && (
               <Button variant="outline" size="sm" className="h-9 gap-1" onClick={() => applyRange({ from: '', to: '' })}>

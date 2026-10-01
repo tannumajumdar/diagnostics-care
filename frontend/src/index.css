@@ -190,6 +190,17 @@ body {
   animation: lms-pulse-ring 2.6s ease-in-out infinite;
 }
 
+/* Phone width: a table too wide for the screen scrolls sideways inside its
+   card. Headings and codes (UHID, invoice and sample numbers, ranges) stay on
+   one line so a column does not break into a tall stack of fragments. */
+@media (max-width: 639px) {
+  main table th,
+  main table td.font-mono,
+  main table td .font-mono {
+    white-space: nowrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lms-rise,
   .lms-drift,

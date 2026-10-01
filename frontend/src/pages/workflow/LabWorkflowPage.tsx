@@ -205,7 +205,7 @@ export const LabWorkflowPage: React.FC = () => {
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-900">
+          <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl [&>svg]:shrink-0">
             <Workflow className="h-6 w-6 text-blue-600" />
             <span>Lab Workflow</span>
           </h1>

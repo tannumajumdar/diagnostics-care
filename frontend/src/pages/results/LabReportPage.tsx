@@ -259,8 +259,8 @@ export const LabReportPage: React.FC = () => {
           <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Report not ready yet</h1>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">Report not ready yet</h1>
             <p className="text-xs text-muted-foreground">
               {patient.patientName} · UHID {primary.uhid}
               {(primary.enquiryNo || invoice.enquiryNo) && ` · Enq ${primary.enquiryNo || invoice.enquiryNo}`}
@@ -329,13 +329,13 @@ export const LabReportPage: React.FC = () => {
           }}
         />
       )}
-      <div className="flex items-center justify-between" data-print="hide">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3" data-print="hide">
+        <div className="flex min-w-0 items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => navigate('/results')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className={`text-2xl font-bold tracking-tight ${provisional ? 'text-amber-600' : 'text-blue-600'}`}>
+          <div className="min-w-0">
+            <h1 className={`text-xl font-bold tracking-tight sm:text-2xl ${provisional ? 'text-amber-600' : 'text-blue-600'}`}>
               {provisional ? 'Provisional Report' : 'Final Report'}
             </h1>
             <p className="font-mono text-xs text-muted-foreground">
@@ -345,7 +345,7 @@ export const LabReportPage: React.FC = () => {
         </div>
 
         {standard.length > 0 && (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             size="sm"

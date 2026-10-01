@@ -1184,7 +1184,7 @@ export const NewVisitPage: React.FC = () => {
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl [&>svg]:shrink-0">
             <ClipboardList className="h-6 w-6 text-blue-600" />
             <span>New Patient Visit</span>
           </h1>

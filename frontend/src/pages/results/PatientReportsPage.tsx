@@ -88,7 +88,7 @@ export const PatientReportsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
+        <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl [&>svg]:shrink-0">
           <FileText className="h-6 w-6 text-blue-600" />
           <span>Patient Reports</span>
         </h1>

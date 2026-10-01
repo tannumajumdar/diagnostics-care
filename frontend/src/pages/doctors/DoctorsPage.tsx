@@ -271,7 +271,7 @@ export const DoctorsPage: React.FC = () => {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-900">
+        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl [&>svg]:shrink-0">
           <Stethoscope className="h-6 w-6 text-blue-600" />
           <span>Doctor Directory</span>
         </h1>

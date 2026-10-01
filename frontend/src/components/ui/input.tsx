@@ -2,12 +2,14 @@ import React from 'react';
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   error?: string;
+  /** Classes for the wrapping div - full width unless a row needs it narrower. */
+  wrapperClassName?: string;
 }
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className = '', type, error, ...props }, ref) => {
+  ({ className = '', type, error, wrapperClassName = 'w-full', ...props }, ref) => {
     return (
-      <div className="w-full">
+      <div className={wrapperClassName}>
         <input
           type={type}
           className={`flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-xs file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${

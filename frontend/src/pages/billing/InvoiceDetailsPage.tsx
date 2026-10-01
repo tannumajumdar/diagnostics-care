@@ -163,18 +163,18 @@ export const InvoiceDetailsPage: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto py-4 print:max-w-none print:py-0">
-      <div className="flex items-center justify-between" data-print="hide">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3" data-print="hide">
+        <div className="flex min-w-0 items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => navigate('/billing')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold font-mono text-blue-600">{invoice.invoiceNumber}</h1>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold font-mono text-blue-600 sm:text-2xl">{invoice.invoiceNumber}</h1>
             <p className="text-xs text-muted-foreground font-mono">Barcode: {invoice.barcode}</p>
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {/* Editing the bill sits beside collecting on it: the patient at the
               counter to pay a due is exactly who asks for one more test or
               mentions the discount they were promised. */}

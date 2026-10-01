@@ -93,7 +93,7 @@ export const SavedReportsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
+        <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl [&>svg]:shrink-0">
           <FolderArchive className="h-6 w-6 text-blue-600" />
           <span>Saved Reports</span>
         </h1>
@@ -115,13 +115,14 @@ export const SavedReportsPage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <CalendarDays className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
             <Input
               type="date"
               value={from}
               max={to || todayKey()}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => applyRange({ from: e.target.value, to })}
-              className="h-9 w-[9.5rem] text-xs"
+              className="h-9 text-xs"
+              wrapperClassName="min-w-0 flex-1 sm:w-[9.5rem] sm:flex-none"
             />
             <span className="text-xs text-muted-foreground">to</span>
             <Input
@@ -129,7 +130,8 @@ export const SavedReportsPage: React.FC = () => {
               value={to}
               min={from || undefined}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => applyRange({ from, to: e.target.value })}
-              className="h-9 w-[9.5rem] text-xs"
+              className="h-9 text-xs"
+              wrapperClassName="min-w-0 flex-1 sm:w-[9.5rem] sm:flex-none"
             />
             {(from || to || searchTerm) && (
               <Button

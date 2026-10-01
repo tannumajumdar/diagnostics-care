@@ -99,7 +99,7 @@ export const PendingProcessingQueuePage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+        <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl [&>svg]:shrink-0">
           <FlaskConical className="h-6 w-6 text-purple-600" />
           <span>Central Laboratory Processing Queue</span>
         </h1>

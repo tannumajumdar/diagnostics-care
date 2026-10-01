@@ -57,8 +57,8 @@ export const PatientDetailsPage: React.FC<{ isNew?: boolean }> = () => {
         <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold tracking-tight">{patient.patientName}</h1>
+        <div className="min-w-[12rem] flex-1">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{patient.patientName}</h1>
           <p className="text-xs text-muted-foreground font-mono">UHID: {patient.uhid}</p>
         </div>
         {hasPermission(user, PERMISSIONS.PATIENT_EDIT) && (

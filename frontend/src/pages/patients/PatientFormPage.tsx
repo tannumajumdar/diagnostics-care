@@ -183,7 +183,7 @@ export const PatientFormPage: React.FC = () => {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+          <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl [&>svg]:shrink-0">
             {isEdit ? (
               <UserPen className="h-6 w-6 text-blue-600" />
             ) : (

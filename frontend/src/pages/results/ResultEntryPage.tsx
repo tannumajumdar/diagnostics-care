@@ -403,20 +403,20 @@ export const ResultEntryPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Test Parameter Result Entry</h1>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Test Parameter Result Entry</h1>
             <p className="font-mono text-xs text-muted-foreground">
               {patient.patientName} · {ageLabel(patient)} / {patient.gender} · UHID: {sheets[0].uhid}
             </p>
           </div>
         </div>
 
-        <div className="text-right">
+        <div className="sm:text-right">
           <p className="text-xs font-semibold text-muted-foreground">
             {sheets.length} of {visitSheets.length} test{visitSheets.length === 1 ? '' : 's'} on the bench
           </p>
@@ -567,6 +567,7 @@ export const ResultEntryPage: React.FC = () => {
                               ) : (
                                 <div className="flex items-center gap-1">
                                   <Input
+                                    wrapperClassName="w-full min-w-[6rem]"
                                     value={value}
                                     onChange={(e) => {
                                       if (formula) setOverride(sheet._id, p.parameterName, true);

@@ -411,8 +411,8 @@ export const NewBillingPage: React.FC = () => {
         <Button variant="outline" size="sm" onClick={() => navigate('/billing')}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Generate New Patient Invoice & Sample Barcodes</h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Generate New Patient Invoice & Sample Barcodes</h1>
           <p className="text-xs text-muted-foreground">
             Select patient, add tests, apply discount structure & trigger phlebotomy sample queue
           </p>

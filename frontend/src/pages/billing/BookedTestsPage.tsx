@@ -381,7 +381,7 @@ export const BookedTestsPage: React.FC = () => {
     <div className="space-y-6 print:hidden">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl [&>svg]:shrink-0">
             <FlaskConical className="h-6 w-6 text-blue-600" />
             <span>Booked Tests</span>
           </h1>
@@ -547,7 +547,7 @@ export const BookedTestsPage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <CalendarDays className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
             <Input
               type="date"
               value={from}
@@ -556,7 +556,8 @@ export const BookedTestsPage: React.FC = () => {
                 setFrom(e.target.value);
                 setPage(1);
               }}
-              className="h-9 w-[9.5rem] text-xs"
+              className="h-9 text-xs"
+              wrapperClassName="min-w-0 flex-1 sm:w-[9.5rem] sm:flex-none"
             />
             <span className="text-xs text-muted-foreground">to</span>
             <Input
@@ -567,7 +568,8 @@ export const BookedTestsPage: React.FC = () => {
                 setTo(e.target.value);
                 setPage(1);
               }}
-              className="h-9 w-[9.5rem] text-xs"
+              className="h-9 text-xs"
+              wrapperClassName="min-w-0 flex-1 sm:w-[9.5rem] sm:flex-none"
             />
             {anyFilter && (
               <Button variant="outline" size="sm" className="h-9 gap-1" onClick={clearAll}>
