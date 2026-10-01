@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { landingPathFor } from '../config/roles';
+import { landingPathFor, ALL_ROLES, Role } from '../config/roles';
 import { Button } from '../components/ui/button';
 import {
   Lock,
@@ -16,101 +16,38 @@ import {
   UserCheck,
 } from 'lucide-react';
 
-interface QuickAccount {
-  label: string;
-  sublabel: string;
-  email: string;
-  password: string;
-}
-
-const QUICK_ACCOUNTS: { category: string; accounts: QuickAccount[] }[] = [
-  {
-    category: 'System Roles',
-    accounts: [
-      {
-        label: 'Admin',
-        sublabel: 'Full access',
-        email: 'admin@lms.com',
-        password: 'Admin@123456',
-      },
-      {
-        label: 'Pathologist',
-        sublabel: 'Verify & sign',
-        email: 'pathologist@lms.com',
-        password: 'User@123456',
-      },
-      {
-        label: 'Technician',
-        sublabel: 'Result entry',
-        email: 'technician@lms.com',
-        password: 'User@123456',
-      },
-    ],
-  },
-  {
-    category: 'Front Desk / Receptionist',
-    accounts: [
-      {
-        label: 'Receptionist - Emily Davis',
-        sublabel: 'Front Desk',
-        email: 'receptionist@lms.com',
-        password: 'User@123456',
-      },
-      {
-        label: 'Receptionist - Neha Sharma',
-        sublabel: 'Front Desk',
-        email: 'neha@lms.com',
-        password: 'User@123456',
-      },
-      {
-        label: 'Receptionist - Rohit Verma',
-        sublabel: 'Front Desk',
-        email: 'rohit@lms.com',
-        password: 'User@123456',
-      },
-    ],
-  },
-];
-
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
+  const [role, setRole] = useState<Role | ''>('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedRoleAccount, setSelectedRoleAccount] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (!role) {
+      setError('Select the role you are signing in as.');
+      return;
+    }
     setIsLoading(true);
     try {
       const signedIn = await login(email, password);
+      // The role picked has to be the account's own, so a receptionist's
+      // login cannot be used from the Admin entry and the other way round.
+      if (signedIn.role !== role) {
+        logout();
+        setError(`This account is not registered as ${role}. Select your own role and try again.`);
+        return;
+      }
       navigate(landingPathFor(signedIn));
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Invalid login credentials');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleSelectAccount = (selectedEmail: string) => {
-    setSelectedRoleAccount(selectedEmail);
-    if (!selectedEmail) {
-      setEmail('');
-      setPassword('');
-      return;
-    }
-    for (const group of QUICK_ACCOUNTS) {
-      const match = group.accounts.find((a) => a.email === selectedEmail);
-      if (match) {
-        setEmail(match.email);
-        setPassword(match.password);
-        setError('');
-        break;
-      }
     }
   };
 
@@ -158,25 +95,25 @@ export const LoginPage: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="role-select" className="mb-1.5 block text-xs font-semibold text-slate-700">
-                Select Account / Login As
+                Login As
               </label>
               <div className="group relative">
                 <UserCheck className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-600" />
                 <select
                   id="role-select"
-                  value={selectedRoleAccount}
-                  onChange={(e) => handleSelectAccount(e.target.value)}
+                  value={role}
+                  onChange={(e) => {
+                    setRole(e.target.value as Role | '');
+                    setError('');
+                  }}
                   className={`${fieldClass} cursor-pointer font-medium text-slate-800 pr-10 appearance-none`}
+                  required
                 >
-                  <option value="">-- Choose account to login --</option>
-                  {QUICK_ACCOUNTS.map((group) => (
-                    <optgroup key={group.category} label={group.category}>
-                      {group.accounts.map((acc) => (
-                        <option key={acc.email} value={acc.email}>
-                          {acc.label} ({acc.sublabel})
-                        </option>
-                      ))}
-                    </optgroup>
+                  <option value="">-- Select your role --</option>
+                  {ALL_ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
                   ))}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -194,11 +131,8 @@ export const LoginPage: React.FC = () => {
                   type="email"
                   autoComplete="email"
                   value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    setSelectedRoleAccount(e.target.value);
-                  }}
-                  placeholder="name@lms.com"
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
                   className={fieldClass}
                   required
                 />
@@ -243,8 +177,7 @@ export const LoginPage: React.FC = () => {
           </form>
 
           <p className="mt-5 text-center text-[12px] leading-relaxed text-slate-400">
-            Selecting an account fills the form — press{' '}
-            <span className="font-medium text-slate-500">Sign in</span> to continue.
+            Select your role, then sign in with your own email and password.
           </p>
         </div>
 
