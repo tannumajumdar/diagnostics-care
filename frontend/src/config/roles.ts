@@ -369,7 +369,7 @@ export const NAV_ITEMS: NavItem[] = [
     permissions: [P.TEST_MANAGE],
   },
   {
-    label: 'Organizations',
+    label: 'TPA / Organizations',
     path: '/organizations',
     icon: Building,
     group: 'Masters',

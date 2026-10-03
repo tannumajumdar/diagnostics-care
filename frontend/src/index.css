@@ -98,6 +98,8 @@ body {
     max-height: none !important;
     max-width: none !important;
     overflow: visible !important;
+    /* The shell's grey would otherwise fill the page under a short sheet. */
+    background: #fff !important;
   }
 
   main,

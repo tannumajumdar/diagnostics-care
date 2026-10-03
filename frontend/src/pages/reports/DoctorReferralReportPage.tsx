@@ -80,7 +80,9 @@ export const DoctorReferralReportPage: React.FC = () => {
   const [to, setTo] = useState(thisMonth.to);
   const [doctor, setDoctor] = useState('');
   const [busy, setBusy] = useState(false);
-  const [printTarget, setPrintTarget] = usePrintTarget<DoctorGroup[]>();
+  // The doctors to print, one page each, and whether the lab's summary page
+  // of all of them follows - only when the whole report is printed.
+  const [printTarget, setPrintTarget] = usePrintTarget<{ groups: DoctorGroup[]; summary: boolean }>();
 
   const { data: doctorsData } = useQuery({
     queryKey: ['doctors-filter'],
@@ -116,6 +118,13 @@ export const DoctorReferralReportPage: React.FC = () => {
   const filterLines = [
     `Period: ${rangeLabel}`,
     doctor ? `Doctor: ${doctors.find((d: any) => d._id === doctor)?.doctorName || ''}` : 'Doctor: All referring doctors',
+    'Referral charges = Referral rate - Lab rate',
+  ];
+
+  /** The top of one doctor's own page: who, for when, and how the charges are worked out. */
+  const doctorLines = (g: DoctorGroup) => [
+    `Doctor: ${g.doctorName}${g.onPanel ? '' : ' (not on panel)'}`,
+    `Period: ${rangeLabel}`,
     'Referral charges = Referral rate - Lab rate',
   ];
 
@@ -176,7 +185,13 @@ export const DoctorReferralReportPage: React.FC = () => {
               <Download className="h-4 w-4" />
               <span>Export</span>
             </Button>
-            <Button variant="outline" onClick={() => setPrintTarget(groups)} disabled={!rows.length} className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setPrintTarget({ groups, summary: groups.length > 1 })}
+              disabled={!rows.length}
+              className="gap-2"
+              title="One page per doctor, then a summary page for the lab"
+            >
               <Printer className="h-4 w-4" />
               <span>Print</span>
             </Button>
@@ -278,7 +293,7 @@ export const DoctorReferralReportPage: React.FC = () => {
                     {g.rows.length} patient{g.rows.length === 1 ? '' : 's'} · {g.tests} test{g.tests === 1 ? '' : 's'}
                   </div>
                 </div>
-                <div className="flex gap-6 text-right font-mono">
+                <div className="flex items-center gap-6 text-right font-mono">
                   <div>
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Lab rate</p>
                     <p className="font-bold text-foreground">{money(g.rate)}</p>
@@ -291,6 +306,16 @@ export const DoctorReferralReportPage: React.FC = () => {
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Referral charges</p>
                     <p className="font-bold text-green-700">{money(g.charges)}</p>
                   </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 font-sans"
+                    onClick={() => setPrintTarget({ groups: [g], summary: false })}
+                    title={`Print ${g.doctorName}'s patients on their own page`}
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    Print
+                  </Button>
                 </div>
               </div>
               <div className="overflow-x-auto">
@@ -349,44 +374,76 @@ export const DoctorReferralReportPage: React.FC = () => {
 
       {printTarget && (
         <div className="hidden print:block">
-          <ListPrintSheet
-            title="Doctor Referral Report"
-            filterLines={filterLines}
-            countLabel={`${printTarget.reduce((n, g) => n + g.rows.length, 0)} patients`}
-            columns={[
-              { header: 'Doctor' },
-              { header: 'Date', nowrap: true },
-              { header: 'Patient' },
-              { header: 'Bill No', nowrap: true },
-              { header: 'Tests' },
-              { header: 'Lab Rate (₹)', numeric: true },
-              { header: 'Ref. Rate (₹)', numeric: true },
-              { header: 'Charges (₹)', numeric: true },
-            ]}
-            rows={printTarget.flatMap((g) =>
-              g.rows.map((r, i) => [
-                // The doctor and their totals head their first visit only.
-                i === 0 ? (
-                  <b key="d">{`${g.doctorName} (${g.rows.length} pts, ₹${g.charges.toLocaleString('en-IN')})`}</b>
-                ) : (
-                  ''
-                ),
-                formatDay(r.billedAt),
-                `${patientLine(r)} (${r.uhid})`,
-                r.invoiceNumber,
-                testsLine(r),
-                r.rate.toFixed(2),
-                r.referralRate.toFixed(2),
-                r.charges.toFixed(2),
-              ])
-            )}
-            totals={[
-              ...printTarget.map((g) => [g.doctorName, `₹${g.charges.toFixed(2)}`] as [string, string]),
-              ['Total lab rate', `₹${printTarget.reduce((n, g) => n + g.rate, 0).toFixed(2)}`],
-              ['Total referral rate', `₹${printTarget.reduce((n, g) => n + g.referralRate, 0).toFixed(2)}`],
-              ['Total referral charges', `₹${printTarget.reduce((n, g) => n + g.charges, 0).toFixed(2)}`],
-            ]}
-          />
+          {/* Each doctor on a page of their own - their patients, their tests,
+              their total - so it can be handed to them like a bill's copy. */}
+          {printTarget.groups.map((g, gi) => (
+            <div
+              key={g.key}
+              style={gi < printTarget.groups.length - 1 || printTarget.summary ? { breakAfter: 'page' } : undefined}
+            >
+              <ListPrintSheet
+                title="Doctor Referral Statement"
+                filterLines={doctorLines(g)}
+                countLabel={`${g.rows.length} patient${g.rows.length === 1 ? '' : 's'}`}
+                columns={[
+                  { header: 'Date', nowrap: true },
+                  { header: 'Patient' },
+                  { header: 'Bill No', nowrap: true },
+                  { header: 'Tests' },
+                  { header: 'Lab Rate (₹)', numeric: true },
+                  { header: 'Ref. Rate (₹)', numeric: true },
+                  { header: 'Charges (₹)', numeric: true },
+                ]}
+                rows={g.rows.map((r) => [
+                  formatDay(r.billedAt),
+                  `${patientLine(r)} (${r.uhid})`,
+                  r.invoiceNumber,
+                  testsLine(r),
+                  r.rate.toFixed(2),
+                  r.referralRate.toFixed(2),
+                  r.charges.toFixed(2),
+                ])}
+                totals={[
+                  ['Patients', String(g.rows.length)],
+                  ['Tests', String(g.tests)],
+                  ['Lab rate', `₹${g.rate.toFixed(2)}`],
+                  ['Referral rate', `₹${g.referralRate.toFixed(2)}`],
+                  ['Referral charges', `₹${g.charges.toFixed(2)}`],
+                ]}
+              />
+            </div>
+          ))}
+
+          {/* The lab's page: every doctor's total on one sheet. */}
+          {printTarget.summary && (
+            <ListPrintSheet
+              title="Doctor Referral Summary"
+              filterLines={filterLines}
+              countLabel={`${printTarget.groups.length} doctors`}
+              columns={[
+                { header: 'Doctor' },
+                { header: 'Patients', numeric: true },
+                { header: 'Tests', numeric: true },
+                { header: 'Lab Rate (₹)', numeric: true },
+                { header: 'Ref. Rate (₹)', numeric: true },
+                { header: 'Charges (₹)', numeric: true },
+              ]}
+              rows={printTarget.groups.map((g) => [
+                <b key="d">{g.doctorName}</b>,
+                String(g.rows.length),
+                String(g.tests),
+                g.rate.toFixed(2),
+                g.referralRate.toFixed(2),
+                g.charges.toFixed(2),
+              ])}
+              totals={[
+                ['Patients', String(printTarget.groups.reduce((n, g) => n + g.rows.length, 0))],
+                ['Total lab rate', `₹${printTarget.groups.reduce((n, g) => n + g.rate, 0).toFixed(2)}`],
+                ['Total referral rate', `₹${printTarget.groups.reduce((n, g) => n + g.referralRate, 0).toFixed(2)}`],
+                ['Total referral charges', `₹${printTarget.groups.reduce((n, g) => n + g.charges, 0).toFixed(2)}`],
+              ]}
+            />
+          )}
         </div>
       )}
     </>
