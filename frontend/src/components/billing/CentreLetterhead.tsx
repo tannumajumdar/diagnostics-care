@@ -25,15 +25,15 @@ export const CentreLetterhead: React.FC<{ centre?: CentreProfile }> = ({ centre 
             onError={() => setLogoShown(false)}
           />
         )}
-        {centre.tagline && <span className="mt-[2px] text-[6px] leading-[7px]">{centre.tagline}</span>}
-        {centre.unitLine && <span className="text-[6px] leading-[7px]">{centre.unitLine}</span>}
+        {centre.tagline && <span className="mt-[2px] text-[7.5px] leading-[9px] font-medium">{centre.tagline}</span>}
+        {centre.unitLine && <span className="text-[7.5px] leading-[9px]">{centre.unitLine}</span>}
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col justify-center px-2 py-1">
-        <p className="text-[13px] font-bold leading-[15px]">{centre.name}</p>
-        {centre.address && <p className="text-[8px] leading-[10px]">{centre.address}</p>}
-        {mailLine && <p className="text-[8px] leading-[10px]">{mailLine}</p>}
-        {phoneLine && <p className="text-[8px] leading-[10px]">{phoneLine}</p>}
+      <div className="flex min-w-0 flex-1 flex-col justify-center px-3 py-1.5">
+        <p className="text-[16px] font-extrabold leading-[18px] tracking-tight text-black">{centre.name}</p>
+        {centre.address && <p className="text-[9.5px] leading-[13px] text-slate-800 mt-0.5">{centre.address}</p>}
+        {mailLine && <p className="text-[9.5px] leading-[13px] text-slate-800">{mailLine}</p>}
+        {phoneLine && <p className="text-[9.5px] leading-[13px] text-slate-800">{phoneLine}</p>}
       </div>
     </div>
   );

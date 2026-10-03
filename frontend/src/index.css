@@ -59,8 +59,8 @@ body {
 }
 
 @page {
-  size: A4;
-  margin: 10mm;
+  size: A4 portrait;
+  margin: 8mm;
 }
 
 @media print {

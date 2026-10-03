@@ -652,13 +652,22 @@ export const BillingListPage: React.FC = () => {
               { header: 'Due (₹)', numeric: true },
             ]}
             rows={printTarget.invoices.map((inv) => [
-              formatDay((inv as any).createdAt),
-              inv.invoiceNumber,
-              `${(inv.patient as any)?.patientName || 'N/A'} / ${inv.uhid}`,
+              <span className="whitespace-nowrap">{formatDay((inv as any).createdAt)}</span>,
+              <span className="font-mono font-medium">{inv.invoiceNumber}</span>,
+              <div>
+                <span className="font-bold text-black">{(inv.patient as any)?.patientName || 'N/A'}</span>
+                <span className="block text-[9px] font-mono text-slate-500">UHID: {inv.uhid}</span>
+              </div>,
               paymentBreakdownOf(inv)
                 .map((b) => methodLabel(b.method))
                 .join(' + ') || '-',
-              inv.paymentStatus,
+              <span
+                className={`font-semibold ${
+                  inv.paymentStatus === 'Paid' ? 'text-emerald-700' : inv.paymentStatus === 'Partial' ? 'text-amber-700' : 'text-rose-700'
+                }`}
+              >
+                {inv.paymentStatus}
+              </span>,
               (Number(inv.netAmount) || 0).toFixed(2),
               (Number(inv.paidAmount) || 0).toFixed(2),
               (Number(inv.dueAmount) || 0).toFixed(2),
