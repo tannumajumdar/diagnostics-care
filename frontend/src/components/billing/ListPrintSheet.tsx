@@ -45,6 +45,18 @@ export const ListPrintSheet: React.FC<ListPrintSheetProps> = ({
 
   return (
     <div className="report-sheet bg-white font-sans text-black">
+      <style>{`
+        @page {
+          size: A4 portrait;
+          margin: 8mm;
+        }
+        @media print {
+          @page {
+            size: portrait;
+            margin: 8mm;
+          }
+        }
+      `}</style>
       <div className="border border-black">
         <CentreLetterhead centre={centre} />
 
