@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import { resultMarker } from './result-marker.util';
 import { CENTRE, contactLine } from '../config/centre';
+import { ageLabel } from './age.util';
 
 const LEFT = 40;
 const RIGHT = 570;
@@ -118,7 +119,8 @@ export const generateDiagnosticReportPDF = async (
     doc.fillColor('#111827').fontSize(10).font('Helvetica-Bold').text(`${patient.patientName || 'N/A'}`, LEFT, infoTop, { width: 260 });
     doc.font('Helvetica').fontSize(9).fillColor('#4b5563');
     doc.text(`UHID: ${resultRecord.uhid || '-'}`, LEFT, doc.y, { width: 260 });
-    doc.text(`${patient.age ?? '-'} Yrs / ${patient.gender || '-'}${patient.mobile ? ` / ${patient.mobile}` : ''}`, LEFT, doc.y, { width: 260 });
+    if (patient.abhaNumber) doc.text(`ABHA: ${patient.abhaNumber}`, LEFT, doc.y, { width: 260 });
+    doc.text(`${ageLabel(patient)} / ${patient.gender || '-'}${patient.mobile ? ` / ${patient.mobile}` : ''}`, LEFT, doc.y, { width: 260 });
     doc.text(`Consultant Doctor: ${referredBy}`, LEFT, doc.y, { width: 260 });
     if (invoice.invoiceNumber) {
       doc.text(`Invoice: ${invoice.invoiceNumber}`, LEFT, doc.y, { width: 260 });

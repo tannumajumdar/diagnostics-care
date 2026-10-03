@@ -165,7 +165,7 @@ export class ReportsService {
     const invoices: any[] = await repo.find('invoice', {
       where: match,
       include: {
-        patient: { select: { id: true, patientName: true, uhid: true, age: true, gender: true, mobile: true } },
+        patient: { select: { id: true, patientName: true, uhid: true, age: true, dateOfBirth: true, gender: true, mobile: true } },
         referringDoctor: { select: { id: true, doctorName: true, specialty: true } },
       },
       orderBy: mongoSort('invoice', { createdAt: 1 }),

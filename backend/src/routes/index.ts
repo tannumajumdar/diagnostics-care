@@ -18,6 +18,7 @@ import reportsRoutes from './reports.routes';
 import auditRoutes from './audit.routes';
 import rolePermissionRoutes from './rolePermission.routes';
 import savedReportRoutes from './savedReport.routes';
+import abdmRoutes from './abdm.routes';
 
 const router = Router();
 
@@ -52,5 +53,7 @@ router.use('/audit-logs', auditRoutes);
 router.use('/role-permissions', rolePermissionRoutes);
 // Every report PDF that was saved, kept to download again.
 router.use('/saved-reports', savedReportRoutes);
+// ABHA verification and creation through ABDM (Milestone 1).
+router.use('/abdm', abdmRoutes);
 
 export default router;

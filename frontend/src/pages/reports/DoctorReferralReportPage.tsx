@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ageLabel } from '../../utils/age';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Stethoscope, Printer, Download, CalendarDays } from 'lucide-react';
@@ -65,7 +66,7 @@ const groupByDoctor = (rows: ReferralRow[]): DoctorGroup[] => {
 };
 
 const patientLine = (row: ReferralRow) =>
-  [row.patient?.patientName || 'N/A', [row.patient?.age && `${row.patient.age} Y`, row.patient?.gender].filter(Boolean).join('/')]
+  [row.patient?.patientName || 'N/A', [row.patient && ageLabel(row.patient) !== '-' && ageLabel(row.patient), row.patient?.gender].filter(Boolean).join('/')]
     .filter(Boolean)
     .join(' · ');
 

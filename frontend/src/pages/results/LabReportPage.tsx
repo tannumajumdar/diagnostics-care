@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { ageLabel } from '../../utils/age';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { asList } from '../../utils/api-list';
@@ -485,11 +486,16 @@ export const LabReportPage: React.FC = () => {
             value={<span className="font-mono">{primary.enquiryNo || invoice.enquiryNo || '-'}</span>}
           />
 
-          <Line label="Age / Gender" value={`${patient.age ?? '-'} Yrs / ${patient.gender || '-'}`} />
+          <Line label="Age / Gender" value={`${ageLabel(patient)} / ${patient.gender || '-'}`} />
           <Line label="Invoice No." value={<span className="font-mono">{invoice.invoiceNumber}</span>} />
 
           <Line label="Mobile" value={patient.mobile} />
           <Line label="Registered On" value={dateTime(invoice.createdAt || primary.createdAt)} />
+
+          {patient.abhaNumber && (
+            <Line label="ABHA No." value={<span className="font-mono">{patient.abhaNumber}</span>} />
+          )}
+          {patient.abhaAddress && <Line label="ABHA Address" value={patient.abhaAddress} />}
 
           <Line label="Consultant Doctor" value={referredBy} />
           <Line label="Reported On" value={dateTime(primary.updatedAt || primary.createdAt)} />

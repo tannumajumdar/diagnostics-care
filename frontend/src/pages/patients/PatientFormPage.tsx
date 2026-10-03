@@ -11,7 +11,11 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/ca
 import { Input } from '../../components/ui/input';
 import { DateInput } from '../../components/ui/date-input';
 import { Button } from '../../components/ui/button';
-import { ArrowLeft, UserPlus, UserPen, Save } from 'lucide-react';
+import { ArrowLeft, UserPlus, UserPen, Save, BadgeCheck, ShieldCheck } from 'lucide-react';
+import { typeAbhaNumber, abhaNumberError, abhaAddressError, abhaFormValues } from '../../utils/abha';
+import { AbhaDialog } from '../../components/patients/AbhaDialog';
+import { AbhaPhoto } from '../../components/patients/AbhaPhoto';
+import type { AbhaProfile } from '../../api/abdm.api';
 
 const selectClass =
   'flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -53,6 +57,9 @@ export const PatientFormPage: React.FC = () => {
     mobile: '',
     dateOfBirth: '',
     emergencyContact: '',
+    abhaNumber: '',
+    abhaAddress: '',
+    photo: '',
     address: '',
     referringDoctor: '',
     organization: '',
@@ -78,6 +85,9 @@ export const PatientFormPage: React.FC = () => {
       mobile: p.mobile ?? '',
       dateOfBirth: p.dateOfBirth ? String(p.dateOfBirth).slice(0, 10) : '',
       emergencyContact: p.emergencyContact ?? '',
+      abhaNumber: p.abhaNumber ?? '',
+      abhaAddress: p.abhaAddress ?? '',
+      photo: p.photo ?? '',
       address: p.address ?? '',
       referringDoctor: refId(p.referringDoctor),
       organization: refId(p.organization),
@@ -103,6 +113,20 @@ export const PatientFormPage: React.FC = () => {
     setErrors((prev) => ({ ...prev, dateOfBirth: '', ...(years === null ? {} : { age: '' }) }));
   };
 
+  const [abhaDialog, setAbhaDialog] = useState<null | 'verify' | 'create'>(null);
+
+  /** An ABHA ABDM verified or made: every detail it carries, photo included, onto the form. */
+  const applyAbhaProfile = (profile: AbhaProfile) => {
+    setForm((prev) => {
+      // This form has no state or PIN box; the street address takes what fits.
+      const { state: _state, pinCode: _pin, ...values } = abhaFormValues(profile, prev.gender);
+      const years = values.dateOfBirth ? yearsSince(values.dateOfBirth) : null;
+      return { ...prev, ...values, ...(years === null ? {} : { age: String(years) }) };
+    });
+    setErrors({});
+    showToast(`ABHA ${profile.abhaNumber || profile.abhaAddress} verified - details filled from ABDM`, 'success');
+  };
+
   // Mirrors createPatientSchema on the backend so failures surface inline
   // rather than as a generic 400.
   const validate = () => {
@@ -113,6 +137,8 @@ export const PatientFormPage: React.FC = () => {
       next.age = 'Enter a valid age';
     }
     if (form.mobile.trim().length < 10) next.mobile = 'Valid 10-digit mobile is required';
+    if (abhaNumberError(form.abhaNumber)) next.abhaNumber = abhaNumberError(form.abhaNumber);
+    if (abhaAddressError(form.abhaAddress)) next.abhaAddress = abhaAddressError(form.abhaAddress);
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -134,6 +160,9 @@ export const PatientFormPage: React.FC = () => {
       const optional = [
         'dateOfBirth',
         'emergencyContact',
+        'abhaNumber',
+        'abhaAddress',
+        'photo',
         'address',
         'referringDoctor',
         'organization',
@@ -282,6 +311,42 @@ export const PatientFormPage: React.FC = () => {
                 placeholder="Alternate number"
               />
             </Field>
+
+            <Field label="ABHA Number" error={errors.abhaNumber}>
+              <Input
+                value={form.abhaNumber}
+                inputMode="numeric"
+                maxLength={17}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('abhaNumber', typeAbhaNumber(e.target.value))}
+                placeholder="12-3456-7890-1234 (optional)"
+                className="font-mono"
+              />
+            </Field>
+
+            <Field label="ABHA Address" error={errors.abhaAddress}>
+              <Input
+                value={form.abhaAddress}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => set('abhaAddress', e.target.value.replace(/\s/g, ''))}
+                placeholder="name@abdm (optional)"
+                autoCapitalize="none"
+              />
+            </Field>
+
+            <div className="flex items-end gap-3 md:col-span-1">
+              {form.photo && <AbhaPhoto photo={form.photo} name={form.patientName} size="sm" />}
+            <div className="flex flex-1 flex-col justify-end gap-2 sm:flex-row">
+              <Button type="button" variant="outline" size="sm" className="h-10 flex-1 gap-1.5" onClick={() => setAbhaDialog('verify')}>
+                <BadgeCheck className="h-4 w-4" />
+                <span>Verify ABHA</span>
+              </Button>
+              <Button type="button" variant="outline" size="sm" className="h-10 flex-1 gap-1.5" onClick={() => setAbhaDialog('create')}>
+                <ShieldCheck className="h-4 w-4" />
+                <span>Create ABHA</span>
+              </Button>
+            </div>
+            </div>
+
+
           </CardContent>
         </Card>
 
@@ -347,6 +412,14 @@ export const PatientFormPage: React.FC = () => {
           </Button>
         </div>
       </form>
+
+      <AbhaDialog
+        mode={abhaDialog ?? 'verify'}
+        isOpen={abhaDialog !== null}
+        onClose={() => setAbhaDialog(null)}
+        onDone={applyAbhaProfile}
+        initial={{ abhaNumber: form.abhaNumber, mobile: form.mobile }}
+      />
     </div>
   );
 };

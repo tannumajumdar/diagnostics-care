@@ -40,7 +40,9 @@ export const LoginPage: React.FC = () => {
       // login cannot be used from the Admin entry and the other way round.
       if (signedIn.role !== role) {
         logout();
-        setError(`This account is not registered as ${role}. Select your own role and try again.`);
+        setError(
+          `This account is not registered as ${role === 'Receptionist' ? 'Reception' : role}. Select your own role and try again.`
+        );
         return;
       }
       navigate(landingPathFor(signedIn));
@@ -110,9 +112,10 @@ export const LoginPage: React.FC = () => {
                   required
                 >
                   <option value="">-- Select your role --</option>
+                  {/* Shown as the desk calls itself; the value is still the role. */}
                   {ALL_ROLES.map((r) => (
                     <option key={r} value={r}>
-                      {r}
+                      {r === 'Receptionist' ? 'Reception' : r}
                     </option>
                   ))}
                 </select>

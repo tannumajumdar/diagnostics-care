@@ -13,6 +13,7 @@ import {
   getNextEnquiryNumber,
 } from '../db/counters';
 import { ApiError } from '../utils/api-error.util';
+import { normaliseIdentity } from '../utils/abha.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { JwtPayload } from '../types/auth.interface';
 import { PERMISSIONS, PermissionHolder, can, MAX_STAFF_DISCOUNT_PERCENT } from '../constants/permissions';
@@ -235,6 +236,13 @@ export interface NewPatientDetails {
   mobile: string;
   dateOfBirth?: string;
   emergencyContact?: string;
+  abhaNumber?: string;
+  abhaAddress?: string;
+  abhaStatus?: '' | 'Existing' | 'New';
+  idProofType?: string;
+  idProofNumber?: string;
+  /** From a verified ABHA, as a data: URI. */
+  photo?: string;
   address?: string;
   city?: string;
   state?: string;
@@ -551,7 +559,7 @@ export class BillingService {
       }
 
       const uhid = await getNextUhid();
-      const details = payload.patient;
+      const details = normaliseIdentity({ ...payload.patient });
       const patient = await repo.create('patient', {
         ...details,
         uhid,

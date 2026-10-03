@@ -14,6 +14,8 @@ export const OMITTED: Record<string, Record<string, true>> = {
   paymentTransaction: { payerToken: true },
   savedReport: { data: true },
   testAttachment: { data: true },
+  // The ABHA photo: tens of kilobytes on a row every bill and sample includes.
+  patient: { photo: true },
 };
 
 const logSql = process.env.LOG_SQL === 'true';

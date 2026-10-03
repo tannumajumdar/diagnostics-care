@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { COLLECTION_METHOD_VALUES } from '../constants/payment-methods';
+import { isAbhaNumber, isAbhaAddress } from '../utils/abha.util';
+import { identityFields, checkIdentity } from './patient.validator';
 
 /**
  * One line as the desk priced it. The rate and the line discount are what the
@@ -63,11 +65,20 @@ const newPatientSchema = z.object({
   mobile: z.string().min(10, 'Valid 10-digit mobile is required'),
   dateOfBirth: z.string().optional(),
   emergencyContact: z.string().optional(),
+  abhaNumber: z
+    .string()
+    .optional()
+    .refine(isAbhaNumber, { message: 'ABHA number must be 14 digits, like 12-3456-7890-1234' }),
+  abhaAddress: z
+    .string()
+    .optional()
+    .refine(isAbhaAddress, { message: 'ABHA address must look like name@abdm' }),
+  ...identityFields,
   address: z.string().optional(),
   city: z.string().optional(),
   state: z.string().optional(),
   pinCode: z.string().optional(),
-});
+}).superRefine(checkIdentity);
 
 /**
  * One front-desk intake: who the patient is, which doctor sent them, what is

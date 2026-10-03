@@ -424,6 +424,17 @@ model Patient {
   state             String        @default("")
   pinCode           String        @default("")
   emergencyContact  String        @default("")
+  /// Ayushman Bharat Health Account: 12-3456-7890-1234 and name@abdm. Optional.
+  abhaNumber        String        @default("")
+  abhaAddress       String        @default("")
+  /// "Existing" or "New" (asked for one to be made); "" when not said.
+  abhaStatus        String        @default("")
+  /// ID proof seen at the desk: Aadhaar, PAN, Voter ID, Driving Licence, Passport, Other.
+  idProofType       String        @default("")
+  idProofNumber     String        @default("")
+  /// The photo from the patient's verified ABHA, as a data: URI; "" when none.
+  /// Left out of every query unless asked for (db/prisma.ts OMITTED).
+  photo             String        @default("")
   referringDoctorId String?
   referringDoctor   Doctor?       @relation(fields: [referringDoctorId], references: [id])
   organizationId    String?

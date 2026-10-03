@@ -25,7 +25,19 @@ import { asList } from '../../utils/api-list';
 import { catalogueQuery, MONEY_QUERY_KEYS } from '../../utils/query-options';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { PatientSearchSelect } from '../../components/patients/PatientSearchSelect';
+import { AbhaDialog } from '../../components/patients/AbhaDialog';
+import { AbhaPhoto } from '../../components/patients/AbhaPhoto';
+import type { AbhaProfile } from '../../api/abdm.api';
 import { yearsSince, ageLabel, ageYmdLabel, ageDaysLabel } from '../../utils/age';
+import {
+  typeAbhaNumber,
+  abhaNumberError,
+  abhaAddressError,
+  ID_PROOF_TYPES,
+  typeIdProofNumber,
+  idProofError,
+  abhaFormValues,
+} from '../../utils/abha';
 import { matchesTestQuery } from '../../utils/test-search';
 import {
   Search,
@@ -155,6 +167,15 @@ const emptyPatient = {
   ageDays: '',
   mobile: '',
   dateOfBirth: '',
+  // Ayushman Bharat Health Account - optional. 'Existing' is verified with
+  // ABDM by OTP; 'New' is made from the Aadhaar below, also through ABDM.
+  abhaStatus: '' as '' | 'Existing' | 'New',
+  abhaNumber: '',
+  abhaAddress: '',
+  idProofType: '',
+  idProofNumber: '',
+  /** The verified ABHA's photo (data: URI); '' until one is verified. */
+  photo: '',
   address: '',
   state: '',
   pinCode: '',
@@ -275,7 +296,8 @@ export const NewVisitPage: React.FC = () => {
   const { user } = useAuth();
   const canSeeHistory = hasPermission(user, PERMISSIONS.PATIENT_HISTORY);
   const [newPatient, setNewPatient] = useState(
-    currentInitialDraft.newPatient ? { ...currentInitialDraft.newPatient } : { ...emptyPatient }
+    // Over the empty patient, so a draft saved before a field existed still has it.
+    currentInitialDraft.newPatient ? { ...emptyPatient, ...currentInitialDraft.newPatient } : { ...emptyPatient }
   );
 
   const [clinicalNotes, setClinicalNotes] = useState(currentInitialDraft.clinicalNotes || '');
@@ -1042,6 +1064,23 @@ export const NewVisitPage: React.FC = () => {
     setErrors((prev) => ({ ...prev, [key]: '' }));
   };
 
+  const [abhaDialog, setAbhaDialog] = useState<null | 'verify' | 'create'>(null);
+
+  /** An ABHA ABDM verified or made: every detail it carries, photo included, onto the form. */
+  const applyAbhaProfile = (profile: AbhaProfile) => {
+    setNewPatient((prev) => {
+      const values = abhaFormValues(profile, prev.gender);
+      const years = values.dateOfBirth ? yearsSince(values.dateOfBirth) : null;
+      return {
+        ...prev,
+        ...values,
+        ...(years === null ? {} : { age: String(years) }),
+      };
+    });
+    setErrors((prev) => ({ ...prev, abhaNumber: '', abhaAddress: '', patientName: '', gender: '', mobile: '', age: '' }));
+    showToast(`ABHA ${profile.abhaNumber || profile.abhaAddress} verified - details filled from ABDM`, 'success');
+  };
+
   /**
    * A date of birth is the exact answer, so it fills the age in and keeps it
    * filled. The desk still types a bare age for the patients who only know
@@ -1073,6 +1112,15 @@ export const NewVisitPage: React.FC = () => {
         else if (Number(newPatient.ageDays || 0) > 30) next.age = 'Days go up to 30 - add a month instead';
       }
       if (newPatient.mobile.trim().length < 10) next.mobile = 'Valid 10-digit mobile is required';
+      if (abhaNumberError(newPatient.abhaNumber)) next.abhaNumber = abhaNumberError(newPatient.abhaNumber);
+      if (abhaAddressError(newPatient.abhaAddress)) next.abhaAddress = abhaAddressError(newPatient.abhaAddress);
+      if (newPatient.abhaStatus === 'Existing' && !newPatient.abhaNumber.trim() && !newPatient.abhaAddress.trim()) {
+        next.abhaNumber = 'Enter the ABHA number or address from the card';
+      }
+      if (newPatient.abhaStatus === 'New' && !newPatient.idProofType) next.idProofType = 'A new ABHA needs an ID proof';
+      else if (idProofError(newPatient.idProofType, newPatient.idProofNumber)) {
+        next.idProofNumber = idProofError(newPatient.idProofType, newPatient.idProofNumber);
+      }
     }
 
     if (selectedTests.length === 0) next.tests = 'Add at least one test';
@@ -1132,6 +1180,13 @@ export const NewVisitPage: React.FC = () => {
             const dob = newPatient.dateOfBirth || estimatedDateOfBirth(newPatient);
             return dob ? { dateOfBirth: dob } : {};
           })(),
+          ...(newPatient.abhaStatus ? { abhaStatus: newPatient.abhaStatus } : {}),
+          ...(newPatient.abhaNumber.trim() ? { abhaNumber: newPatient.abhaNumber.trim() } : {}),
+          ...(newPatient.abhaAddress.trim() ? { abhaAddress: newPatient.abhaAddress.trim().toLowerCase() } : {}),
+          ...(newPatient.photo ? { photo: newPatient.photo } : {}),
+          ...(newPatient.idProofType && newPatient.idProofNumber.trim()
+            ? { idProofType: newPatient.idProofType, idProofNumber: newPatient.idProofNumber.replace(/\s/g, '') }
+            : {}),
           ...(newPatient.address ? { address: newPatient.address.trim() } : {}),
           ...(newPatient.state ? { state: newPatient.state.trim() } : {}),
           ...(newPatient.pinCode ? { pinCode: newPatient.pinCode.trim() } : {}),
@@ -1419,6 +1474,11 @@ export const NewVisitPage: React.FC = () => {
                           {ageLabel(selectedPatient)} · {selectedPatient.gender} · {selectedPatient.mobile} ·{' '}
                           {selectedPatient.uhid}
                         </p>
+                        {(selectedPatient.abhaNumber || selectedPatient.abhaAddress) && (
+                          <p className="font-mono text-[11px] text-emerald-700">
+                            ABHA {selectedPatient.abhaNumber || selectedPatient.abhaAddress}
+                          </p>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -1560,6 +1620,157 @@ export const NewVisitPage: React.FC = () => {
                     />
                   </Field>
                 </div>
+
+                <Field
+                  label="ABHA"
+                  hint={
+                    newPatient.abhaStatus === 'New'
+                      ? "Made through ABDM from the patient's Aadhaar OTP."
+                      : newPatient.abhaStatus === 'Existing'
+                        ? 'Verify by OTP - the KYC details fill the form.'
+                        : 'Optional - does the patient have an ABHA card?'
+                  }
+                >
+                  <select
+                    className={selectClass}
+                    value={newPatient.abhaStatus}
+                    onChange={(e) => {
+                      const value = e.target.value as '' | 'Existing' | 'New';
+                      setNewPatient((prev) => ({
+                        ...prev,
+                        abhaStatus: value,
+                        ...(value ? {} : { abhaNumber: '', abhaAddress: '', photo: '' }),
+                      }));
+                      setErrors((prev) => ({ ...prev, abhaNumber: '', abhaAddress: '', idProofType: '' }));
+                    }}
+                  >
+                    <option value="">No ABHA</option>
+                    <option value="Existing">Existing ABHA</option>
+                    <option value="New">New ABHA</option>
+                  </select>
+                  {newPatient.abhaStatus === 'Existing' && (
+                    <div className="mt-2 space-y-1">
+                      <PatientSearchSelect
+                        value={null}
+                        abhaOnly
+                        placeholder="Registered here? Search name, mobile or ABHA"
+                        onChange={(p) => {
+                          if (!p) return;
+                          // Already on the register: this is a returning patient's
+                          // visit, not a second record for the same person.
+                          setSelectedPatient(p);
+                          setMode('existing');
+                          setErrors((prev) => ({ ...prev, patient: '' }));
+                          showToast(`${p.patientName} (${p.uhid}) picked as a returning patient`, 'success');
+                        }}
+                      />
+                      <p className="text-[11px] text-muted-foreground">Not in the list? Verify the ABHA below.</p>
+                    </div>
+                  )}
+                  {newPatient.abhaStatus && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 w-full"
+                      onClick={() => setAbhaDialog(newPatient.abhaStatus === 'New' ? 'create' : 'verify')}
+                    >
+                      {newPatient.abhaStatus === 'New' ? 'Create ABHA with Aadhaar OTP' : 'Verify ABHA with OTP'}
+                    </Button>
+                  )}
+                  {newPatient.abhaStatus && newPatient.photo && (
+                    <div className="mt-2 flex items-center gap-3 rounded-xl border bg-muted/30 p-2">
+                      <AbhaPhoto photo={newPatient.photo} name={newPatient.patientName} size="sm" />
+                      <div className="min-w-0 text-[11px]">
+                        <p className="truncate font-semibold">{newPatient.patientName}</p>
+                        <p className="font-mono text-muted-foreground">{newPatient.abhaNumber}</p>
+                        <p className="font-medium text-emerald-600">Verified with ABDM</p>
+                      </div>
+                    </div>
+                  )}
+                </Field>
+
+                <Field
+                  label="ID Proof"
+                  required={newPatient.abhaStatus === 'New'}
+                  error={errors.idProofType}
+                  hint={newPatient.abhaStatus === 'New' ? 'Aadhaar is the quickest way to make an ABHA.' : 'Optional.'}
+                >
+                  <select
+                    className={`${selectClass} ${errors.idProofType ? 'border-red-500' : ''}`}
+                    value={newPatient.idProofType}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setNewPatient((prev) => ({
+                        ...prev,
+                        idProofType: value,
+                        idProofNumber: value ? typeIdProofNumber(value, prev.idProofNumber) : '',
+                      }));
+                      setErrors((prev) => ({ ...prev, idProofType: '', idProofNumber: '' }));
+                    }}
+                  >
+                    <option value="">None</option>
+                    {ID_PROOF_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                {newPatient.idProofType && (
+                  <Field label={`${newPatient.idProofType} Number`} required error={errors.idProofNumber}>
+                    <Input
+                      value={newPatient.idProofNumber}
+                      inputMode={newPatient.idProofType === 'Aadhaar' ? 'numeric' : undefined}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setField('idProofNumber', typeIdProofNumber(newPatient.idProofType, e.target.value))
+                      }
+                      placeholder={
+                        newPatient.idProofType === 'Aadhaar'
+                          ? '1234 5678 9012'
+                          : newPatient.idProofType === 'PAN'
+                            ? 'ABCDE1234F'
+                            : 'ID number'
+                      }
+                      autoCapitalize="characters"
+                      className={`font-mono ${errors.idProofNumber ? 'border-red-500' : ''}`}
+                    />
+                  </Field>
+                )}
+
+                {newPatient.abhaStatus && (
+                  <>
+                    <Field
+                      label="ABHA Number"
+                      error={errors.abhaNumber}
+                      hint={
+                        newPatient.abhaStatus === 'Existing'
+                          ? '14 digits on the ABHA card - or fill the address instead.'
+                          : 'Optional until the ABHA is made.'
+                      }
+                    >
+                      <Input
+                        value={newPatient.abhaNumber}
+                        inputMode="numeric"
+                        maxLength={17}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setField('abhaNumber', typeAbhaNumber(e.target.value))}
+                        placeholder="12-3456-7890-1234"
+                        className={`font-mono ${errors.abhaNumber ? 'border-red-500' : ''}`}
+                      />
+                    </Field>
+
+                    <Field label="ABHA Address" error={errors.abhaAddress} hint="For example name@abdm.">
+                      <Input
+                        value={newPatient.abhaAddress}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setField('abhaAddress', e.target.value.replace(/\s/g, ''))}
+                        placeholder="name@abdm"
+                        autoCapitalize="none"
+                        className={errors.abhaAddress ? 'border-red-500' : ''}
+                      />
+                    </Field>
+                  </>
+                )}
               </div>
             )}
           </CardContent>
@@ -2304,6 +2515,18 @@ export const NewVisitPage: React.FC = () => {
           }}
         />
       )}
+
+      <AbhaDialog
+        mode={abhaDialog ?? 'verify'}
+        isOpen={abhaDialog !== null}
+        onClose={() => setAbhaDialog(null)}
+        onDone={applyAbhaProfile}
+        initial={{
+          abhaNumber: newPatient.abhaNumber,
+          mobile: newPatient.mobile,
+          aadhaar: newPatient.idProofType === 'Aadhaar' ? newPatient.idProofNumber : '',
+        }}
+      />
     </form>
   );
 };

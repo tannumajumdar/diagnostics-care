@@ -1219,6 +1219,49 @@ export const RULES: Record<string, Record<string, Rule>> = {
       },
       "trim": true
     },
+    "abhaNumber": {
+      "type": "String",
+      "default": {
+        "value": ""
+      },
+      "trim": true
+    },
+    "abhaAddress": {
+      "type": "String",
+      "default": {
+        "value": ""
+      },
+      "trim": true,
+      "lowercase": true
+    },
+    "abhaStatus": {
+      "type": "String",
+      "default": {
+        "value": ""
+      },
+      "trim": true
+    },
+    "idProofType": {
+      "type": "String",
+      "default": {
+        "value": ""
+      },
+      "trim": true
+    },
+    "idProofNumber": {
+      "type": "String",
+      "default": {
+        "value": ""
+      },
+      "trim": true,
+      "uppercase": true
+    },
+    "photo": {
+      "type": "String",
+      "default": {
+        "value": ""
+      }
+    },
     "referringDoctor": {
       "type": "ObjectId"
     },

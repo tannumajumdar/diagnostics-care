@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ageLabel } from '../../utils/age';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { resultApi, saveReportPdf } from '../../api/result.api';
@@ -199,7 +200,7 @@ export const PatientReportsPage: React.FC = () => {
                     <div className="text-sm font-bold text-foreground">
                       {patient.patientName || 'N/A'}
                       <span className="ml-2 font-normal text-muted-foreground">
-                        {[patient.age && `${patient.age} Y`, patient.gender]
+                        {[ageLabel(patient) !== '-' && ageLabel(patient), patient.gender]
                           .filter(Boolean)
                           .join(' / ')}
                       </span>

@@ -4,6 +4,7 @@ import { getNextUhid } from '../db/counters';
 import { sendResponse } from '../utils/api-response.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { ApiError } from '../utils/api-error.util';
+import { normaliseIdentity, formatAbhaNumber } from '../utils/abha.util';
 
 /** `.populate('referringDoctor').populate('organization')` */
 const PATIENT_REFS = { referringDoctor: true, organization: true };
@@ -12,8 +13,18 @@ export class PatientController {
   static getAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { search, status, page = 1, limit = 10 } = req.query;
+      // hasAbha=true: only patients whose ABHA is on record - the desk's list
+      // when a returning patient says they have one. Their ABHA number and
+      // address are searchable too, the number typed with or without dashes.
+      const hasAbha = req.query.hasAbha === 'true';
       const filter: any = { AND: [] };
-      if (search) filter.AND.push(await regexAny('patient', ['patientName', 'uhid', 'mobile'], String(search)));
+      if (search) {
+        const columns = ['patientName', 'uhid', 'mobile', ...(hasAbha ? ['abhaNumber', 'abhaAddress'] : [])];
+        const text = String(search);
+        const asAbha = hasAbha && /^\d{14}$/.test(text.replace(/[\s-]/g, '')) ? formatAbhaNumber(text) : text;
+        filter.AND.push(await regexAny('patient', columns, asAbha));
+      }
+      if (hasAbha) filter.AND.push({ OR: [{ abhaNumber: { not: '' } }, { abhaAddress: { not: '' } }] });
       if (status) filter.status = status;
 
       const skip = (Number(page) - 1) * Number(limit);
@@ -43,7 +54,8 @@ export class PatientController {
   static getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const patient = await repo.findById('patient', id, { include: PATIENT_REFS });
+      // The profile is the one place the ABHA photo is shown, so the one place it is read.
+      const patient = await repo.findById('patient', id, { include: PATIENT_REFS, omit: { photo: false } });
       if (!patient) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Patient not found');
 
       const newestFirst = (model: 'invoice' | 'payment' | 'sample') =>
@@ -214,7 +226,7 @@ export class PatientController {
   static create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const uhid = await getNextUhid();
-      const patient = await repo.create('patient', { ...req.body, uhid });
+      const patient = await repo.create('patient', normaliseIdentity({ ...req.body, uhid }));
       sendResponse({ res, statusCode: HTTP_STATUS.CREATED, message: `Patient ${patient.patientName} registered`, data: patient });
     } catch (error) {
       next(error);
@@ -234,6 +246,12 @@ export class PatientController {
         'mobile',
         'dateOfBirth',
         'emergencyContact',
+        'abhaNumber',
+        'abhaAddress',
+        'abhaStatus',
+        'idProofType',
+        'idProofNumber',
+        'photo',
         'address',
         'city',
         'state',
@@ -253,7 +271,7 @@ export class PatientController {
         else update[key] = typeof value === 'string' ? value.trim() : value;
       });
 
-      const patient = await repo.updateById('patient', id, update, { runValidators: true, include: PATIENT_REFS });
+      const patient = await repo.updateById('patient', id, normaliseIdentity(update), { runValidators: true, include: PATIENT_REFS });
       if (!patient) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Patient not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Patient updated', data: patient });
     } catch (error) {
