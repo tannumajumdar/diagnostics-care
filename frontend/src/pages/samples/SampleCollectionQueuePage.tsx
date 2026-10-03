@@ -97,6 +97,17 @@ export const SampleCollectionQueuePage: React.FC = () => {
                       <td className="p-3 font-bold">
                         <div>{patient.patientName || 'N/A'}</div>
                         <div className="text-[11px] font-mono text-muted-foreground">UHID: {s.uhid}</div>
+                        {(s.createdAt || (patient as any).registrationDate) && (
+                          <div className="text-[10px] font-normal text-muted-foreground">
+                            Reg:{' '}
+                            {new Date(s.createdAt || (patient as any).registrationDate).toLocaleString('en-GB', {
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </div>
+                        )}
                       </td>
                       <td className="p-3 font-semibold">
                         {s.testName}

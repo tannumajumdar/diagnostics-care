@@ -168,6 +168,19 @@ export const PendingProcessingQueuePage: React.FC = () => {
                           UHID: {visit.uhid}
                           {visit.enquiryNo ? ` · ${visit.enquiryNo}` : ''}
                         </div>
+                        {(visit.samples[0]?.createdAt || (visit.patient as any)?.registrationDate) && (
+                          <div className="text-[10px] font-normal text-muted-foreground">
+                            Reg:{' '}
+                            {new Date(
+                              visit.samples[0]?.createdAt || (visit.patient as any)?.registrationDate
+                            ).toLocaleString('en-GB', {
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </div>
+                        )}
                       </td>
                       <td className="p-3">
                         <ul className="space-y-1.5">

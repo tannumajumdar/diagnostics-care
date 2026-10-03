@@ -339,6 +339,11 @@ export const LabWorkflowPage: React.FC = () => {
                             <p className="truncate font-mono text-[11px] text-slate-500">
                               {[visit.uhid, visit.enquiryNo].filter(Boolean).join(' · ') || '—'}
                             </p>
+                            {(visit.samples[0]?.createdAt || visit.patient?.registrationDate) && (
+                              <p className="text-[10px] text-slate-400">
+                                Reg: {fmtTime(visit.samples[0]?.createdAt || visit.patient?.registrationDate)}
+                              </p>
+                            )}
                           </div>
                           {allTests > 1 && (
                             <span
