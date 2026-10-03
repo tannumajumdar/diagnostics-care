@@ -14,7 +14,15 @@ import {
 const SAMPLE_REFS = { patient: true, test: { include: { parameters: true } } };
 
 export class SampleService {
-  static getAll = async (params: { search?: string; status?: string; department?: string; page?: number; limit?: number }) => {
+  static getAll = async (params: {
+    search?: string;
+    status?: string;
+    department?: string;
+    page?: number;
+    limit?: number;
+    sort?: string | number;
+    sortOrder?: string;
+  }) => {
     const page = params.page || 1;
     const limit = params.limit || 10;
     const skip = (page - 1) * limit;
@@ -30,13 +38,20 @@ export class SampleService {
     }
     if (params.department) query.departmentId = refFilter(params.department, 'department');
 
+    const sortAsc =
+      params.sort === 'asc' ||
+      params.sort === 1 ||
+      params.sort === '1' ||
+      params.sortOrder === 'asc';
+    const sortDirection: 1 | -1 = sortAsc ? 1 : -1;
+
     // page and limit arrive as query strings and go back in the meta as they
     // came, as they always did; only the query itself needs numbers.
     const [samples, total] = await Promise.all([
       repo.find('sample', {
         where: query,
         include: SAMPLE_REFS,
-        orderBy: mongoSort('sample', { createdAt: -1 }),
+        orderBy: mongoSort('sample', { createdAt: sortDirection }),
         skip: Number(skip),
         take: Number(limit),
       }),

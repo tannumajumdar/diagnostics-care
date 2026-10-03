@@ -18,12 +18,18 @@ export const SampleCollectionQueuePage: React.FC = () => {
 
   const { data, isLoading } = useQuery({
     queryKey: ['samples-collection'],
-    queryFn: () => sampleApi.getAll({ status: 'Pending Collection', limit: 50 }),
+    queryFn: () => sampleApi.getAll({ status: 'Pending Collection', limit: 100, sort: 'asc' }),
   });
 
   // `data` comes back as a bare array, so the old `data.samples` count was
   // always zero and the queue read as empty however much was waiting in it.
-  const queue = asList<SampleRecord>(data, 'samples');
+  // Old patients first (FIFO), newer patients below.
+  const rawQueue = asList<SampleRecord>(data, 'samples');
+  const queue = [...rawQueue].sort((a, b) => {
+    const timeA = new Date(a.createdAt || (a.patient as any)?.registrationDate || (a.patient as any)?.createdAt || 0).getTime();
+    const timeB = new Date(b.createdAt || (b.patient as any)?.registrationDate || (b.patient as any)?.createdAt || 0).getTime();
+    return timeA - timeB;
+  });
 
   const collectMutation = useMutation({
     mutationFn: (sampleId: string) =>

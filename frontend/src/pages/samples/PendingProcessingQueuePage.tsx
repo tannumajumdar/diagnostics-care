@@ -34,7 +34,20 @@ const groupByVisit = (samples: SampleRecord[]): Visit[] => {
         samples: [s],
       });
   });
-  return Array.from(visits.values());
+  // Sort visits so older patients appear first, newer patients below (FIFO queue order)
+  return Array.from(visits.values()).sort((a, b) => {
+    const timeA = Math.min(
+      ...a.samples.map((s: any) => new Date(s.createdAt || 0).getTime()).filter((t) => t > 0),
+      new Date((a.patient as any)?.registrationDate || (a.patient as any)?.createdAt || 0).getTime() || Infinity
+    );
+    const timeB = Math.min(
+      ...b.samples.map((s: any) => new Date(s.createdAt || 0).getTime()).filter((t) => t > 0),
+      new Date((b.patient as any)?.registrationDate || (b.patient as any)?.createdAt || 0).getTime() || Infinity
+    );
+    const safeA = timeA === Infinity ? 0 : timeA;
+    const safeB = timeB === Infinity ? 0 : timeB;
+    return safeA - safeB;
+  });
 };
 
 /** Red until the test is on the bench, yellow while it runs. */
@@ -55,7 +68,7 @@ export const PendingProcessingQueuePage: React.FC = () => {
   // can see what is missing before it starts.
   const { data, isLoading } = useQuery({
     queryKey: ['samples-processing'],
-    queryFn: () => sampleApi.getAll({ status: QUEUE_STATUSES.join(','), limit: 300 }),
+    queryFn: () => sampleApi.getAll({ status: QUEUE_STATUSES.join(','), limit: 300, sort: 'asc' }),
   });
 
   const visits = groupByVisit(asList<SampleRecord>(data, 'samples'))

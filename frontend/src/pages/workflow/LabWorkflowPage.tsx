@@ -45,7 +45,20 @@ const groupByVisit = (samples: any[]): Visit[] => {
     if (visit) visit.samples.push(s);
     else visits.set(key, { key, patient: patientOf(s), uhid: s.uhid, enquiryNo: s.enquiryNo, samples: [s] });
   });
-  return Array.from(visits.values());
+  // Sort visits so older patients appear first, newer patients below (FIFO queue order)
+  return Array.from(visits.values()).sort((a, b) => {
+    const timeA = Math.min(
+      ...a.samples.map((s) => new Date(s.createdAt || 0).getTime()).filter((t) => t > 0),
+      new Date(a.patient?.registrationDate || a.patient?.createdAt || 0).getTime() || Infinity
+    );
+    const timeB = Math.min(
+      ...b.samples.map((s) => new Date(s.createdAt || 0).getTime()).filter((t) => t > 0),
+      new Date(b.patient?.registrationDate || b.patient?.createdAt || 0).getTime() || Infinity
+    );
+    const safeA = timeA === Infinity ? 0 : timeA;
+    const safeB = timeB === Infinity ? 0 : timeB;
+    return safeA - safeB;
+  });
 };
 
 /**
@@ -94,7 +107,7 @@ export const LabWorkflowPage: React.FC = () => {
       queryKey: ['workflow', meta.stage, applied],
       // Room for a few dozen visits: a lane cut off mid-bill would show a
       // patient with only some of their tests.
-      queryFn: () => sampleApi.getAll({ status: meta.stage, search: applied || undefined, limit: 100 }),
+      queryFn: () => sampleApi.getAll({ status: meta.stage, search: applied || undefined, limit: 100, sort: 'asc' }),
     })),
   });
   const lanes = STAGES.map((meta, i) => ({ meta, query: laneQueries[i] }));
@@ -110,9 +123,13 @@ export const LabWorkflowPage: React.FC = () => {
 
   const { data: rejectedData } = useQuery({
     queryKey: ['workflow', 'Rejected', applied],
-    queryFn: () => sampleApi.getAll({ status: 'Rejected', search: applied || undefined, limit: 25 }),
+    queryFn: () => sampleApi.getAll({ status: 'Rejected', search: applied || undefined, limit: 25, sort: 'asc' }),
   });
-  const rejected = asList<any>(rejectedData, 'samples');
+  const rejected = asList<any>(rejectedData, 'samples').sort((a, b) => {
+    const timeA = new Date(a.createdAt || 0).getTime();
+    const timeB = new Date(b.createdAt || 0).getTime();
+    return timeA - timeB;
+  });
 
   const { data: timeline } = useQuery({
     queryKey: ['sample-timeline', timelineFor],
