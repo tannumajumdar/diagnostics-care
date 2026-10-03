@@ -24,7 +24,6 @@ export const SAMPLE_PIPELINE: SampleStatus[] = [
   SAMPLE_STATUS.REGISTERED,
   SAMPLE_STATUS.PENDING_COLLECTION,
   SAMPLE_STATUS.COLLECTED,
-  SAMPLE_STATUS.RECEIVED,
   SAMPLE_STATUS.PROCESSING,
   SAMPLE_STATUS.COMPLETED,
 ];
@@ -43,8 +42,11 @@ export const SAMPLE_TRANSITIONS: Record<SampleStatus, SampleStatus[]> = {
     SAMPLE_STATUS.REJECTED,
     SAMPLE_STATUS.CANCELLED,
   ],
-  // A drawn specimen must be accessioned by the lab before it can go on the bench.
-  [SAMPLE_STATUS.COLLECTED]: [SAMPLE_STATUS.RECEIVED, SAMPLE_STATUS.REJECTED, SAMPLE_STATUS.CANCELLED],
+  // A drawn specimen goes straight on the bench - the lab no longer checks it
+  // in as a separate step.
+  [SAMPLE_STATUS.COLLECTED]: [SAMPLE_STATUS.PROCESSING, SAMPLE_STATUS.REJECTED, SAMPLE_STATUS.CANCELLED],
+  // Received was that check-in step. Nothing enters it now; a sample already
+  // sitting there from before still moves on to the bench.
   [SAMPLE_STATUS.RECEIVED]: [SAMPLE_STATUS.PROCESSING, SAMPLE_STATUS.REJECTED, SAMPLE_STATUS.CANCELLED],
   [SAMPLE_STATUS.PROCESSING]: [SAMPLE_STATUS.COMPLETED, SAMPLE_STATUS.REJECTED, SAMPLE_STATUS.CANCELLED],
   [SAMPLE_STATUS.COMPLETED]: [],
@@ -91,6 +93,14 @@ export const canTransition = (from: string, to: string): boolean =>
 
 export const nextStatuses = (from: string): SampleStatus[] =>
   SAMPLE_TRANSITIONS[from as SampleStatus] ?? [];
+
+/**
+ * Where a status sits on SAMPLE_PIPELINE. A sample left at the retired
+ * Received step counts as Collected, so it is still on the pipeline and its
+ * next step is the bench.
+ */
+export const pipelineIndex = (status: string): number =>
+  SAMPLE_PIPELINE.indexOf((status === SAMPLE_STATUS.RECEIVED ? SAMPLE_STATUS.COLLECTED : status) as SampleStatus);
 
 /**
  * Report lifecycle. A report is only handed over after a pathologist has

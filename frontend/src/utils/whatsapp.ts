@@ -47,10 +47,78 @@ export const buildPatientMessage = ({ patientName, invoiceNumber, reportReady, d
   return lines.join('\n');
 };
 
-/** Opens the chat in a new tab. Returns false when the mobile is unusable. */
-export const openWhatsApp = (mobile: string | null | undefined, message: string): boolean => {
+/*
+ * Where the chat opens, chosen once per counter PC and remembered there:
+ *  - 'app': the WhatsApp desktop app, through its whatsapp:// link - the chat
+ *    opens in the app already running, with no browser tab at all;
+ *  - 'web': WhatsApp Web, straight to the chat (web.whatsapp.com/send skips
+ *    wa.me's "Continue to chat" page) and always in the one tab this software
+ *    opened, so a day of messages does not leave a row of WhatsApp tabs.
+ *
+ * It is asked rather than guessed: a browser cannot see whether the app is
+ * installed, and on a Windows PC without it the link brings up Windows' own
+ * "find an app" prompt. Ctrl+click on a WhatsApp button asks again. A WhatsApp
+ * Web tab the user opened by hand stays out of reach - no site can drive
+ * another site's tab.
+ */
+type WhatsAppMode = 'app' | 'web';
+const MODE_KEY = 'lms_whatsapp_mode';
+const WEB_TAB = 'lms-whatsapp';
+
+const savedMode = (): WhatsAppMode | null => {
+  try {
+    const mode = localStorage.getItem(MODE_KEY);
+    return mode === 'app' || mode === 'web' ? mode : null;
+  } catch {
+    return null;
+  }
+};
+
+const askMode = (): WhatsAppMode => {
+  const mode: WhatsAppMode = window.confirm(
+    [
+      'Is the WhatsApp desktop app installed on this computer?',
+      '',
+      'OK - open chats in the WhatsApp app',
+      'Cancel - open chats in WhatsApp Web',
+      '',
+      'This is remembered on this computer. Ctrl+click WhatsApp to change it.',
+    ].join('\n')
+  )
+    ? 'app'
+    : 'web';
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch {
+    /* private window - asked again next time */
+  }
+  return mode;
+};
+
+/**
+ * Opens the chat with the message typed in, in the app or the one WhatsApp
+ * Web tab as this computer is set. Returns false when the mobile is unusable.
+ * `notify` reports a blocked WhatsApp Web tab.
+ */
+export const openWhatsApp = (
+  mobile: string | null | undefined,
+  message: string,
+  notify?: (message: string, type?: 'success' | 'error' | 'info') => void
+): boolean => {
   const number = toWhatsAppNumber(mobile);
   if (!number) return false;
-  window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+  const text = encodeURIComponent(message);
+
+  const changing = typeof window.event !== 'undefined' && (window.event as MouseEvent | undefined)?.ctrlKey;
+  const mode = (!changing && savedMode()) || askMode();
+
+  if (mode === 'app') {
+    window.location.href = `whatsapp://send?phone=${number}&text=${text}`;
+    return true;
+  }
+
+  const tab = window.open(`https://web.whatsapp.com/send?phone=${number}&text=${text}`, WEB_TAB);
+  if (tab) tab.focus();
+  else notify?.('The browser blocked the WhatsApp tab - press WhatsApp again.', 'info');
   return true;
 };

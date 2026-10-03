@@ -1,0 +1,14 @@
+# Installed packages - recreated by `npm install`. The workspace links under
+# node_modules/ point back at backend/ and frontend/, so tracking it also
+# tracked their .env files.
+node_modules/
+
+# Local settings and secrets - copy .env.example to .env
+.env
+.env.*
+!.env.example
+
+# Logs and OS clutter
+*.log
+.DS_Store
+Thumbs.db

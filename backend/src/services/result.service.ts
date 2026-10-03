@@ -1,15 +1,13 @@
-import mongoose from 'mongoose';
-import { Result } from '../models/result.model';
-import { Sample } from '../models/sample.model';
-import { Patient } from '../models/patient.model';
-import { getNextResultId } from '../models/counter.model';
+import { prisma } from '../db/prisma';
+import { repo, mongoSort, regexAny, NATURAL } from '../db/repo';
+import { assertObjectId, isValidObjectIdValue, newObjectId } from '../db/ids';
+import { toDoc } from '../db/mappers';
+import { getNextResultId } from '../db/counters';
 import { ApiError } from '../utils/api-error.util';
 import { generateDiagnosticReportPDF } from '../utils/pdf-generator.util';
 import { fillReportTemplate } from '../utils/docx-report.util';
-import { TestAttachment } from '../models/testAttachment.model';
 import { calculateResultFlag } from '../utils/flag-calculator.util';
 import { calculateSheet } from '../utils/formula.util';
-import { LabTest } from '../models/test.model';
 import { parametersForTest } from '../constants/test-parameters';
 import { SampleService } from './sample.service';
 import { SAMPLE_STATUS } from '../constants/workflow';
@@ -180,6 +178,29 @@ const RELEASED = ['Approved', 'Final'];
 const departmentNameOf = (sheet: any): string =>
   (typeof sheet?.department === 'object' && sheet.department?.departmentName) || '';
 
+const attachPackageInfo = (sheet: any) => {
+  if (!sheet) return sheet;
+  if (!sheet.packageName) {
+    const items = sheet.invoice?.items || [];
+    const testId = String(sheet.test?._id || sheet.test?.id || sheet.testId || '');
+    const testName = sheet.test?.testName || sheet.sample?.testName;
+    const match = items.find(
+      (item: any) =>
+        (item.testId && String(item.testId) === testId) ||
+        (item.test && String(item.test?._id || item.test?.id || item.test) === testId) ||
+        (testName && item.testName === testName)
+    );
+    if (match) {
+      const pkgName = match.packageName || match.package?.packageName;
+      if (pkgName) {
+        sheet.packageName = pkgName;
+        sheet.packageId = match.packageId || match.package?._id || match.package?.id;
+      }
+    }
+  }
+  return sheet;
+};
+
 /**
  * The visit's tests laid out the way the report reads them: grouped by
  * department (Haematology together, Biochemistry together), and in the order
@@ -187,14 +208,16 @@ const departmentNameOf = (sheet: any): string =>
  * department's tests across the report whenever the desk added them out of
  * turn.
  */
-const organizeSheets = <T>(sheets: T[]): T[] =>
-  sheets
+const organizeSheets = <T>(sheets: T[]): T[] => {
+  sheets.forEach(attachPackageInfo);
+  return sheets
     .map((sheet, index) => ({ sheet, index }))
     .sort(
       (a, b) =>
         departmentNameOf(a.sheet).localeCompare(departmentNameOf(b.sheet)) || a.index - b.index
     )
     .map(({ sheet }) => sheet);
+};
 
 /**
  * A patient is handed one report for the visit, so it is only ready once
@@ -226,13 +249,40 @@ const visitReadiness = (sheets: any[]) => {
   };
 };
 
+/** A whole test, parameter sheet included - what `.populate('test')` loaded. */
+const FULL_TEST = { include: { parameters: true } };
+
+const INVOICE_INCLUDE = {
+  include: {
+    referringDoctor: true,
+    organization: true,
+    items: {
+      include: {
+        package: true,
+      },
+    },
+  },
+};
+
+/** `.populate('patient').populate('sample').populate('test').populate('department').populate('invoice')` */
+const SHEET_REFS = {
+  patient: true,
+  sample: true,
+  test: FULL_TEST,
+  department: true,
+  invoice: INVOICE_INCLUDE,
+};
+
+/** Everything a sheet printed on a report needs, the bill's doctor and organisation included. */
+const REPORT_REFS = {
+  ...SHEET_REFS,
+  invoice: INVOICE_INCLUDE,
+};
+
 export class ResultService {
   static getBySampleId = async (sampleId: string) => {
-    let result = await Result.findOne({ sample: sampleId })
-      .populate('patient')
-      .populate('sample')
-      .populate('test')
-      .populate('department');
+    const sampleKey = assertObjectId(sampleId, 'sample');
+    let result: any = await repo.findOne('result', { sampleId: sampleKey }, { include: SHEET_REFS });
 
     // A record that predates the parameter catalogue can be sitting there with
     // an empty sheet. Nothing has been typed into it yet, so filling it in now
@@ -241,18 +291,18 @@ export class ResultService {
       const sheet = buildSheetForTest(result.test as any, result.patient as any);
       if (sheet.length) {
         result.results = sheet as any;
-        await result.save();
+        result = await repo.save('result', result, { include: SHEET_REFS });
       }
     }
 
     if (!result) {
-      const sample = await Sample.findById(sampleId).populate('patient').populate('test');
+      const sample = await repo.findById('sample', sampleKey, { include: { patient: true, test: FULL_TEST } });
       if (!sample) throw new ApiError(404, 'Sample not found');
 
       const resultId = await getNextResultId();
       const initialParameters = buildSheetForTest(sample.test as any, sample.patient as any);
 
-      result = await Result.create({
+      result = await repo.create('result', {
         resultId,
         sample: sample._id,
         invoice: sample.invoice,
@@ -270,14 +320,10 @@ export class ResultService {
         },
       });
 
-      result = await Result.findById(result._id)
-        .populate('patient')
-        .populate('sample')
-        .populate('test')
-        .populate('department');
+      result = await repo.findById('result', result._id, { include: SHEET_REFS });
     }
 
-    return result;
+    return attachPackageInfo(result);
   };
 
   static getResultBySampleId = ResultService.getBySampleId;
@@ -292,17 +338,20 @@ export class ResultService {
    * whole visit is handed over together, in the order it was billed.
    */
   static getVisitBySampleId = async (sampleId: string) => {
-    const sample = await Sample.findById(sampleId);
+    const sample = await repo.findById('sample', sampleId);
     if (!sample) throw new ApiError(404, 'Sample not found');
 
     // A sample raised before bills carried samples has nothing to group by;
     // it is a visit of one. A test the patient called off is not part of the
     // visit's work or its report, unless it is the one being opened.
     const siblings = sample.invoice
-      ? await Sample.find({
-          invoice: sample.invoice,
-          $or: [{ status: { $ne: SAMPLE_STATUS.CANCELLED } }, { _id: sample._id }],
-        }).sort({ createdAt: 1 })
+      ? await repo.find('sample', {
+          where: {
+            invoiceId: sample.invoice,
+            OR: [{ status: { not: SAMPLE_STATUS.CANCELLED } }, { id: sample._id }],
+          },
+          orderBy: mongoSort('sample', { createdAt: 1 }),
+        })
       : [sample];
 
     const sheets = [];
@@ -318,21 +367,23 @@ export class ResultService {
     const limit = params.limit || 10;
     const skip = (page - 1) * limit;
 
-    const query: any = {};
+    const query: any = { AND: [] };
     if (params.search) {
-      query.$or = [
-        { resultId: { $regex: params.search, $options: 'i' } },
-        { uhid: { $regex: params.search, $options: 'i' } },
-        { enquiryNo: { $regex: params.search, $options: 'i' } },
-      ];
+      query.AND.push(await regexAny('result', ['resultId', 'uhid', 'enquiryNo'], String(params.search)));
     }
     if (params.status) query.status = params.status;
 
     const [results, total] = await Promise.all([
       // The test comes along so a queue row can say which test it is, not just
       // which result id - a patient's visit puts several rows on the screen.
-      Result.find(query).populate('patient').populate('test').sort({ createdAt: -1 }).skip(skip).limit(limit),
-      Result.countDocuments(query),
+      repo.find('result', {
+        where: query,
+        include: { patient: true, test: FULL_TEST },
+        orderBy: mongoSort('result', { createdAt: -1 }),
+        skip: Number(skip),
+        take: Number(limit),
+      }),
+      repo.count('result', query),
     ]);
 
     return {
@@ -361,76 +412,91 @@ export class ResultService {
     const limit = Math.min(100, Math.max(1, Number(params.limit) || 10));
     const skip = (page - 1) * limit;
 
-    const match: any = {
-      results: { $elemMatch: { value: { $nin: ['', null] } } },
-    };
+    // A sheet with at least one line typed into.
+    const match: any = { AND: [{ results: { some: { value: { not: '' } } } }] };
     if (params.status) match.status = params.status;
 
     if (params.from || params.to) {
       match.updatedAt = {};
-      if (params.from) match.updatedAt.$gte = new Date(`${params.from}T00:00:00`);
-      if (params.to) match.updatedAt.$lte = new Date(`${params.to}T23:59:59.999`);
+      if (params.from) match.updatedAt.gte = new Date(`${params.from}T00:00:00`);
+      if (params.to) match.updatedAt.lte = new Date(`${params.to}T23:59:59.999`);
     }
 
     const search = String(params.search || '').trim();
     if (search) {
-      const pattern = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const patients = await Patient.find({
-        $or: [
-          { patientName: { $regex: pattern, $options: 'i' } },
-          { mobile: { $regex: pattern, $options: 'i' } },
-        ],
-      })
-        .select('_id')
-        .limit(500);
+      // Escaped, so the text is matched literally: a case-insensitive contains.
+      const like = { contains: search, mode: 'insensitive' as const };
+      const patients = await prisma.patient.findMany({
+        where: { OR: [{ patientName: like }, { mobile: like }] },
+        select: { id: true },
+        orderBy: NATURAL,
+        take: 500,
+      });
 
-      match.$or = [
-        { resultId: { $regex: pattern, $options: 'i' } },
-        { uhid: { $regex: pattern, $options: 'i' } },
-        { enquiryNo: { $regex: pattern, $options: 'i' } },
-        { patient: { $in: patients.map((p) => p._id) } },
-      ];
+      match.AND.push({
+        OR: [
+          { resultId: like },
+          { uhid: like },
+          { enquiryNo: like },
+          { patientId: { in: patients.map((p) => p.id) } },
+        ],
+      });
     }
 
     // Page by visit, not by test, so one patient's three tests never straddle
     // two pages.
-    const [grouped] = await Result.aggregate([
-      { $match: match },
-      { $group: { _id: '$invoice', lastUpdated: { $max: '$updatedAt' } } },
-      { $sort: { lastUpdated: -1 } },
-      {
-        $facet: {
-          rows: [{ $skip: skip }, { $limit: limit }],
-          total: [{ $count: 'count' }],
-        },
-      },
+    const [rows, allVisits] = await Promise.all([
+      prisma.result.groupBy({
+        by: ['invoiceId'],
+        where: match,
+        _max: { updatedAt: true },
+        orderBy: { _max: { updatedAt: 'desc' } },
+        skip,
+        take: limit,
+      }),
+      prisma.result.groupBy({ by: ['invoiceId'], where: match }),
     ]);
+    const grouped = {
+      rows: rows.map((row) => ({ _id: row.invoiceId, lastUpdated: row._max.updatedAt })),
+    };
 
-    const visitIds = (grouped?.rows || []).map((row: any) => row._id);
-    const total = grouped?.total?.[0]?.count || 0;
+    const visitIds = grouped.rows.map((row: any) => row._id);
+    const total = allVisits.length;
 
-    const sheets = await Result.find({ ...match, invoice: { $in: visitIds } })
-      .populate('patient')
-      .populate('test')
-      .populate('department')
-      .populate({ path: 'invoice', populate: [{ path: 'referringDoctor' }] })
-      .sort({ createdAt: 1 });
+    const sheets = await repo.find('result', {
+      where: { ...match, invoiceId: { in: visitIds } },
+      include: {
+        patient: true,
+        test: FULL_TEST,
+        department: true,
+        invoice: { include: { referringDoctor: true } },
+      },
+      orderBy: mongoSort('result', { createdAt: 1 }),
+    });
 
     // Every test billed on these visits, filled in or not, so a row can say
     // which tests the report is still waiting on.
-    const visitSamples = await Sample.find({
-      invoice: { $in: visitIds },
-      status: { $ne: SAMPLE_STATUS.CANCELLED },
-    })
-      .select('invoice sampleId testName status test')
-      .populate('test', 'testName')
-      .sort({ createdAt: 1 });
-    const visitSheets = await Result.find({ sample: { $in: visitSamples.map((s) => s._id) } }).select(
-      'sample status'
-    );
-    const sheetStatusBySample = new Map(visitSheets.map((r: any) => [String(r.sample), r.status]));
+    const visitSamples = (
+      await prisma.sample.findMany({
+        where: { invoiceId: { in: visitIds }, status: { not: SAMPLE_STATUS.CANCELLED } },
+        select: {
+          id: true,
+          invoiceId: true,
+          sampleId: true,
+          testName: true,
+          status: true,
+          test: { select: { id: true, testName: true } },
+        },
+        orderBy: mongoSort('sample', { createdAt: 1 }),
+      })
+    ).map((s) => ({ ...toDoc('sample', s), invoice: s.invoiceId }));
+    const visitSheets = await prisma.result.findMany({
+      where: { sampleId: { in: visitSamples.map((s: any) => s._id) } },
+      select: { sampleId: true, status: true },
+    });
+    const sheetStatusBySample = new Map(visitSheets.map((r) => [String(r.sampleId), r.status]));
 
-    const reports = (grouped?.rows || []).map((row: any) => {
+    const reports = grouped.rows.map((row: any) => {
       const tests = organizeSheets(
         sheets.filter((s: any) => String(s.invoice?._id || s.invoice) === String(row._id))
       );
@@ -491,17 +557,9 @@ export class ResultService {
   static getById = async (id: string) => {
     // The invoice comes along for the referring doctor - the report has to say
     // who asked for the test, not just who ran it.
-    const result = await Result.findById(id)
-      .populate('patient')
-      .populate('sample')
-      .populate('test')
-      .populate('department')
-      .populate({
-        path: 'invoice',
-        populate: [{ path: 'referringDoctor' }, { path: 'organization' }],
-      });
+    const result = await repo.findById('result', id, { include: REPORT_REFS });
     if (!result) throw new ApiError(404, 'Result record not found');
-    return result;
+    return attachPackageInfo(result);
   };
 
   static getResultById = ResultService.getById;
@@ -510,8 +568,9 @@ export class ResultService {
     data: { sampleId: string; results: any[]; overallRemarks?: string; user?: any },
     currentUser?: any
   ) => {
-    let resultRecord = await Result.findOne({ sample: data.sampleId });
-    const sampleObj = await Sample.findById(data.sampleId);
+    const sampleKey = assertObjectId(data.sampleId, 'sample');
+    let resultRecord: any = await repo.findOne('result', { sampleId: sampleKey });
+    const sampleObj = await repo.findById('sample', sampleKey);
     if (!sampleObj) throw new ApiError(404, 'Sample not found');
 
     // A report the pathologist has approved is locked. Only a pathologist or an
@@ -540,8 +599,10 @@ export class ResultService {
     // report never carries an LDL that does not match its TC, HDL and TG. A
     // line the bench deliberately typed over is kept as typed.
     const [testDoc, patientDoc] = await Promise.all([
-      LabTest.findById(sampleObj.test).select('parameters testName testCode').lean(),
-      Patient.findById(sampleObj.patient).select('age gender').lean(),
+      repo.findById('labTest', sampleObj.test),
+      prisma.patient
+        .findUnique({ where: { id: String(sampleObj.patient) }, select: { id: true, age: true, gender: true } })
+        .then((p) => (p ? toDoc('patient', p) : null)),
     ]);
     // A test with no sheet of its own is run off the built-in catalogue, as the sheet itself is.
     const master = (testDoc as any)?.parameters?.length
@@ -581,11 +642,11 @@ export class ResultService {
 
     const activeUser = currentUser || data.user || {};
     const rawUserId = activeUser.userId || activeUser.id || activeUser._id;
-    const userId = mongoose.Types.ObjectId.isValid(rawUserId) ? rawUserId : new mongoose.Types.ObjectId();
+    const userId = isValidObjectIdValue(rawUserId) ? rawUserId : newObjectId();
 
     if (!resultRecord) {
       const resultId = await getNextResultId();
-      resultRecord = await Result.create({
+      resultRecord = await repo.create('result', {
         resultId,
         sample: sampleObj._id,
         invoice: sampleObj.invoice,
@@ -607,7 +668,7 @@ export class ResultService {
       resultRecord.results = calculatedResults;
       if (data.overallRemarks) resultRecord.overallRemarks = data.overallRemarks;
       resultRecord.status = 'Draft';
-      await resultRecord.save();
+      resultRecord = await repo.save('result', resultRecord);
     }
 
     return resultRecord;
@@ -629,14 +690,18 @@ export class ResultService {
      * behind it. Two unreleased reports for one patient is how a corrected
      * value gets signed off against the wrong visit.
      */
-    const sample = await Sample.findById(data.sampleId);
+    const sample = await repo.findById('sample', data.sampleId);
     if (!sample) throw new ApiError(404, 'Sample not found');
 
-    const waiting = await Result.findOne({
-      patient: sample.patient,
-      status: { $in: ['Submitted', 'Under Review'] },
-      invoice: { $ne: sample.invoice },
-    }).select('resultId');
+    const waiting = await prisma.result.findFirst({
+      where: {
+        patientId: sample.patient,
+        status: { in: ['Submitted', 'Under Review'] },
+        invoiceId: { not: sample.invoice },
+      },
+      select: { resultId: true },
+      orderBy: NATURAL,
+    });
 
     if (waiting) {
       throw new ApiError(
@@ -646,7 +711,7 @@ export class ResultService {
       );
     }
 
-    const resultRecord = await ResultService.saveDraft(data, currentUser);
+    let resultRecord: any = await ResultService.saveDraft(data, currentUser);
 
     // A sheet with nothing typed into it must not reach the pathologist. It
     // gets approved on trust and the patient is handed a report of empty rows.
@@ -677,7 +742,7 @@ export class ResultService {
     );
 
     resultRecord.status = 'Submitted';
-    await resultRecord.save();
+    resultRecord = await repo.save('result', resultRecord);
     return resultRecord;
   };
 
@@ -686,12 +751,12 @@ export class ResultService {
     data: { action: 'Approve' | 'Reject' | 'Under Review'; rejectionReason?: string; user?: any },
     currentUser?: any
   ) => {
-    const result = await Result.findById(id);
+    const result: any = await repo.findById('result', id);
     if (!result) throw new ApiError(404, 'Result record not found');
 
     const activeUser = currentUser || data.user || {};
     const rawUserId = activeUser.userId || activeUser.id || activeUser._id;
-    const userId = mongoose.Types.ObjectId.isValid(rawUserId) ? rawUserId : new mongoose.Types.ObjectId();
+    const userId = isValidObjectIdValue(rawUserId) ? rawUserId : newObjectId();
 
     if (data.action === 'Approve') {
       // The last gate before a report is released to the patient. Nothing typed
@@ -725,8 +790,7 @@ export class ResultService {
       result.status = 'Rejected';
     }
 
-    await result.save();
-    return result;
+    return repo.save('result', result);
   };
 
   /**
@@ -811,7 +875,7 @@ export class ResultService {
       );
     }
 
-    const file = await TestAttachment.findById(test.reportTemplate.attachment).select('+data');
+    const file = await repo.findById('testAttachment', test.reportTemplate.attachment, { omit: { data: false } });
     if (!file) throw new ApiError(404, `The Word report format for ${test.testName} is missing - upload it again`);
 
     const patientName = String(sheet?.patient?.patientName || 'Patient').replace(/[^\w.-]+/g, '_');

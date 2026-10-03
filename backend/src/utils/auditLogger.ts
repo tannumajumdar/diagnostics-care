@@ -1,4 +1,4 @@
-import { AuditLog } from '../models/auditLog.model';
+import { repo } from '../db/repo';
 
 export interface AuditParams {
   action: string;
@@ -12,7 +12,7 @@ export interface AuditParams {
 export const logAuditAction = async (params: AuditParams) => {
   try {
     const performedBy = params.user.id || params.user._id || 'SYSTEM';
-    await AuditLog.create({
+    await repo.create('auditLog', {
       action: params.action,
       module: params.module,
       performedBy,

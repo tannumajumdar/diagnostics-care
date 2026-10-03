@@ -1,26 +1,41 @@
-import mongoose from 'mongoose';
-import { Invoice } from '../models/invoice.model';
-import { Payment } from '../models/payment.model';
-import { Sample } from '../models/sample.model';
-import { Patient } from '../models/patient.model';
-import { Doctor } from '../models/doctor.model';
-import { Organization } from '../models/organization.model';
-import { LabTest } from '../models/test.model';
-import { TestPackage } from '../models/package.model';
-import { Result } from '../models/result.model';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../db/prisma';
+import { repo, regexAny, mongoSort } from '../db/repo';
+import { assertObjectId, isObjectId, isValidObjectIdValue, newObjectId } from '../db/ids';
+import { bookedTests, containsSql, escapeLike, paymentMethodSql, paymentMethodWhere, utc } from '../db/billing.queries';
 import { SAMPLE_STATUS } from '../constants/workflow';
+import { fromDecimal } from '../db/mappers';
 import {
   getNextInvoiceNumber,
   getNextReceiptNumber,
   getNextSampleId,
   getNextBarcode,
   getNextEnquiryNumber,
-} from '../models/counter.model';
+} from '../db/counters';
 import { ApiError } from '../utils/api-error.util';
+import { normaliseIdentity } from '../utils/abha.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { JwtPayload } from '../types/auth.interface';
 import { PERMISSIONS, PermissionHolder, can, MAX_STAFF_DISCOUNT_PERCENT } from '../constants/permissions';
-import { getNextUhid } from '../models/counter.model';
+import { getNextUhid } from '../db/counters';
+
+/** Whole documents: a test with its department, as `.populate('department')` loaded it. */
+const TEST_WITH_DEPARTMENT = { department: true };
+
+/** `.populate(...)` of a bill as the bill screen reads it. */
+const BILL_REFS = {
+  patient: true,
+  referringDoctor: true,
+  discountDoctor: { select: { id: true, doctorName: true, specialty: true } },
+  organization: true,
+};
+
+/** `LabTest.find({ _id: { $in: ids } })`: every id cast first, as Mongoose did. */
+const findTests = (ids: string[], extra: any = {}) =>
+  repo.find('labTest', {
+    where: { id: { in: ids.map((id) => assertObjectId(id)) }, ...extra },
+    include: TEST_WITH_DEPARTMENT,
+  });
 import { COLLECTION_METHODS, type CollectionMethod } from '../constants/payment-methods';
 
 /** Rupees, to the paisa - money added up in floating point drifts otherwise. */
@@ -221,6 +236,13 @@ export interface NewPatientDetails {
   mobile: string;
   dateOfBirth?: string;
   emergencyContact?: string;
+  abhaNumber?: string;
+  abhaAddress?: string;
+  abhaStatus?: '' | 'Existing' | 'New';
+  idProofType?: string;
+  idProofNumber?: string;
+  /** From a verified ABHA, as a data: URI. */
+  photo?: string;
   address?: string;
   city?: string;
   state?: string;
@@ -315,12 +337,12 @@ const priceBill = async (args: {
     ...new Set(
       orderedLines
         .map((line) => line.packageId)
-        .filter((id): id is string => Boolean(id) && mongoose.Types.ObjectId.isValid(id as string))
+        .filter((id): id is string => Boolean(id) && isValidObjectIdValue(id as string))
     ),
   ];
 
-  const claimedPackages = claimedPackageIds.length
-    ? await TestPackage.find({ _id: { $in: claimedPackageIds } })
+  const claimedPackages: any[] = claimedPackageIds.length
+    ? await repo.find('testPackage', { where: { id: { in: claimedPackageIds.map((id) => id.toLowerCase()) } } })
     : [];
 
   // The panel's own name is taken from the master, not from what was posted,
@@ -537,8 +559,8 @@ export class BillingService {
       }
 
       const uhid = await getNextUhid();
-      const details = payload.patient;
-      const patient = await Patient.create({
+      const details = normaliseIdentity({ ...payload.patient });
+      const patient = await repo.create('patient', {
         ...details,
         uhid,
         dateOfBirth: details.dateOfBirth ? new Date(details.dateOfBirth) : undefined,
@@ -552,7 +574,7 @@ export class BillingService {
 
     try {
       const result = await BillingService.createInvoice({ ...payload, patientId }, currentUser);
-      const patient = await Patient.findById(patientId);
+      const patient = await repo.findById('patient', patientId);
 
       return {
         ...result,
@@ -561,7 +583,7 @@ export class BillingService {
       };
     } catch (error) {
       if (createdPatientId) {
-        await Patient.findByIdAndDelete(createdPatientId);
+        await repo.deleteById('patient', createdPatientId);
       }
       throw error;
     }
@@ -588,9 +610,9 @@ export class BillingService {
       priority = 'Routine',
     } = payload;
 
-    const activeUser = currentUser || payload.user || { userId: new mongoose.Types.ObjectId().toString(), name: 'System Admin', role: 'Admin' };
+    const activeUser = currentUser || payload.user || { userId: newObjectId(), name: 'System Admin', role: 'Admin' };
     const rawUserId = activeUser.userId || activeUser.id || activeUser._id;
-    const userId = mongoose.Types.ObjectId.isValid(rawUserId) ? rawUserId : new mongoose.Types.ObjectId();
+    const userId = isValidObjectIdValue(rawUserId) ? rawUserId : newObjectId();
     const userName = activeUser.name || 'System Staff';
 
     // `items` is what the desk typed; `testIds` is the older shape. Either
@@ -609,7 +631,7 @@ export class BillingService {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'At least one lab test must be selected for billing');
     }
 
-    const patient = await Patient.findById(patientId);
+    const patient = await repo.findById('patient', patientId);
     if (!patient) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Patient record not found');
     }
@@ -617,7 +639,7 @@ export class BillingService {
     let rateTier: 'corporateRate' | 'doctorRate' | 'patientRate' | 'rate' = 'rate';
 
     if (organizationId) {
-      const org = await Organization.findById(organizationId);
+      const org = await repo.findById('organization', organizationId);
       if (org) {
         if (org.contractRate === 'Corporate') rateTier = 'corporateRate';
         else if (org.contractRate === 'Discounted') rateTier = 'doctorRate';
@@ -627,8 +649,8 @@ export class BillingService {
     }
 
     const orderedIds = orderedLines.map((line) => line.testId);
-    const found = await LabTest.find({ _id: { $in: orderedIds }, status: 'Active' }).populate('department');
-    const testById = new Map(found.map((test) => [test._id.toString(), test]));
+    const found = await findTests(orderedIds, { status: 'Active' });
+    const testById = new Map<string, any>(found.map((test: any) => [test._id.toString(), test]));
 
     const missing = orderedIds.filter((id) => !testById.has(id));
     if (missing.length) {
@@ -680,7 +702,7 @@ export class BillingService {
     // bill and the master can never disagree.
     let referralName = doctorName.trim();
     if (doctorId) {
-      const panelDoctor = await Doctor.findById(doctorId).select('doctorName');
+      const panelDoctor = await repo.findById('doctor', doctorId);
       if (panelDoctor) referralName = panelDoctor.doctorName;
     }
 
@@ -700,7 +722,7 @@ export class BillingService {
     // asked about when they ring.
     const enquiryNo = await getNextEnquiryNumber();
 
-    const invoice = await Invoice.create({
+    const invoice = await repo.create('invoice', {
       invoiceNumber,
       patient: patient._id,
       uhid: patient.uhid,
@@ -739,7 +761,7 @@ export class BillingService {
     for (const tender of collecting) {
       const receiptNumber = await getNextReceiptNumber();
       paymentRecords.push(
-        await Payment.create({
+        await repo.create('payment', {
           receiptNumber,
           invoice: invoice._id,
           patient: patient._id,
@@ -768,7 +790,7 @@ export class BillingService {
       const sampleId = await getNextSampleId();
       const sampleBarcode = await getNextBarcode();
 
-      const sample = await Sample.create({
+      const sample = await repo.create('sample', {
         sampleId,
         barcode: sampleBarcode,
         invoice: invoice._id,
@@ -818,15 +840,7 @@ export class BillingService {
    */
   static paymentMethodFilter(method?: string): any | null {
     if (!method || !(COLLECTION_METHODS as readonly string[]).includes(method)) return null;
-    if (method === 'Credit') {
-      return { $or: [{ paymentMethod: 'Credit' }, { paymentStatus: 'Credit' }] };
-    }
-    return {
-      $or: [
-        { 'paymentBreakdown.method': method },
-        { 'paymentBreakdown.0': { $exists: false }, paymentMethod: method, paidAmount: { $gt: 0 } },
-      ],
-    };
+    return paymentMethodWhere(method);
   }
 
   static async getAllInvoices(query: {
@@ -841,11 +855,11 @@ export class BillingService {
     limit?: number;
   }) {
     const { search, paymentMethod, paymentStatus, patient, processingMode, from, to, page = 1, limit = 10 } = query;
-    const filter: any = {};
+    const filter: any = { AND: [] };
 
-    // Its own $or, so it goes under $and rather than clashing with the search's.
+    // Its own OR, so it goes under AND rather than clashing with the search's.
     const methodFilter = BillingService.paymentMethodFilter(paymentMethod);
-    if (methodFilter) filter.$and = [methodFilter];
+    if (methodFilter) filter.AND.push(methodFilter);
 
     // The directory reads ten rows at a time; an export asks for the whole
     // window at once. Both go through here, so the page size is clamped
@@ -855,28 +869,22 @@ export class BillingService {
     const pageNumber = Math.max(Number(page) || 1, 1);
 
     // One patient's bills - what their profile exports and prints.
-    if (patient && mongoose.isValidObjectId(patient)) {
-      filter.patient = new mongoose.Types.ObjectId(patient);
+    if (patient && isObjectId(patient)) {
+      filter.patientId = patient.toLowerCase();
     }
 
     if (search) {
-      filter.$or = [
-        { invoiceNumber: { $regex: search, $options: 'i' } },
-        { uhid: { $regex: search, $options: 'i' } },
-        { enquiryNo: { $regex: search, $options: 'i' } },
-        { barcode: { $regex: search, $options: 'i' } },
-      ];
+      const or = await regexAny('invoice', ['invoiceNumber', 'uhid', 'enquiryNo', 'barcode'], String(search));
 
-      const matchingPatients = await Patient.find({
-        $or: [
-          { patientName: { $regex: search, $options: 'i' } },
-          { mobile: { $regex: search, $options: 'i' } },
-        ],
-      }).select('_id');
+      const matchingPatients = await prisma.patient.findMany({
+        where: await regexAny('patient', ['patientName', 'mobile'], String(search)),
+        select: { id: true },
+      });
 
       if (matchingPatients.length > 0) {
-        filter.$or.push({ patient: { $in: matchingPatients.map((p) => p._id) } });
+        or.OR.push({ patientId: { in: matchingPatients.map((p) => p.id) } });
       }
+      filter.AND.push(or);
     }
 
     // Paid against still owing. "Unpaid" at the counter means money is yet to
@@ -886,9 +894,9 @@ export class BillingService {
     // up to the window, rather than filtering on the stored label and leaving
     // every partial bill out of both answers.
     if (paymentStatus === 'Paid') {
-      filter.dueAmount = { $lte: 0 };
+      filter.dueAmount = { lte: 0 };
     } else if (paymentStatus === 'Unpaid') {
-      filter.dueAmount = { $gt: 0 };
+      filter.dueAmount = { gt: 0 };
     } else if (paymentStatus) {
       filter.paymentStatus = paymentStatus;
     }
@@ -899,9 +907,9 @@ export class BillingService {
     // chases a referral lab for - so the two counts still add up to the
     // window's total instead of double-counting every mixed bill.
     if (processingMode === 'Outsource') {
-      filter['items.processingMode'] = 'Outsource';
+      filter.items = { some: { processingMode: 'Outsource' } };
     } else if (processingMode === 'In-house') {
-      filter['items.processingMode'] = { $ne: 'Outsource' };
+      filter.items = { none: { processingMode: 'Outsource' } };
     }
 
     // A day filter is inclusive of both ends and works on whole local days -
@@ -912,49 +920,60 @@ export class BillingService {
       if (from) {
         const start = new Date(from);
         start.setHours(0, 0, 0, 0);
-        if (!Number.isNaN(start.getTime())) range.$gte = start;
+        if (!Number.isNaN(start.getTime())) range.gte = start;
       }
       if (to) {
         const end = new Date(to);
         end.setHours(23, 59, 59, 999);
-        if (!Number.isNaN(end.getTime())) range.$lte = end;
+        if (!Number.isNaN(end.getTime())) range.lte = end;
       }
       if (Object.keys(range).length) filter.createdAt = range;
     }
 
     const skip = (pageNumber - 1) * pageSize;
     const [invoices, total, totals] = await Promise.all([
-      Invoice.find(filter)
-        .populate('patient', 'uhid patientName gender age mobile')
-        .populate('referringDoctor', 'doctorName hospital')
-        .populate('organization', 'organizationName contractRate')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(pageSize),
-      Invoice.countDocuments(filter),
+      repo.find('invoice', {
+        where: filter,
+        include: {
+          patient: { select: { id: true, uhid: true, patientName: true, gender: true, age: true, mobile: true } },
+          referringDoctor: { select: { id: true, doctorName: true, hospital: true } },
+          organization: { select: { id: true, organizationName: true, contractRate: true } },
+        },
+        orderBy: mongoSort('invoice', { createdAt: -1 }),
+        skip,
+        take: pageSize,
+      }),
+      repo.count('invoice', filter),
       // Totals for everything the filter matched, not for the ten rows on
       // screen - a day's billing is the question being asked, and adding up
       // one page of it would answer it wrongly.
-      Invoice.aggregate([
-        { $match: filter },
-        {
-          $group: {
-            _id: null,
-            billed: { $sum: '$netAmount' },
-            collected: { $sum: '$paidAmount' },
-            due: { $sum: '$dueAmount' },
-            // What the desk gave away, taken from the two totals. There is no
-            // `discountAmount` on a bill - the field of that name lives on the
-            // lines - so summing it returned zero for every window. The gap
-            // between gross and net is the whole of it: the per-line discounts
-            // and the bill-wide one together.
-            discount: { $sum: { $subtract: ['$subtotal', '$netAmount'] } },
-          },
-        },
-      ]),
+      prisma.invoice
+        .aggregate({
+          where: filter,
+          _count: { _all: true },
+          _sum: { netAmount: true, paidAmount: true, dueAmount: true, subtotal: true },
+        })
+        .then((t) => ({
+          ...t,
+          // Gross less net, summed exactly: subtotal and net are both exact numerics.
+          discount: t._sum.subtotal && t._sum.netAmount ? t._sum.subtotal.minus(t._sum.netAmount) : null,
+        })),
     ]);
 
-    const summed = totals[0] || {};
+    // What the desk gave away, taken from the two totals. There is no
+    // `discountAmount` on a bill - the field of that name lives on the lines -
+    // so summing it returned zero for every window. The gap between gross and
+    // net is the whole of it: the per-line discounts and the bill-wide one.
+    // Summed exactly in numeric and read as a double, as Mongo's compensated
+    // $sum came out.
+    const summed: any = totals._count._all
+      ? {
+          billed: fromDecimal(totals._sum.netAmount),
+          collected: fromDecimal(totals._sum.paidAmount),
+          due: fromDecimal(totals._sum.dueAmount),
+          discount: fromDecimal(totals.discount),
+        }
+      : {};
 
     return {
       invoices,
@@ -1014,79 +1033,79 @@ export class BillingService {
     const pageSize = Math.min(Math.max(Number(limit) || 20, 1), BillingService.MAX_PAGE_SIZE);
     const pageNumber = Math.max(Number(page) || 1, 1);
 
-    // Bill-level narrowing first, so the unwind only runs over bills in view.
-    const billFilter: any = {};
-    const billAnd: any[] = [];
-    const methodFilter = BillingService.paymentMethodFilter(paymentMethod);
-    if (methodFilter) billAnd.push(methodFilter);
+    // Bill-level narrowing first, so the lines are only read for bills in view.
+    const billAnd: Prisma.Sql[] = [];
+    if (paymentMethod && (COLLECTION_METHODS as readonly string[]).includes(paymentMethod)) {
+      billAnd.push(paymentMethodSql(paymentMethod));
+    }
 
     // The TPA / corporate the bill was raised against.
-    if (organization && mongoose.isValidObjectId(organization)) {
-      billFilter.organization = new mongoose.Types.ObjectId(organization);
+    if (organization && isObjectId(organization)) {
+      billAnd.push(Prisma.sql`b."organizationId" = ${organization.toLowerCase()}`);
     }
 
     // The referring doctor. A paneled doctor is matched on the link, and also
     // on the name typed at the counter, since a desk that typed the name in
     // instead of picking it from the panel still means the same doctor.
-    if (doctor && mongoose.isValidObjectId(doctor)) {
-      const panelDoctor = await Doctor.findById(doctor).select('doctorName').lean();
+    if (doctor && isObjectId(doctor)) {
+      const key = doctor.toLowerCase();
+      const panelDoctor = await prisma.doctor.findUnique({ where: { id: key }, select: { doctorName: true } });
+      // The typed name matched whole and without regard to case.
       const byName = panelDoctor?.doctorName
-        ? [
-            {
-              referringDoctorName: {
-                $regex: `^${panelDoctor.doctorName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
-                $options: 'i',
-              },
-            },
-          ]
-        : [];
-      billAnd.push({ $or: [{ referringDoctor: new mongoose.Types.ObjectId(doctor) }, ...byName] });
+        ? Prisma.sql` OR b."referringDoctorName" ILIKE ${escapeLike(panelDoctor.doctorName.trim())}`
+        : Prisma.empty;
+      billAnd.push(Prisma.sql`(b."referringDoctorId" = ${key}${byName})`);
     }
-    if (billAnd.length) billFilter.$and = billAnd;
-    if (paymentStatus === 'Paid') billFilter.dueAmount = { $lte: 0 };
-    else if (paymentStatus === 'Unpaid') billFilter.dueAmount = { $gt: 0 };
+    if (paymentStatus === 'Paid') billAnd.push(Prisma.sql`b."dueAmount" <= 0`);
+    else if (paymentStatus === 'Unpaid') billAnd.push(Prisma.sql`b."dueAmount" > 0`);
 
     if (from || to) {
       const range: any = {};
       if (from) {
         const start = new Date(from);
         start.setHours(0, 0, 0, 0);
-        if (!Number.isNaN(start.getTime())) range.$gte = start;
+        if (!Number.isNaN(start.getTime())) billAnd.push(Prisma.sql`b."createdAt" >= ${utc(start)}`);
       }
       if (to) {
         const end = new Date(to);
         end.setHours(23, 59, 59, 999);
-        if (!Number.isNaN(end.getTime())) range.$lte = end;
+        if (!Number.isNaN(end.getTime())) billAnd.push(Prisma.sql`b."createdAt" <= ${utc(end)}`);
       }
-      if (Object.keys(range).length) billFilter.createdAt = range;
     }
 
-    const lineFilter: any = {};
+    const lineAnd: Prisma.Sql[] = [];
     if (search) {
-      const rx = { $regex: String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+      // Escaped, so the text is matched literally: a case-insensitive contains.
+      const q = String(search);
+      const like = { contains: q, mode: 'insensitive' as const };
       const [matchingPatients, matchingDoctors] = await Promise.all([
-        Patient.find({ $or: [{ patientName: rx }, { mobile: rx }] }).select('_id'),
-        Doctor.find({ doctorName: rx }).select('_id'),
+        prisma.patient.findMany({ where: { OR: [{ patientName: like }, { mobile: like }] }, select: { id: true } }),
+        prisma.doctor.findMany({ where: { doctorName: like }, select: { id: true } }),
       ]);
-      lineFilter.$or = [
-        { invoiceNumber: rx },
-        { uhid: rx },
-        { enquiryNo: rx },
-        { barcode: rx },
-        { 'items.testName': rx },
-        { 'items.testCode': rx },
+      const anyOf = [
+        containsSql(Prisma.sql`b."invoiceNumber"`, q),
+        containsSql(Prisma.sql`b.uhid`, q),
+        containsSql(Prisma.sql`b."enquiryNo"`, q),
+        containsSql(Prisma.sql`b.barcode`, q),
+        containsSql(Prisma.sql`it."testName"`, q),
+        containsSql(Prisma.sql`it."testCode"`, q),
         // The referring doctor, whether picked from the panel or typed at the
         // counter for a doctor who is not on it.
-        { referringDoctorName: rx },
-        ...(matchingDoctors.length ? [{ referringDoctor: { $in: matchingDoctors.map((d) => d._id) } }] : []),
-        ...(matchingPatients.length ? [{ patient: { $in: matchingPatients.map((p) => p._id) } }] : []),
+        containsSql(Prisma.sql`b."referringDoctorName"`, q),
+        ...(matchingDoctors.length
+          ? [Prisma.sql`b."referringDoctorId" IN (${Prisma.join(matchingDoctors.map((d) => d.id))})`]
+          : []),
+        ...(matchingPatients.length
+          ? [Prisma.sql`b."patientId" IN (${Prisma.join(matchingPatients.map((p) => p.id))})`]
+          : []),
       ];
+      lineAnd.push(Prisma.sql`(${Prisma.join(anyOf, ' OR ')})`);
     }
-    if (department && mongoose.isValidObjectId(department)) {
-      lineFilter['items.department'] = new mongoose.Types.ObjectId(department);
+    if (department && isObjectId(department)) {
+      lineAnd.push(Prisma.sql`it."departmentId" = ${department.toLowerCase()}`);
     }
     if (processingMode === 'Outsource' || processingMode === 'In-house') {
-      lineFilter['items.processingMode'] = processingMode;
+      lineAnd.push(Prisma.sql`it."processingMode" = ${processingMode}`);
     }
 
     // Where the work is, as the desk says it. A cancelled line is its own
@@ -1098,218 +1117,79 @@ export class BillingService {
       Completed: ['Completed'],
       Rejected: ['Rejected'],
     };
-    const statusFilter: any = {};
+    const statusAnd: Prisma.Sql[] = [];
     if (status === 'Cancelled') {
-      statusFilter['items.cancelled'] = true;
+      statusAnd.push(Prisma.sql`it.cancelled`);
     } else if (status && STATUS_BUCKETS[status]) {
-      statusFilter['items.cancelled'] = { $ne: true };
-      statusFilter.$or = [
-        { 'sample.status': { $in: STATUS_BUCKETS[status] } },
-        // A line with no sample yet is still waiting for its draw.
-        ...(status === 'Pending' ? [{ sample: null }] : []),
-      ];
+      statusAnd.push(Prisma.sql`NOT it.cancelled`);
+      statusAnd.push(
+        Prisma.sql`(s.status IN (${Prisma.join(STATUS_BUCKETS[status])})${
+          // A line with no sample yet is still waiting for its draw.
+          status === 'Pending' ? Prisma.sql` OR s.id IS NULL` : Prisma.empty
+        })`
+      );
     }
 
-    const [result] = await Invoice.aggregate([
-      { $match: billFilter },
-      { $unwind: { path: '$items', includeArrayIndex: 'itemIndex' } },
-      { $match: lineFilter },
-      {
-        $lookup: {
-          from: Sample.collection.name,
-          let: { inv: '$_id', test: '$items.test' },
-          pipeline: [
-            { $match: { $expr: { $and: [{ $eq: ['$invoice', '$$inv'] }, { $eq: ['$test', '$$test'] }] } } },
-            { $project: { sampleId: 1, status: 1 } },
-            { $limit: 1 },
-          ],
-          as: 'sample',
-        },
-      },
-      { $set: { sample: { $ifNull: [{ $arrayElemAt: ['$sample', 0] }, null] } } },
-      { $match: statusFilter },
-      { $sort: { createdAt: -1, itemIndex: 1 } },
-      {
-        $facet: {
-          rows: [
-            { $skip: (pageNumber - 1) * pageSize },
-            { $limit: pageSize },
-            {
-              $lookup: {
-                from: Patient.collection.name,
-                localField: 'patient',
-                foreignField: '_id',
-                as: 'patient',
-              },
-            },
-            {
-              $lookup: {
-                from: Doctor.collection.name,
-                localField: 'referringDoctor',
-                foreignField: '_id',
-                as: 'doctorDoc',
-              },
-            },
-            {
-              $lookup: {
-                from: Organization.collection.name,
-                localField: 'organization',
-                foreignField: '_id',
-                as: 'organizationDoc',
-              },
-            },
-            // The line's own result sheet, and whether any other live test on
-            // the visit is still short of release. The patient is handed one
-            // report per visit, so it only counts as final once every test on
-            // the bill has been completed and approved - the same rule the
-            // report page itself applies.
-            {
-              $lookup: {
-                from: Result.collection.name,
-                let: { s: '$sample._id' },
-                pipeline: [
-                  { $match: { $expr: { $eq: ['$sample', '$$s'] } } },
-                  { $project: { status: 1 } },
-                  { $limit: 1 },
-                ],
-                as: 'resultDoc',
-              },
-            },
-            {
-              $lookup: {
-                from: Sample.collection.name,
-                let: { inv: '$_id' },
-                pipeline: [
-                  {
-                    $match: {
-                      $expr: {
-                        $and: [{ $eq: ['$invoice', '$$inv'] }, { $ne: ['$status', SAMPLE_STATUS.CANCELLED] }],
-                      },
-                    },
-                  },
-                  {
-                    $lookup: {
-                      from: Result.collection.name,
-                      let: { s: '$_id' },
-                      pipeline: [{ $match: { $expr: { $eq: ['$sample', '$$s'] } } }, { $project: { status: 1 } }],
-                      as: 'r',
-                    },
-                  },
-                  {
-                    $match: {
-                      $nor: [{ status: SAMPLE_STATUS.COMPLETED, 'r.status': { $in: ['Approved', 'Final'] } }],
-                    },
-                  },
-                  { $limit: 1 },
-                  { $project: { _id: 1 } },
-                ],
-                as: 'unreleased',
-              },
-            },
-            {
-              $set: {
-                reportResultId: {
-                  $cond: [
-                    {
-                      $and: [
-                        { $eq: ['$sample.status', SAMPLE_STATUS.COMPLETED] },
-                        { $in: [{ $arrayElemAt: ['$resultDoc.status', 0] }, ['Approved', 'Final']] },
-                        { $eq: [{ $size: '$unreleased' }, 0] },
-                      ],
-                    },
-                    { $arrayElemAt: ['$resultDoc._id', 0] },
-                    null,
-                  ],
-                },
-              },
-            },
-            {
-              $project: {
-                _id: 0,
-                invoiceId: '$_id',
-                reportResultId: 1,
-                // The panel's name wins over whatever was typed at the counter.
-                doctorName: {
-                  $ifNull: [{ $arrayElemAt: ['$doctorDoc.doctorName', 0] }, '$referringDoctorName'],
-                },
-                organizationName: { $arrayElemAt: ['$organizationDoc.organizationName', 0] },
-                invoiceNumber: 1,
-                enquiryNo: 1,
-                barcode: 1,
-                uhid: 1,
-                billedAt: '$createdAt',
-                paymentStatus: 1,
-                dueAmount: 1,
-                patient: {
-                  $let: {
-                    vars: { p: { $arrayElemAt: ['$patient', 0] } },
-                    in: { _id: '$$p._id', patientName: '$$p.patientName', uhid: '$$p.uhid', mobile: '$$p.mobile' },
-                  },
-                },
-                itemIndex: 1,
-                testName: '$items.testName',
-                testCode: '$items.testCode',
-                departmentName: '$items.departmentName',
-                packageName: '$items.packageName',
-                processingMode: '$items.processingMode',
-                rate: '$items.rate',
-                netAmount: '$items.netAmount',
-                cancelled: { $ifNull: ['$items.cancelled', false] },
-                cancelledAt: '$items.cancelledAt',
-                cancellationReason: '$items.cancellationReason',
-                refundedAmount: { $ifNull: ['$items.refundedAmount', 0] },
-                sampleId: '$sample.sampleId',
-                sampleStatus: '$sample.status',
-              },
-            },
-          ],
-          totals: [
-            {
-              $group: {
-                _id: null,
-                tests: { $sum: 1 },
-                billed: { $sum: { $cond: ['$items.cancelled', 0, '$items.netAmount'] } },
-                cancelled: { $sum: { $cond: ['$items.cancelled', 1, 0] } },
-                refunded: { $sum: { $ifNull: ['$items.refundedAmount', 0] } },
-              },
-            },
-          ],
-          // How many of each test went through on each day, under the same
-          // filters. A cancelled booking is not work done, so it is left out -
-          // unless the desk is looking at cancellations on purpose.
-          ...(view === 'daycount'
-            ? {
-                dayCounts: [
-                  ...(status === 'Cancelled' ? [] : [{ $match: { 'items.cancelled': { $ne: true } } }]),
-                  {
-                    $group: {
-                      _id: {
-                        // The server's own day, the same one the from/to filter above cuts on.
-                        day: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: BillingService.SERVER_TZ } },
-                        testName: '$items.testName',
-                      },
-                      testCode: { $first: '$items.testCode' },
-                      departmentName: { $first: '$items.departmentName' },
-                      count: { $sum: 1 },
-                    },
-                  },
-                  { $sort: { '_id.day': -1, count: -1, '_id.testName': 1 } },
-                  {
-                    $project: {
-                      _id: 0,
-                      day: '$_id.day',
-                      testName: '$_id.testName',
-                      testCode: 1,
-                      departmentName: 1,
-                      count: 1,
-                    },
-                  },
-                ],
-              }
-            : {}),
-        },
-      },
-    ]);
+    const found = await bookedTests({
+      bill: billAnd,
+      line: lineAnd,
+      status: statusAnd,
+      dayCountsSkipCancelled: status !== 'Cancelled',
+      skip: (pageNumber - 1) * pageSize,
+      take: pageSize,
+      withDayCounts: view === 'daycount',
+      timeZone: BillingService.SERVER_TZ,
+    });
+
+    // The pipeline's $project, field for field. A value the bill never had is
+    // left out of the row, as $project left it out.
+    const present = (row: any, value: any, key: string) => {
+      if (value !== null && value !== undefined) row[key] = value;
+    };
+    const RELEASED = ['Approved', 'Final'];
+    const result = {
+      rows: found.rows.map((r: any) => {
+        const row: any = {
+          invoiceId: r.invoiceId,
+          reportResultId:
+            r.sampleStatus === SAMPLE_STATUS.COMPLETED && RELEASED.includes(r.resultStatus) && !r.unreleased
+              ? r.resultKey
+              : null,
+          invoiceNumber: r.invoiceNumber,
+          barcode: r.barcode,
+          uhid: r.uhid,
+          billedAt: r.createdAt,
+          paymentStatus: r.paymentStatus,
+          dueAmount: fromDecimal(r.dueAmount),
+          patient: {},
+          itemIndex: r.itemIndex,
+          testName: r.testName,
+          testCode: r.testCode,
+          departmentName: r.departmentName,
+          packageName: r.packageName,
+          processingMode: r.processingMode,
+          rate: fromDecimal(r.rate),
+          netAmount: fromDecimal(r.netAmount),
+          cancelled: Boolean(r.cancelled),
+          cancellationReason: r.cancellationReason,
+          refundedAmount: fromDecimal(r.refundedAmount) ?? 0,
+        };
+        // The panel's name wins over whatever was typed at the counter.
+        present(row, r.panelDoctorName ?? r.referringDoctorName, 'doctorName');
+        present(row, r.organizationName, 'organizationName');
+        present(row, r.enquiryNo, 'enquiryNo');
+        present(row, r.cancelledAt, 'cancelledAt');
+        present(row, r.sampleId, 'sampleId');
+        present(row, r.sampleStatus, 'sampleStatus');
+        present(row.patient, r.patientKey, '_id');
+        present(row.patient, r.patientName, 'patientName');
+        present(row.patient, r.patientUhid, 'uhid');
+        present(row.patient, r.patientMobile, 'mobile');
+        return row;
+      }),
+      totals: found.totals && found.totals.tests ? [found.totals] : [],
+      dayCounts: found.dayCounts,
+    };
 
     const summed = result?.totals?.[0] || {};
     const total = summed.tests || 0;
@@ -1341,8 +1221,8 @@ export class BillingService {
     typedName = ''
   ): Promise<{ doctorId?: string; name: string }> {
     const name = String(typedName || '').trim();
-    if (doctorId && mongoose.isValidObjectId(doctorId)) {
-      const panelDoctor = await Doctor.findById(doctorId).select('doctorName');
+    if (doctorId && isObjectId(doctorId)) {
+      const panelDoctor = await prisma.doctor.findUnique({ where: { id: doctorId.toLowerCase() }, select: { doctorName: true } });
       if (panelDoctor) return { doctorId, name: panelDoctor.doctorName };
     }
     return { doctorId: undefined, name };
@@ -1374,12 +1254,12 @@ export class BillingService {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Your role is not permitted to revise a bill');
     }
 
-    const invoice = await Invoice.findById(invoiceId);
+    const invoice: any = await repo.findById('invoice', invoiceId);
     if (!invoice) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Invoice record not found');
     }
 
-    const patient = await Patient.findById(invoice.patient);
+    const patient = await repo.findById('patient', invoice.patient);
     if (!patient) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Patient record not found');
     }
@@ -1479,7 +1359,7 @@ export class BillingService {
     // moves a corporate patient onto the walk-in card.
     let rateTier: 'corporateRate' | 'doctorRate' | 'patientRate' | 'rate' = 'rate';
     if (invoice.organization) {
-      const org = await Organization.findById(invoice.organization);
+      const org = await repo.findById('organization', invoice.organization);
       if (org) {
         if (org.contractRate === 'Corporate') rateTier = 'corporateRate';
         else if (org.contractRate === 'Discounted') rateTier = 'doctorRate';
@@ -1489,8 +1369,8 @@ export class BillingService {
     }
 
     const orderedIds = orderedLines.map((line) => line.testId);
-    const found = await LabTest.find({ _id: { $in: orderedIds } }).populate('department');
-    const testById = new Map(found.map((test) => [test._id.toString(), test]));
+    const found = await findTests(orderedIds);
+    const testById = new Map<string, any>(found.map((test: any) => [test._id.toString(), test]));
 
     // A test added today must still be on the active catalogue; one already on
     // the bill only has to still exist, because it was ordered when it was.
@@ -1605,7 +1485,7 @@ export class BillingService {
       },
     ] as any;
 
-    await invoice.save();
+    const saved = await repo.save('invoice', invoice);
 
     // A test added to the bill is work the bench has not been told about yet,
     // so it is queued for collection exactly as it would have been had it been
@@ -1620,7 +1500,7 @@ export class BillingService {
       const sampleBarcode = await getNextBarcode();
 
       newSamples.push(
-        await Sample.create({
+        await repo.create('sample', {
           sampleId,
           barcode: sampleBarcode,
           invoice: invoice._id,
@@ -1658,7 +1538,7 @@ export class BillingService {
     }
 
     return {
-      invoice,
+      invoice: saved,
       samples: newSamples,
       testsAdded: addedNames,
       netBefore: rupeePrecision(netBefore),
@@ -1669,18 +1549,17 @@ export class BillingService {
   }
 
   static async getInvoiceById(id: string) {
-    const invoice = await Invoice.findById(id)
-      .populate('patient')
-      .populate('referringDoctor')
-      .populate('discountDoctor', 'doctorName specialty')
-      .populate('organization');
+    const invoice = await repo.findById('invoice', id, { include: BILL_REFS });
 
     if (!invoice) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Invoice record not found');
     }
 
-    const payments = await Payment.find({ invoice: invoice._id }).sort({ createdAt: -1 });
-    const samples = await Sample.find({ invoice: invoice._id });
+    const payments = await repo.find('payment', {
+      where: { invoiceId: invoice._id },
+      orderBy: mongoSort('payment', { createdAt: -1 }),
+    });
+    const samples = await repo.find('sample', { where: { invoiceId: invoice._id } });
 
     return {
       invoice,
@@ -1690,18 +1569,17 @@ export class BillingService {
   }
 
   static async getByBarcode(barcode: string) {
-    const invoice = await Invoice.findOne({ barcode })
-      .populate('patient')
-      .populate('referringDoctor')
-      .populate('discountDoctor', 'doctorName specialty')
-      .populate('organization');
+    const invoice = await repo.findOne('invoice', { barcode: String(barcode) }, { include: BILL_REFS });
 
     if (!invoice) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, `No invoice found for barcode: ${barcode}`);
     }
 
-    const payments = await Payment.find({ invoice: invoice._id }).sort({ createdAt: -1 });
-    const samples = await Sample.find({ invoice: invoice._id });
+    const payments = await repo.find('payment', {
+      where: { invoiceId: invoice._id },
+      orderBy: mongoSort('payment', { createdAt: -1 }),
+    });
+    const samples = await repo.find('sample', { where: { invoiceId: invoice._id } });
 
     return {
       invoice,
@@ -1730,7 +1608,7 @@ export class BillingService {
     },
     currentUser: JwtPayload
   ) {
-    const invoice = await Invoice.findById(invoiceId);
+    const invoice: any = await repo.findById('invoice', invoiceId);
     if (!invoice) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Invoice record not found');
     }
@@ -1754,13 +1632,13 @@ export class BillingService {
     }
 
     const rawUserId = currentUser.userId || (currentUser as any).id || (currentUser as any)._id;
-    const userId = mongoose.Types.ObjectId.isValid(rawUserId) ? rawUserId : new mongoose.Types.ObjectId();
+    const userId = isValidObjectIdValue(rawUserId) ? rawUserId : newObjectId();
 
     const paymentRecords = [];
     for (const tender of tenders) {
       const receiptNumber = await getNextReceiptNumber();
       paymentRecords.push(
-        await Payment.create({
+        await repo.create('payment', {
           receiptNumber,
           invoice: invoice._id,
           patient: invoice.patient,
@@ -1799,10 +1677,10 @@ export class BillingService {
       invoice.paymentStatus = 'Partial';
     }
 
-    await invoice.save();
+    const saved = await repo.save('invoice', invoice);
 
     return {
-      invoice,
+      invoice: saved,
       // The last receipt written, as the single-payment caller always got.
       paymentRecord: paymentRecords[paymentRecords.length - 1] || null,
       paymentRecords,

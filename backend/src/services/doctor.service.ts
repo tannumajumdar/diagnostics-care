@@ -1,4 +1,4 @@
-import { Doctor } from '../models/doctor.model';
+import { repo, regexAny, mongoSort, refFilter } from '../db/repo';
 import { AppError } from '../middleware/errorHandler';
 
 export class DoctorService {
@@ -7,19 +7,20 @@ export class DoctorService {
     const limit = params.limit || 10;
     const skip = (page - 1) * limit;
 
-    const query: any = {};
-    if (params.search) {
-      query.$or = [
-        { doctorName: { $regex: params.search, $options: 'i' } },
-        { mobile: { $regex: params.search, $options: 'i' } },
-      ];
-    }
-    if (params.department) query.department = params.department;
+    const query: any = { AND: [] };
+    if (params.search) query.AND.push(await regexAny('doctor', ['doctorName', 'mobile'], params.search));
+    if (params.department) query.departmentId = refFilter(params.department, 'department');
     if (params.status) query.status = params.status;
 
     const [doctors, total] = await Promise.all([
-      Doctor.find(query).populate('department').sort({ doctorName: 1 }).skip(skip).limit(limit),
-      Doctor.countDocuments(query),
+      repo.find('doctor', {
+        where: query,
+        include: { department: true },
+        orderBy: mongoSort('doctor', { doctorName: 1 }),
+        skip,
+        take: limit,
+      }),
+      repo.count('doctor', query),
     ]);
 
     return {
@@ -43,7 +44,7 @@ export class DoctorService {
   };
 
   static create = async (data: any) => {
-    const doctor = await Doctor.create(data);
+    const doctor = await repo.create('doctor', data);
     return {
       id: doctor._id.toString(),
       doctorName: doctor.doctorName,

@@ -21,11 +21,9 @@
  * the centre wants these intervals and methods to win; without it, an edited
  * sheet is never touched.
  */
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { Department } from '../models/department.model';
-import { LabTest } from '../models/test.model';
-import { TestPackage } from '../models/package.model';
+import { prisma, describeDatabase } from '../db/prisma';
+import { repo, NATURAL } from '../db/repo';
 import { CHECKUP_PANELS, CHECKUP_PACKAGE, CHECKUP_LIST_TOTAL, type CheckupDept } from '../constants/full-body-checkup';
 
 dotenv.config();
@@ -43,8 +41,8 @@ const run = async () => {
   const dryRun = process.argv.includes('--dry-run');
   const updateSheets = process.argv.includes('--update-sheets');
 
-  const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/lms_db';
-  await mongoose.connect(uri);
+  const uri = describeDatabase();
+  await prisma.$connect();
   console.log(`Connected to ${uri}${dryRun ? '  [dry-run - nothing will be written]' : ''}\n`);
 
   // --- Departments the panels sit under -----------------------------------
@@ -53,12 +51,12 @@ const run = async () => {
 
   for (const code of needed) {
     const meta = DEPARTMENTS[code];
-    let dept: any = await Department.findOne({ departmentCode: code });
+    let dept: any = await repo.findOne('department', { departmentCode: code });
     if (!dept) {
       if (dryRun) {
         console.log(`[dry-run] would create department ${meta.departmentName} (${code})`);
       } else {
-        dept = await Department.create({
+        dept = await repo.create('department', {
           departmentName: meta.departmentName,
           departmentCode: code,
           description: meta.description,
@@ -71,7 +69,9 @@ const run = async () => {
   }
 
   // --- The panels ----------------------------------------------------------
-  const existing = await LabTest.find({}, 'testCode testName');
+  const existing = (
+    await prisma.labTest.findMany({ select: { id: true, testCode: true, testName: true }, orderBy: NATURAL })
+  ).map(({ id, ...t }) => ({ _id: id, ...t }));
   const byCode = new Map(existing.map((t) => [String(t.testCode).trim().toUpperCase(), t]));
   const byName = new Map(existing.map((t) => [String(t.testName).trim().toLowerCase(), t]));
 
@@ -100,7 +100,7 @@ const run = async () => {
       );
 
       if (updateSheets && !dryRun) {
-        await LabTest.findByIdAndUpdate(already._id, {
+        await repo.updateById('labTest', already._id, {
           parameters: panel.parameters.map((p, idx) => ({ ...p, displayOrder: idx + 1 })),
         });
         resheeted += 1;
@@ -154,7 +154,7 @@ const run = async () => {
       continue;
     }
 
-    const saved = await LabTest.create(doc);
+    const saved = await repo.create('labTest', doc);
     packageTestIds.push(saved._id);
     created += 1;
     console.log(
@@ -168,21 +168,21 @@ const run = async () => {
   let packageNote = '';
 
   if (dryRun) {
-    const held = await TestPackage.findOne({ packageCode: CHECKUP_PACKAGE.packageCode });
+    const held = await repo.findOne('testPackage', { packageCode: CHECKUP_PACKAGE.packageCode });
     packageNote = `[dry-run] would ${held ? 'update' : 'create'} package ${CHECKUP_PACKAGE.packageName} (${CHECKUP_PACKAGE.packageCode}) with ${wouldInclude} test(s)`;
   } else if (!packageTestIds.length) {
     packageNote = 'No tests resolved, so no package was built.';
   } else {
-    const existingPackage = await TestPackage.findOne({ packageCode: CHECKUP_PACKAGE.packageCode });
+    const existingPackage = await repo.findOne('testPackage', { packageCode: CHECKUP_PACKAGE.packageCode });
 
     if (existingPackage) {
       // The price is the centre's own decision once the package exists, so
       // only the test list is brought up to date.
       existingPackage.tests = packageTestIds;
-      await existingPackage.save();
+      await repo.save('testPackage', existingPackage);
       packageNote = `= ${CHECKUP_PACKAGE.packageName} already existed - its test list now holds ${packageTestIds.length} test(s), its price left at ${rupees(existingPackage.rate)}`;
     } else {
-      const saved = await TestPackage.create({
+      const saved = await repo.create('testPackage', {
         ...CHECKUP_PACKAGE,
         tests: packageTestIds,
         status: 'Active',
@@ -208,11 +208,11 @@ const run = async () => {
   );
   console.log(packageNote);
 
-  await mongoose.disconnect();
+  await prisma.$disconnect();
 };
 
 run().catch(async (err) => {
   console.error('Seeding the Full Body Checkup failed:', err);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
   process.exit(1);
 });

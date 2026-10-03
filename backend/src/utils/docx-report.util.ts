@@ -1,6 +1,7 @@
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { ApiError } from './api-error.util';
+import { ageLabel } from './age.util';
 
 export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -42,11 +43,13 @@ export const reportValues = (sheet: any): Record<string, string> => {
     (typeof invoice.referringDoctor === 'object' ? invoice.referringDoctor?.doctorName : '') ||
     invoice.referringDoctorName ||
     'Self';
-  const age = patient.age !== undefined && patient.age !== null ? `${patient.age} Yrs` : '';
+  const age = ageLabel(patient) === '-' ? '' : ageLabel(patient);
   const address = [patient.address, patient.city, patient.state, patient.pinCode].filter(Boolean).join(', ');
 
   const builtIn: Record<string, string> = {
     PTNAME: patient.patientName,
+    ABHA: patient.abhaNumber || '',
+    ABHAADDRESS: patient.abhaAddress || '',
     PATIENTNAME: patient.patientName,
     'AGE/SEX': [age, patient.gender].filter(Boolean).join(' / '),
     AGE: age,

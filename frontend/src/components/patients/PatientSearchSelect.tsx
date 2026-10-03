@@ -28,6 +28,8 @@ export interface PatientSearchSelectProps {
   /** Rendered red when the form has complained this field is required. */
   invalid?: boolean;
   autoFocus?: boolean;
+  /** Only patients whose ABHA is on record, searchable by ABHA number and address too. */
+  abhaOnly?: boolean;
 }
 
 /** `Ramesh Kumar · UHID00123 · 98xxxxxx01` - how the desk reads a patient out. */
@@ -40,6 +42,7 @@ export const PatientSearchSelect: React.FC<PatientSearchSelectProps> = ({
   placeholder = 'Search by name, UHID or mobile',
   invalid = false,
   autoFocus = false,
+  abhaOnly = false,
 }) => {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -53,8 +56,9 @@ export const PatientSearchSelect: React.FC<PatientSearchSelectProps> = ({
   const debounced = useDebouncedValue(query, 250);
 
   const { data, isFetching } = useQuery({
-    queryKey: ['patient-search', debounced],
-    queryFn: () => patientApi.getAll({ search: debounced || undefined, limit: 25 }),
+    queryKey: ['patient-search', debounced, abhaOnly],
+    queryFn: () =>
+      patientApi.getAll({ search: debounced || undefined, limit: 25, ...(abhaOnly ? { hasAbha: 'true' } : {}) }),
     // Only while the list is on screen - the search is of no use closed.
     enabled: open,
     placeholderData: (prev: any) => prev,
@@ -181,6 +185,8 @@ export const PatientSearchSelect: React.FC<PatientSearchSelectProps> = ({
                 ? 'Searching the register…'
                 : query
                 ? `No registered patient matches "${query}".`
+                : abhaOnly
+                ? 'No patient on the register has an ABHA yet.'
                 : 'No patients on the register yet.'}
             </p>
           ) : (
@@ -205,6 +211,11 @@ export const PatientSearchSelect: React.FC<PatientSearchSelectProps> = ({
                       <span className="block truncate text-[12px] text-muted-foreground">
                         {ageLabel(patient)} · {patient.gender} · {patient.mobile}
                       </span>
+                      {abhaOnly && (patient.abhaNumber || patient.abhaAddress) && (
+                        <span className="block truncate font-mono text-[11px] text-emerald-700">
+                          ABHA {patient.abhaNumber || patient.abhaAddress}
+                        </span>
+                      )}
                     </span>
                     <span className="shrink-0 font-mono text-[12px] text-muted-foreground">{patient.uhid}</span>
                   </button>

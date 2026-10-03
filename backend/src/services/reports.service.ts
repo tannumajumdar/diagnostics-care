@@ -1,169 +1,121 @@
-import { Invoice } from '../models/invoice.model';
-import { Payment } from '../models/payment.model';
-import { Patient } from '../models/patient.model';
-import { Sample } from '../models/sample.model';
-import { Result } from '../models/result.model';
-import { Doctor } from '../models/doctor.model';
-import mongoose from 'mongoose';
+import { prisma } from '../db/prisma';
+import { repo, mongoSort } from '../db/repo';
+import { isObjectId } from '../db/ids';
 
+/**
+ * The owner's charts. Each was a Mongo aggregation grouping on a day, a month,
+ * a test or a doctor; the SQL below groups the same way. Days and months are
+ * UTC days, as `$dateToString` without a timezone cut them.
+ */
 export class ReportsService {
   static getDailyRevenueTrend = async () => {
-    return Invoice.aggregate([
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-          totalInvoices: { $sum: 1 },
-          grossSubtotal: { $sum: '$subtotal' },
-          totalDiscount: { $sum: '$discountValue' },
-          netAmount: { $sum: '$netAmount' },
-          paidAmount: { $sum: '$paidAmount' },
-          dueAmount: { $sum: '$dueAmount' },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]);
+    return prisma.$queryRaw<any[]>`
+      SELECT
+        to_char("createdAt", 'YYYY-MM-DD') AS "_id",
+        COUNT(*)::int AS "totalInvoices",
+        SUM(subtotal)::float8 AS "grossSubtotal",
+        SUM("discountValue")::float8 AS "totalDiscount",
+        SUM("netAmount")::float8 AS "netAmount",
+        SUM("paidAmount")::float8 AS "paidAmount",
+        SUM("dueAmount")::float8 AS "dueAmount"
+      FROM "Invoice"
+      GROUP BY 1
+      ORDER BY 1`;
   };
 
   static getDailyRevenue = ReportsService.getDailyRevenueTrend;
 
   static getMonthlyRevenue = async () => {
-    return Invoice.aggregate([
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
-          revenue: { $sum: '$netAmount' },
-          collections: { $sum: '$paidAmount' },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]);
+    return prisma.$queryRaw<any[]>`
+      SELECT to_char("createdAt", 'YYYY-MM') AS "_id", SUM("netAmount")::float8 AS revenue, SUM("paidAmount")::float8 AS collections
+      FROM "Invoice"
+      GROUP BY 1
+      ORDER BY 1`;
   };
 
   static getMonthlyRevenueTrend = ReportsService.getMonthlyRevenue;
 
   static getPatientRegistrations = async () => {
-    return Patient.aggregate([
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-          count: { $sum: 1 },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]);
+    return prisma.$queryRaw<any[]>`
+      SELECT to_char("createdAt", 'YYYY-MM-DD') AS "_id", COUNT(*)::int AS count
+      FROM "Patient"
+      GROUP BY 1
+      ORDER BY 1`;
   };
 
   static getPatientRegistrationTrend = ReportsService.getPatientRegistrations;
 
   static getTestWiseRevenue = async () => {
-    return Invoice.aggregate([
-      { $unwind: '$items' },
-      {
-        $group: {
-          _id: '$items.testName',
-          totalCount: { $sum: 1 },
-          totalRevenue: { $sum: '$items.netAmount' },
-        },
-      },
-      { $sort: { totalRevenue: -1 } },
-    ]);
+    return prisma.$queryRaw<any[]>`
+      SELECT "testName" AS "_id", COUNT(*)::int AS "totalCount", SUM("netAmount")::float8 AS "totalRevenue"
+      FROM "InvoiceItem"
+      GROUP BY 1
+      ORDER BY "totalRevenue" DESC, 1`;
   };
 
   static getDepartmentWiseTests = async () => {
-    return Invoice.aggregate([
-      { $unwind: '$items' },
-      {
-        $group: {
-          _id: '$items.departmentName',
-          testCount: { $sum: 1 },
-          totalRevenue: { $sum: '$items.netAmount' },
-        },
-      },
-      { $sort: { testCount: -1 } },
-    ]);
+    return prisma.$queryRaw<any[]>`
+      SELECT "departmentName" AS "_id", COUNT(*)::int AS "testCount", SUM("netAmount")::float8 AS "totalRevenue"
+      FROM "InvoiceItem"
+      GROUP BY 1
+      ORDER BY "testCount" DESC, 1`;
   };
 
   /**
    * Grouped by the doctor's name, not by `referringDoctor`. That field is an
-   * ObjectId, so the chart built on it was plotting raw 24-character ids along
-   * its axis with one unnamed bucket for every walk-in. The typed name is on
-   * every invoice whether or not the doctor is on the panel, which is what the
-   * owner is reading this chart to find out.
+   * id, so the chart built on it was plotting raw 24-character ids along its
+   * axis with one unnamed bucket for every walk-in. The typed name is on every
+   * invoice whether or not the doctor is on the panel, which is what the owner
+   * is reading this chart to find out.
    */
   static getDoctorWiseTests = async () => {
-    return Invoice.aggregate([
-      {
-        $group: {
-          _id: {
-            $let: {
-              vars: { name: { $trim: { input: { $ifNull: ['$referringDoctorName', ''] } } } },
-              in: { $cond: [{ $eq: ['$$name', ''] }, 'Walk-in / Direct', '$$name'] },
-            },
-          },
-          invoiceCount: { $sum: 1 },
-          totalRevenue: { $sum: '$netAmount' },
-        },
-      },
-      { $sort: { totalRevenue: -1 } },
-    ]);
+    // `$trim` took whitespace off both ends; btrim with no characters takes spaces only.
+    return prisma.$queryRaw<any[]>`
+      SELECT
+        CASE WHEN btrim("referringDoctorName", E' \\t\\n\\r\\f\\v') = '' THEN 'Walk-in / Direct'
+             ELSE btrim("referringDoctorName", E' \\t\\n\\r\\f\\v') END AS "_id",
+        COUNT(*)::int AS "invoiceCount",
+        SUM("netAmount")::float8 AS "totalRevenue"
+      FROM "Invoice"
+      GROUP BY 1
+      ORDER BY "totalRevenue" DESC, 1`;
   };
 
   static getPaymentMethods = async () => {
-    return Payment.aggregate([
-      {
-        $group: {
-          _id: '$paymentMethod',
-          totalAmount: { $sum: '$amount' },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
+    return prisma.$queryRaw<any[]>`
+      SELECT "paymentMethod" AS "_id", SUM(amount)::float8 AS "totalAmount", COUNT(*)::int AS count
+      FROM "Payment"
+      GROUP BY 1`;
   };
 
   static getPaymentMethodDistribution = ReportsService.getPaymentMethods;
 
   static getPendingDuePayments = async () => {
-    const dueInvoices = await Invoice.find({ dueAmount: { $gt: 0 } }).populate('patient');
-    const totalDue = dueInvoices.reduce((sum, inv) => sum + inv.dueAmount, 0);
+    const dueInvoices = await repo.find('invoice', { where: { dueAmount: { gt: 0 } }, include: { patient: true } });
+    const totalDue = dueInvoices.reduce((sum: number, inv: any) => sum + inv.dueAmount, 0);
     return { totalDue, invoices: dueInvoices };
   };
 
   static getReportCompletionStats = async () => {
-    return Result.aggregate([
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 },
-        },
-      },
-    ]);
+    return prisma.$queryRaw<any[]>`SELECT status AS "_id", COUNT(*)::int AS count FROM "Result" GROUP BY 1`;
   };
 
   static getSampleRejections = async () => {
-    return Sample.aggregate([
-      { $match: { status: 'Rejected' } },
-      {
-        $group: {
-          _id: '$rejectionReason',
-          count: { $sum: 1 },
-        },
-      },
-    ]);
+    return prisma.$queryRaw<any[]>`
+      SELECT "rejectionReason" AS "_id", COUNT(*)::int AS count
+      FROM "Sample"
+      WHERE status = 'Rejected'
+      GROUP BY 1`;
   };
 
   static getSampleRejectionAnalytics = ReportsService.getSampleRejections;
 
   static getCorporateRevenue = async () => {
-    return Invoice.aggregate([
-      { $match: { organization: { $ne: null } } },
-      {
-        $group: {
-          _id: '$organization',
-          revenue: { $sum: '$netAmount' },
-          invoices: { $sum: 1 },
-        },
-      },
-    ]);
+    return prisma.$queryRaw<any[]>`
+      SELECT "organizationId" AS "_id", SUM("netAmount")::float8 AS revenue, COUNT(*)::int AS invoices
+      FROM "Invoice"
+      WHERE "organizationId" IS NOT NULL
+      GROUP BY 1`;
   };
 
   /**
@@ -178,51 +130,46 @@ export class ReportsService {
    */
   static getDoctorReferralReport = async (query: { from?: string; to?: string; doctor?: string }) => {
     const { from, to, doctor } = query;
-    const match: any = { status: { $ne: 'Cancelled' } };
+    // A bill has no status of its own; the old `status: { $ne: 'Cancelled' }`
+    // matched every bill, so there is nothing to filter on here.
+    const match: any = { AND: [] };
 
     if (from || to) {
       const range: any = {};
       if (from) {
         const start = new Date(from);
         start.setHours(0, 0, 0, 0);
-        if (!Number.isNaN(start.getTime())) range.$gte = start;
+        if (!Number.isNaN(start.getTime())) range.gte = start;
       }
       if (to) {
         const end = new Date(to);
         end.setHours(23, 59, 59, 999);
-        if (!Number.isNaN(end.getTime())) range.$lte = end;
+        if (!Number.isNaN(end.getTime())) range.lte = end;
       }
       if (Object.keys(range).length) match.createdAt = range;
     }
 
-    if (doctor && mongoose.isValidObjectId(doctor)) {
+    if (doctor && isObjectId(doctor)) {
+      const key = doctor.toLowerCase();
       // The paneled doctor, and the same name typed in by hand at the counter.
-      const panelDoctor = await Doctor.findById(doctor).select('doctorName').lean();
+      const panelDoctor = await prisma.doctor.findUnique({ where: { id: key }, select: { doctorName: true } });
       const byName = panelDoctor?.doctorName
-        ? [
-            {
-              referringDoctorName: {
-                $regex: `^${panelDoctor.doctorName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
-                $options: 'i',
-              },
-            },
-          ]
+        ? [{ referringDoctorName: { equals: panelDoctor.doctorName.trim(), mode: 'insensitive' as const } }]
         : [];
-      match.$or = [{ referringDoctor: new mongoose.Types.ObjectId(doctor) }, ...byName];
+      match.AND.push({ OR: [{ referringDoctorId: key }, ...byName] });
     } else {
       // Only bills that name a referring doctor at all.
-      match.$or = [
-        { referringDoctor: { $ne: null } },
-        { referringDoctorName: { $nin: [null, ''] } },
-      ];
+      match.AND.push({ OR: [{ referringDoctorId: { not: null } }, { referringDoctorName: { not: '' } }] });
     }
 
-    const invoices: any[] = await Invoice.find(match)
-      .select('invoiceNumber uhid createdAt patient referringDoctor referringDoctorName items netAmount')
-      .populate('patient', 'patientName uhid age gender mobile')
-      .populate('referringDoctor', 'doctorName specialty')
-      .sort({ createdAt: 1 })
-      .lean();
+    const invoices: any[] = await repo.find('invoice', {
+      where: match,
+      include: {
+        patient: { select: { id: true, patientName: true, uhid: true, age: true, dateOfBirth: true, gender: true, mobile: true } },
+        referringDoctor: { select: { id: true, doctorName: true, specialty: true } },
+      },
+      orderBy: mongoSort('invoice', { createdAt: 1 }),
+    });
 
     return invoices
       .map((inv) => {

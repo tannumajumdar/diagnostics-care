@@ -11,16 +11,18 @@
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
-import mongoose from 'mongoose';
-import { LabTest } from '../models/test.model';
+import { prisma } from '../db/prisma';
+import { repo, NATURAL } from '../db/repo';
 
 const blank = (v: unknown) => !String(v ?? '').trim();
 
 const run = async () => {
   const dryRun = process.argv.includes('--dry-run');
-  await mongoose.connect(process.env.MONGODB_URI as string);
 
-  const all = await LabTest.find({}, { testName: 1, testCode: 1, parameters: 1 }).lean();
+  // Parameter rows come back with every field set (the table has no "absent"
+  // field; a missing string is ''). That decides nothing here: blank() reads a
+  // missing value and '' alike, and a row is only counted when a range is filled.
+  const all = await repo.find('labTest', { orderBy: NATURAL });
   if (!dryRun) {
     const dir = path.join(__dirname, '../../backups');
     fs.mkdirSync(dir, { recursive: true });
@@ -50,12 +52,12 @@ const run = async () => {
     tests += 1;
     rows += changed;
     if (!dryRun) {
-      await LabTest.updateOne({ _id: test._id }, { $set: { parameters } }, { runValidators: true });
+      await repo.updateById('labTest', test._id, { parameters }, { runValidators: true });
     }
   }
 
   console.log(`${dryRun ? 'Dry run - would fill' : 'Filled'} ${rows} rows across ${tests} tests.`);
-  await mongoose.disconnect();
+  await prisma.$disconnect();
 };
 
 run().catch((err) => {

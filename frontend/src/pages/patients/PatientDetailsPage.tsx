@@ -10,9 +10,11 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { hasPermission, PERMISSIONS } from '../../config/roles';
 import { ageLabel } from '../../utils/age';
+import { maskIdProofNumber } from '../../utils/abha';
 import { exportToExcel } from '../../utils/excel-export';
 import { invoiceExportRows } from '../../utils/invoice-export';
 import { PatientBillsStatement } from '../../components/billing/PatientBillsStatement';
+import { AbhaPhoto } from '../../components/patients/AbhaPhoto';
 
 export const PatientDetailsPage: React.FC<{ isNew?: boolean }> = () => {
   const { id } = useParams<{ id: string }>();
@@ -57,8 +59,9 @@ export const PatientDetailsPage: React.FC<{ isNew?: boolean }> = () => {
         <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold tracking-tight">{patient.patientName}</h1>
+        {patient.photo && <AbhaPhoto photo={patient.photo} name={patient.patientName} size="sm" />}
+        <div className="min-w-[12rem] flex-1">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{patient.patientName}</h1>
           <p className="text-xs text-muted-foreground font-mono">UHID: {patient.uhid}</p>
         </div>
         {hasPermission(user, PERMISSIONS.PATIENT_EDIT) && (
@@ -88,6 +91,26 @@ export const PatientDetailsPage: React.FC<{ isNew?: boolean }> = () => {
             <p className="text-muted-foreground font-semibold uppercase">Mobile & Contact</p>
             <p className="text-sm font-bold text-foreground">{patient.mobile}</p>
           </div>
+          <div>
+            <p className="text-muted-foreground font-semibold uppercase">ABHA</p>
+            {patient.abhaNumber || patient.abhaAddress ? (
+              <>
+                {patient.abhaNumber && <p className="font-mono text-sm font-bold text-foreground">{patient.abhaNumber}</p>}
+                {patient.abhaAddress && <p className="text-xs text-muted-foreground">{patient.abhaAddress}</p>}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {patient.abhaStatus === 'New' ? 'New ABHA requested' : 'Not added'}
+              </p>
+            )}
+          </div>
+          {patient.idProofType && (
+            <div>
+              <p className="text-muted-foreground font-semibold uppercase">ID Proof</p>
+              <p className="text-sm font-bold text-foreground">{patient.idProofType}</p>
+              <p className="font-mono text-xs text-muted-foreground">{maskIdProofNumber(patient.idProofNumber)}</p>
+            </div>
+          )}
           <div>
             <p className="text-muted-foreground font-semibold uppercase">Status</p>
             <Badge variant="success">{patient.status}</Badge>

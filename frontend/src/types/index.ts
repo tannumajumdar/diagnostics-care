@@ -513,6 +513,17 @@ export interface Patient {
   state?: string;
   pinCode?: string;
   emergencyContact?: string;
+  /** Ayushman Bharat Health Account number, 12-3456-7890-1234. */
+  abhaNumber?: string;
+  /** ABHA address, name@abdm. */
+  abhaAddress?: string;
+  /** 'Existing' card, or 'New' - asked for one to be made; '' when not said. */
+  abhaStatus?: '' | 'Existing' | 'New';
+  /** Aadhaar, PAN, Voter ID, Driving Licence, Passport or Other. */
+  idProofType?: string;
+  idProofNumber?: string;
+  /** The verified ABHA's photo as a data: URI; sent only with the profile. */
+  photo?: string;
   referringDoctor?: {
     id: string;
     doctorName: string;

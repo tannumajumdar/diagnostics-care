@@ -1,4 +1,4 @@
-import { Document, Types } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 
 export type CollectionType = 'Lab Visit' | 'Home Collection';
 export type AppointmentStatus =
@@ -11,13 +11,13 @@ export type AppointmentStatus =
   | 'Completed'
   | 'Cancelled';
 
-export interface IAppointmentDocument extends Document {
+export interface IAppointmentDocument extends StoredDocument {
   appointmentId: string;
-  patient?: Types.ObjectId;
+  patient?: Ref;
   patientName: string;
   mobile: string;
-  doctor?: Types.ObjectId;
-  tests: Types.ObjectId[];
+  doctor?: Ref;
+  tests: Ref[];
   date: Date;
   time: string;
   collectionType: CollectionType;

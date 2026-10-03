@@ -11,7 +11,7 @@ export class AppError extends Error {
 }
 
 /**
- * Turns the three shapes Mongo throws into a sentence a desk can act on.
+ * Turns the shapes the database layer throws into a sentence a desk can act on.
  *
  * Left raw, a missing field arrives as "LabTest validation failed: Path
  * `patientRate` is required." with a 500 beside it, and the screen can only
@@ -33,6 +33,17 @@ const readable = (err: any): { statusCode: number; message: string } | null => {
       .map((e: any) => e?.message)
       .filter(Boolean);
     return { statusCode: 400, message: fields.join(' ') || 'Some required fields are missing' };
+  }
+
+  // A unique constraint hit by a query that did not go through db/repo (which
+  // reshapes it as the 11000 above, value included).
+  if (err?.code === 'P2002') {
+    const target = err.meta?.target;
+    const field = Array.isArray(target) ? target[0] : target;
+    return {
+      statusCode: 409,
+      message: field ? `That value is already used by another record (${field})` : 'That record already exists',
+    };
   }
 
   if (err?.name === 'CastError') {
@@ -59,10 +70,18 @@ export const errorHandler = (
 ): void => {
   const friendly = readable(err);
   const statusCode = friendly?.statusCode || err.statusCode || 500;
-  const message = friendly?.message || err.message || 'Internal Server Error';
+  const isProduction = process.env.NODE_ENV === 'production';
+  // In production an unexpected failure's own text (a database error, a file
+  // path) stays in the server log; the client gets a plain message.
+  const message =
+    friendly?.message ||
+    (isProduction && statusCode >= 500 ? 'Something went wrong. Please try again.' : err.message) ||
+    'Internal Server Error';
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (!isProduction) {
     console.error(`[Error ${statusCode}] ${req.method} ${req.originalUrl}:`, err);
+  } else if (statusCode >= 500) {
+    console.error(`[Error ${statusCode}] ${req.method} ${req.originalUrl}: ${err?.stack || err}`);
   }
 
   res.status(statusCode).json({

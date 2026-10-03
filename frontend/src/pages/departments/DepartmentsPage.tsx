@@ -117,7 +117,7 @@ export const DepartmentsPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+          <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl [&>svg]:shrink-0">
             <Building2 className="h-6 w-6 text-blue-600" />
             <span>Department Master</span>
           </h1>
@@ -146,7 +146,7 @@ export const DepartmentsPage: React.FC = () => {
             />
           </div>
 
-          <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+          <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto sm:justify-end">
             <select
               className="h-10 rounded-md border border-input bg-background px-3 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
               value={statusFilter}

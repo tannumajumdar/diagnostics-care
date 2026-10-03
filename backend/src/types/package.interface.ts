@@ -1,6 +1,6 @@
-import { Document, Schema } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 
-export interface ITestPackageDocument extends Document {
+export interface ITestPackageDocument extends StoredDocument {
   packageName: string;
   packageCode: string;
   description: string;
@@ -10,8 +10,8 @@ export interface ITestPackageDocument extends Document {
    * departments, so this is what the centre sells it as rather than what runs
    * it, and it is left unset for a panel that genuinely spans the lab.
    */
-  department?: Schema.Types.ObjectId;
-  tests: Schema.Types.ObjectId[];
+  department?: Ref;
+  tests: Ref[];
   /** What the patient is charged for the whole panel. */
   rate: number;
   /** What a referring doctor's own copy prints the panel at. */

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ageLabel } from '../../utils/age';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { resultApi, saveReportPdf } from '../../api/result.api';
@@ -88,7 +89,7 @@ export const PatientReportsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
+        <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl [&>svg]:shrink-0">
           <FileText className="h-6 w-6 text-blue-600" />
           <span>Patient Reports</span>
         </h1>
@@ -199,7 +200,7 @@ export const PatientReportsPage: React.FC = () => {
                     <div className="text-sm font-bold text-foreground">
                       {patient.patientName || 'N/A'}
                       <span className="ml-2 font-normal text-muted-foreground">
-                        {[patient.age && `${patient.age} Y`, patient.gender]
+                        {[ageLabel(patient) !== '-' && ageLabel(patient), patient.gender]
                           .filter(Boolean)
                           .join(' / ')}
                       </span>
@@ -266,7 +267,8 @@ export const PatientReportsPage: React.FC = () => {
                                 invoiceNumber: visit.invoiceNumber,
                                 reportReady: readiness.isReady,
                                 dueAmount: visit.dueAmount,
-                              })
+                              }),
+          showToast
                             )
                           }
                         >

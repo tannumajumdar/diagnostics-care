@@ -1,7 +1,6 @@
 import {
   ClipboardList,
   Syringe,
-  PackageCheck,
   Microscope,
   FileCheck2,
   type LucideIcon,
@@ -11,7 +10,6 @@ import {
 export const SAMPLE_PIPELINE = [
   'Pending Collection',
   'Collected',
-  'Received',
   'Processing',
   'Completed',
 ] as const;
@@ -52,25 +50,13 @@ export const STAGES: StageMeta[] = [
   {
     stage: 'Collected',
     short: 'Collected',
-    detail: 'Drawn and labelled. In transit to the lab.',
-    action: 'Receive in lab',
-    stepLabel: 'Receive',
-    next: 'Received',
-    icon: Syringe,
-    accent: 'border-sky-200 bg-sky-50',
-    dot: 'bg-sky-500',
-    owner: 'Phlebotomist',
-  },
-  {
-    stage: 'Received',
-    short: 'Accessioned',
-    detail: 'Checked in by the lab. Container and volume verified.',
+    detail: 'Drawn and labelled. Goes straight on the bench.',
     action: 'Start processing',
     stepLabel: 'Start',
     next: 'Processing',
-    icon: PackageCheck,
-    accent: 'border-violet-200 bg-violet-50',
-    dot: 'bg-violet-500',
+    icon: Syringe,
+    accent: 'border-sky-200 bg-sky-50',
+    dot: 'bg-sky-500',
     owner: 'Lab Technician',
   },
   {

@@ -99,7 +99,7 @@ export const AccountsPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl [&>svg]:shrink-0">
             <IndianRupee className="h-6 w-6 text-emerald-600" />
             <span>Accounts &amp; Refunds</span>
           </h1>

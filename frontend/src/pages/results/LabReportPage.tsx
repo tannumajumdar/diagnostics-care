@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { ageLabel } from '../../utils/age';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { asList } from '../../utils/api-list';
@@ -185,6 +186,29 @@ export const LabReportPage: React.FC = () => {
 
   const address = [patient.address, patient.city, patient.state, patient.pinCode].filter(Boolean).join(', ');
 
+  // Find any packages associated with these tests or invoice
+  const packageNames = Array.from(
+    new Set(
+      [
+        ...standard.map((s: any) => s.packageName),
+        ...(invoice?.items || []).map((it: any) => it.packageName || it.package?.packageName),
+      ].filter(Boolean)
+    )
+  );
+
+  const standaloneTests = standard
+    .filter((s: any) => {
+      if (s.packageName) return false;
+      const matchingItem = (invoice?.items || []).find(
+        (it: any) =>
+          String(it.testId || it.test?._id || it.test) === String(s.test?._id || s.test?.id || s.testId) ||
+          it.testName === s.test?.testName
+      );
+      return !matchingItem?.packageName && !matchingItem?.package?.packageName;
+    })
+    .map((s: any) => (typeof s.test === 'object' ? s.test?.testName : s.testName || ''))
+    .filter(Boolean);
+
   // Both letterhead lines drop out when the centre has not been configured,
   // rather than printing an empty separator or a placeholder number.
   const subtitle = [CENTRE.accreditation, CENTRE.address].filter(Boolean).join(' | ');
@@ -211,7 +235,8 @@ export const LabReportPage: React.FC = () => {
         invoiceNumber: invoice.invoiceNumber,
         reportReady: !provisional,
         dueAmount: invoice.dueAmount,
-      })
+      }),
+          showToast
     );
     if (!sent) showToast('This patient has no valid mobile number on record', 'error');
   };
@@ -236,8 +261,8 @@ export const LabReportPage: React.FC = () => {
           <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Report not ready yet</h1>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">Report not ready yet</h1>
             <p className="text-xs text-muted-foreground">
               {patient.patientName} · UHID {primary.uhid}
               {(primary.enquiryNo || invoice.enquiryNo) && ` · Enq ${primary.enquiryNo || invoice.enquiryNo}`}
@@ -306,13 +331,13 @@ export const LabReportPage: React.FC = () => {
           }}
         />
       )}
-      <div className="flex items-center justify-between" data-print="hide">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3" data-print="hide">
+        <div className="flex min-w-0 items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => navigate('/results')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className={`text-2xl font-bold tracking-tight ${provisional ? 'text-amber-600' : 'text-blue-600'}`}>
+          <div className="min-w-0">
+            <h1 className={`text-xl font-bold tracking-tight sm:text-2xl ${provisional ? 'text-amber-600' : 'text-blue-600'}`}>
               {provisional ? 'Provisional Report' : 'Final Report'}
             </h1>
             <p className="font-mono text-xs text-muted-foreground">
@@ -322,7 +347,7 @@ export const LabReportPage: React.FC = () => {
         </div>
 
         {standard.length > 0 && (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -461,11 +486,16 @@ export const LabReportPage: React.FC = () => {
             value={<span className="font-mono">{primary.enquiryNo || invoice.enquiryNo || '-'}</span>}
           />
 
-          <Line label="Age / Gender" value={`${patient.age ?? '-'} Yrs / ${patient.gender || '-'}`} />
+          <Line label="Age / Gender" value={`${ageLabel(patient)} / ${patient.gender || '-'}`} />
           <Line label="Invoice No." value={<span className="font-mono">{invoice.invoiceNumber}</span>} />
 
           <Line label="Mobile" value={patient.mobile} />
           <Line label="Registered On" value={dateTime(invoice.createdAt || primary.createdAt)} />
+
+          {patient.abhaNumber && (
+            <Line label="ABHA No." value={<span className="font-mono">{patient.abhaNumber}</span>} />
+          )}
+          {patient.abhaAddress && <Line label="ABHA Address" value={patient.abhaAddress} />}
 
           <Line label="Consultant Doctor" value={referredBy} />
           <Line label="Reported On" value={dateTime(primary.updatedAt || primary.createdAt)} />
@@ -483,13 +513,27 @@ export const LabReportPage: React.FC = () => {
           <Line label="Tests on report" value={String(standard.length)} />
 
           <Line label="Address" value={address} />
-          <Line
-            label="Tests"
-            value={standard
-              .map((s) => (typeof s.test === 'object' ? s.test?.testName : ''))
-              .filter(Boolean)
-              .join(', ')}
-          />
+          {packageNames.length > 0 ? (
+            <Line
+              label="Package"
+              value={<span className="font-semibold text-foreground">{packageNames.join(', ')}</span>}
+            />
+          ) : (
+            <Line
+              label="Tests"
+              value={standard
+                .map((s) => (typeof s.test === 'object' ? s.test?.testName : ''))
+                .filter(Boolean)
+                .join(', ')}
+            />
+          )}
+
+          {packageNames.length > 0 && standaloneTests.length > 0 && (
+            <>
+              <div />
+              <Line label="Other Tests" value={standaloneTests.join(', ')} />
+            </>
+          )}
         </div>
 
         {invoice.clinicalNotes && (
@@ -539,6 +583,9 @@ export const LabReportPage: React.FC = () => {
                     )}
                     {sample.collectionDate && (
                       <span className="ml-2">Collected {dateTime(sample.collectionDate)}</span>
+                    )}
+                    {sheet.packageName && (
+                      <span className="ml-2 font-medium text-blue-600">· Part of {sheet.packageName}</span>
                     )}
                   </p>
                   {sample.priority === 'Urgent' && (

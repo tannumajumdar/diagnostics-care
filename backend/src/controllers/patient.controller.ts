@@ -1,33 +1,42 @@
 import { Request, Response, NextFunction } from 'express';
-import { Patient } from '../models/patient.model';
-import { Invoice } from '../models/invoice.model';
-import { Payment } from '../models/payment.model';
-import { Sample } from '../models/sample.model';
-import { Result } from '../models/result.model';
-import { Appointment } from '../models/appointment.model';
-import { getNextUhid } from '../models/counter.model';
+import { repo, regexAny, mongoSort } from '../db/repo';
+import { getNextUhid } from '../db/counters';
 import { sendResponse } from '../utils/api-response.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { ApiError } from '../utils/api-error.util';
+import { normaliseIdentity, formatAbhaNumber } from '../utils/abha.util';
+
+/** `.populate('referringDoctor').populate('organization')` */
+const PATIENT_REFS = { referringDoctor: true, organization: true };
 
 export class PatientController {
   static getAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { search, status, page = 1, limit = 10 } = req.query;
-      const filter: any = {};
+      // hasAbha=true: only patients whose ABHA is on record - the desk's list
+      // when a returning patient says they have one. Their ABHA number and
+      // address are searchable too, the number typed with or without dashes.
+      const hasAbha = req.query.hasAbha === 'true';
+      const filter: any = { AND: [] };
       if (search) {
-        filter.$or = [
-          { patientName: { $regex: search, $options: 'i' } },
-          { uhid: { $regex: search, $options: 'i' } },
-          { mobile: { $regex: search, $options: 'i' } },
-        ];
+        const columns = ['patientName', 'uhid', 'mobile', ...(hasAbha ? ['abhaNumber', 'abhaAddress'] : [])];
+        const text = String(search);
+        const asAbha = hasAbha && /^\d{14}$/.test(text.replace(/[\s-]/g, '')) ? formatAbhaNumber(text) : text;
+        filter.AND.push(await regexAny('patient', columns, asAbha));
       }
+      if (hasAbha) filter.AND.push({ OR: [{ abhaNumber: { not: '' } }, { abhaAddress: { not: '' } }] });
       if (status) filter.status = status;
 
       const skip = (Number(page) - 1) * Number(limit);
       const [patients, total] = await Promise.all([
-        Patient.find(filter).populate('referringDoctor').populate('organization').sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
-        Patient.countDocuments(filter),
+        repo.find('patient', {
+          where: filter,
+          include: PATIENT_REFS,
+          orderBy: mongoSort('patient', { createdAt: -1 }),
+          skip,
+          take: Number(limit),
+        }),
+        repo.count('patient', filter),
       ]);
 
       sendResponse({
@@ -45,12 +54,15 @@ export class PatientController {
   static getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const patient = await Patient.findById(id).populate('referringDoctor').populate('organization');
+      // The profile is the one place the ABHA photo is shown, so the one place it is read.
+      const patient = await repo.findById('patient', id, { include: PATIENT_REFS, omit: { photo: false } });
       if (!patient) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Patient not found');
 
-      const invoices = await Invoice.find({ patient: patient._id }).sort({ createdAt: -1 });
-      const payments = await Payment.find({ patient: patient._id }).sort({ createdAt: -1 });
-      const testHistory = await Sample.find({ patient: patient._id }).sort({ createdAt: -1 });
+      const newestFirst = (model: 'invoice' | 'payment' | 'sample') =>
+        repo.find(model, { where: { patientId: patient._id }, orderBy: mongoSort(model, { createdAt: -1 }) });
+      const invoices = await newestFirst('invoice');
+      const payments = await newestFirst('payment');
+      const testHistory = await newestFirst('sample');
 
       sendResponse({
         res,
@@ -85,15 +97,24 @@ export class PatientController {
   static getHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const patient = await Patient.findById(id).populate('referringDoctor').populate('organization');
+      const patient = await repo.findById('patient', id, { include: PATIENT_REFS });
       if (!patient) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Patient not found');
 
+      const where = { patientId: patient._id };
       const [invoices, payments, samples, results, appointments] = await Promise.all([
-        Invoice.find({ patient: patient._id }).populate('referringDoctor', 'doctorName').sort({ createdAt: -1 }),
-        Payment.find({ patient: patient._id }).sort({ createdAt: -1 }),
-        Sample.find({ patient: patient._id }).sort({ createdAt: -1 }),
-        Result.find({ patient: patient._id }).populate('test', 'testName').sort({ createdAt: -1 }),
-        Appointment.find({ patient: patient._id }).sort({ date: -1 }),
+        repo.find('invoice', {
+          where,
+          include: { referringDoctor: { select: { id: true, doctorName: true } } },
+          orderBy: mongoSort('invoice', { createdAt: -1 }),
+        }),
+        repo.find('payment', { where, orderBy: mongoSort('payment', { createdAt: -1 }) }),
+        repo.find('sample', { where, orderBy: mongoSort('sample', { createdAt: -1 }) }),
+        repo.find('result', {
+          where,
+          include: { test: { select: { id: true, testName: true } } },
+          orderBy: mongoSort('result', { createdAt: -1 }),
+        }),
+        repo.find('appointment', { where, orderBy: mongoSort('appointment', { date: -1 }) }),
       ]);
 
       const key = (value: any) => String(value?._id ?? value ?? '');
@@ -205,7 +226,7 @@ export class PatientController {
   static create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const uhid = await getNextUhid();
-      const patient = await Patient.create({ ...req.body, uhid });
+      const patient = await repo.create('patient', normaliseIdentity({ ...req.body, uhid }));
       sendResponse({ res, statusCode: HTTP_STATUS.CREATED, message: `Patient ${patient.patientName} registered`, data: patient });
     } catch (error) {
       next(error);
@@ -225,6 +246,12 @@ export class PatientController {
         'mobile',
         'dateOfBirth',
         'emergencyContact',
+        'abhaNumber',
+        'abhaAddress',
+        'abhaStatus',
+        'idProofType',
+        'idProofNumber',
+        'photo',
         'address',
         'city',
         'state',
@@ -235,21 +262,16 @@ export class PatientController {
       // Fields that cannot hold an empty string: clearing them removes them.
       const UNSETTABLE = ['dateOfBirth', 'referringDoctor', 'organization'];
 
-      const $set: Record<string, any> = {};
-      const $unset: Record<string, ''> = {};
+      // `undefined` is an $unset: the column is cleared.
+      const update: Record<string, any> = {};
       EDITABLE.forEach((key) => {
         if (!(key in req.body)) return;
         const value = req.body[key];
-        if (UNSETTABLE.includes(key) && (value === '' || value === null)) $unset[key] = '';
-        else $set[key] = typeof value === 'string' ? value.trim() : value;
+        if (UNSETTABLE.includes(key) && (value === '' || value === null)) update[key] = undefined;
+        else update[key] = typeof value === 'string' ? value.trim() : value;
       });
 
-      const update: any = { $set };
-      if (Object.keys($unset).length) update.$unset = $unset;
-
-      const patient = await Patient.findByIdAndUpdate(id, update, { new: true, runValidators: true })
-        .populate('referringDoctor')
-        .populate('organization');
+      const patient = await repo.updateById('patient', id, normaliseIdentity(update), { runValidators: true, include: PATIENT_REFS });
       if (!patient) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Patient not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Patient updated', data: patient });
     } catch (error) {
@@ -260,11 +282,11 @@ export class PatientController {
   static toggleStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const patient = await Patient.findById(id);
+      const patient = await repo.findById('patient', id);
       if (!patient) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Patient not found');
       patient.status = patient.status === 'Active' ? 'Inactive' : 'Active';
-      await patient.save();
-      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Status updated', data: patient });
+      const saved = await repo.save('patient', patient);
+      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Status updated', data: saved });
     } catch (error) {
       next(error);
     }

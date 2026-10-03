@@ -1,0 +1,55 @@
+# Render Blueprint - the backend API and the frontend site, both on the free
+# plan. The database is not here: Render's free Postgres is deleted after 30
+# days, so DATABASE_URL points at a Neon database instead.
+#
+# Render asks for every `sync: false` value when the Blueprint is first
+# created. The two URLs are only known once both services exist, so set
+# CLIENT_URL and VITE_API_URL after the first deploy and redeploy.
+services:
+  - type: web
+    name: lms-backend
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: backend
+    # devDependencies (typescript, prisma) are needed to build; NODE_ENV is
+    # production here, which would otherwise skip them. --workspaces=false
+    # installs from this folder's own package-lock.json - the root workspace
+    # lock only lists the Windows builds of some native packages.
+    buildCommand: npm ci --include=dev --workspaces=false && npm run build && npx prisma migrate deploy
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      # The frontend's address, e.g. https://lms-frontend.onrender.com
+      - key: CLIENT_URL
+        sync: false
+
+  - type: web
+    name: lms-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci --include=dev --workspaces=false && npm run build
+    staticPublishPath: dist
+    # A single-page app: every path is served index.html and React routes it.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # The backend's address with /api, e.g. https://lms-backend.onrender.com/api
+      - key: VITE_API_URL
+        sync: false

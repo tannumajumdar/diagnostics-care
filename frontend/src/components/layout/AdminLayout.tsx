@@ -323,7 +323,7 @@ export const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children 
           </div>
 
           {/* Current Desk / Context on the right */}
-          <div className="hidden lg:flex items-center gap-2 shrink-0 pl-4 text-xs font-medium text-slate-500">
+          <div className="hidden 2xl:flex items-center gap-2 shrink-0 pl-4 text-xs font-medium text-slate-500">
             <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
               {heading}
             </span>

@@ -190,6 +190,23 @@ body {
   animation: lms-pulse-ring 2.6s ease-in-out infinite;
 }
 
+/* Codes in a table - UHID, invoice and sample numbers, ranges - stay on one
+   line at every screen size, so a narrow laptop does not break INV-2026-000044
+   into fragments. A table too wide for the screen scrolls inside its card. */
+@media screen {
+  main table td.font-mono,
+  main table td .font-mono {
+    white-space: nowrap;
+  }
+}
+
+/* Phone width: the column headings stay on one line too. */
+@media (max-width: 639px) {
+  main table th {
+    white-space: nowrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lms-rise,
   .lms-drift,

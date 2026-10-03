@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { TestPackage } from '../models/package.model';
-import { LabTest } from '../models/test.model';
-import { Invoice } from '../models/invoice.model';
+import { prisma } from '../db/prisma';
+import { repo, regexAny, mongoSort, refFilter } from '../db/repo';
+import { assertObjectId } from '../db/ids';
 import { sendResponse } from '../utils/api-response.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { ApiError } from '../utils/api-error.util';
@@ -94,29 +94,40 @@ const shape = (pkg: any) => {
   };
 };
 
+/**
+ * `.populate('department', 'departmentName departmentCode')
+ *  .populate({ path: 'tests', populate: { path: 'department' } })`
+ */
+const PACKAGE_REFS = {
+  department: { select: { id: true, departmentName: true, departmentCode: true } },
+  tests: { include: { test: { include: { department: true, parameters: true } } } },
+};
+
+/** The tests a package names, each id checked the way Mongoose cast it. */
+const countTests = (ids: string[]) => {
+  const keys = ids.map((id) => assertObjectId(String(id)));
+  return prisma.labTest.count({ where: { id: { in: keys } } });
+};
+
 export class PackageController {
   static getAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { search, status, department, page = 1, limit = 25 } = req.query;
-      const filter: any = {};
-      if (department) filter.department = department;
-      if (search) {
-        filter.$or = [
-          { packageName: { $regex: search, $options: 'i' } },
-          { packageCode: { $regex: search, $options: 'i' } },
-        ];
-      }
+      const filter: any = { AND: [] };
+      if (department) filter.departmentId = refFilter(department, 'department');
+      if (search) filter.AND.push(await regexAny('testPackage', ['packageName', 'packageCode'], String(search)));
       if (status) filter.status = status;
 
       const skip = (Number(page) - 1) * Number(limit);
       const [packages, total] = await Promise.all([
-        TestPackage.find(filter)
-          .populate('department', 'departmentName departmentCode')
-          .populate({ path: 'tests', populate: { path: 'department' } })
-          .sort({ packageName: 1 })
-          .skip(skip)
-          .limit(Number(limit)),
-        TestPackage.countDocuments(filter),
+        repo.find('testPackage', {
+          where: filter,
+          include: PACKAGE_REFS,
+          orderBy: mongoSort('testPackage', { packageName: 1 }),
+          skip,
+          take: Number(limit),
+        }),
+        repo.count('testPackage', filter),
       ]);
 
       sendResponse({
@@ -139,9 +150,7 @@ export class PackageController {
   static getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const pkg = await TestPackage.findById(id)
-        .populate('department', 'departmentName departmentCode')
-        .populate({ path: 'tests', populate: { path: 'department' } });
+      const pkg = await repo.findById('testPackage', id, { include: PACKAGE_REFS });
       if (!pkg) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Package not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Package retrieved', data: shape(pkg) });
     } catch (error) {
@@ -159,7 +168,7 @@ export class PackageController {
       const body = { ...req.body };
       const testIds: string[] = Array.from(new Set<string>(body.tests || []));
 
-      const found = await LabTest.countDocuments({ _id: { $in: testIds } });
+      const found = await countTests(testIds);
       if (found !== testIds.length) {
         throw new ApiError(
           HTTP_STATUS.BAD_REQUEST,
@@ -173,10 +182,8 @@ export class PackageController {
       // ObjectId and would be refused on save.
       if (!body.department) body.department = undefined;
 
-      const pkg = await TestPackage.create(body);
-      const withTests = await TestPackage.findById(pkg._id)
-        .populate('department', 'departmentName departmentCode')
-        .populate({ path: 'tests', populate: { path: 'department' } });
+      const pkg = await repo.create('testPackage', body);
+      const withTests = await repo.findById('testPackage', pkg._id, { include: PACKAGE_REFS });
 
       sendResponse({
         res,
@@ -200,7 +207,7 @@ export class PackageController {
 
       if (Array.isArray(body.tests)) {
         const testIds: string[] = Array.from(new Set<string>(body.tests));
-        const found = await LabTest.countDocuments({ _id: { $in: testIds } });
+        const found = await countTests(testIds);
         if (found !== testIds.length) {
           throw new ApiError(
             HTTP_STATUS.BAD_REQUEST,
@@ -210,9 +217,7 @@ export class PackageController {
         body.tests = testIds;
       }
 
-      const pkg = await TestPackage.findByIdAndUpdate(id, body, { new: true })
-        .populate('department', 'departmentName departmentCode')
-        .populate({ path: 'tests', populate: { path: 'department' } });
+      const pkg = await repo.updateById('testPackage', id, body, { include: PACKAGE_REFS });
       if (!pkg) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Package not found');
 
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Test package updated', data: shape(pkg) });
@@ -224,11 +229,11 @@ export class PackageController {
   static toggleStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const pkg = await TestPackage.findById(id);
+      const pkg = await repo.findById('testPackage', id);
       if (!pkg) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Package not found');
       pkg.status = pkg.status === 'Active' ? 'Inactive' : 'Active';
-      await pkg.save();
-      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Status updated', data: shape(pkg) });
+      const saved = await repo.save('testPackage', pkg);
+      sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Status updated', data: shape(saved) });
     } catch (error) {
       next(error);
     }
@@ -242,10 +247,10 @@ export class PackageController {
   static remove = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const pkg = await TestPackage.findById(id);
+      const pkg = await repo.findById('testPackage', id);
       if (!pkg) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Package not found');
 
-      const billed = await Invoice.countDocuments({ 'items.packageId': pkg._id });
+      const billed = await prisma.invoice.count({ where: { items: { some: { packageId: pkg._id } } } });
       if (billed) {
         throw new ApiError(
           HTTP_STATUS.CONFLICT,
@@ -254,7 +259,7 @@ export class PackageController {
         );
       }
 
-      await pkg.deleteOne();
+      await prisma.testPackage.delete({ where: { id: pkg._id } });
       sendResponse({
         res,
         statusCode: HTTP_STATUS.OK,

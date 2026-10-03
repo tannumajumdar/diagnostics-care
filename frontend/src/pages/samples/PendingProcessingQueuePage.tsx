@@ -65,18 +65,15 @@ export const PendingProcessingQueuePage: React.FC = () => {
   /**
    * Puts collected specimens on the bench. Tests on one visit arrive and run
    * on their own clocks, so a single test can go on as soon as its own vial is
-   * in - the rest of the visit does not hold it back. Each sample still walks
-   * Collected → Received → Processing so every stage is stamped in its audit
-   * trail.
+   * in - the rest of the visit does not hold it back. A collected sample goes
+   * straight to Processing; one left at the retired Received step moves on the
+   * same way.
    */
   const markDone = async (visit: Visit, samples: SampleRecord[], key: string) => {
     setBusyKey(key);
     let moved = 0;
     try {
       for (const s of samples) {
-        if (s.status === 'Collected') {
-          await sampleApi.updateStatus(s._id, { status: 'Received' });
-        }
         if (s.status === 'Collected' || s.status === 'Received') {
           await sampleApi.updateStatus(s._id, { status: 'Processing' });
           moved += 1;
@@ -99,7 +96,7 @@ export const PendingProcessingQueuePage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+        <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl [&>svg]:shrink-0">
           <FlaskConical className="h-6 w-6 text-purple-600" />
           <span>Central Laboratory Processing Queue</span>
         </h1>

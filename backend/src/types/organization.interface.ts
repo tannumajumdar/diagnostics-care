@@ -1,6 +1,6 @@
-import { Document } from 'mongoose';
+import { StoredDocument } from './document';
 
-export interface IOrganizationDocument extends Document {
+export interface IOrganizationDocument extends StoredDocument {
   organizationName: string;
   contactPerson: string;
   mobile: string;

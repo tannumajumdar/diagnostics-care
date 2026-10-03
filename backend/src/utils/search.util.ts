@@ -7,6 +7,7 @@
  * initials of the words, or the short name of a parameter inside the test, and
  * those needed asking for by hand.
  */
+import { regexWhere } from '../db/repo';
 
 /** Takes the regex meaning out of whatever was typed - "C-Reactive (CRP)" is a name, not a pattern. */
 export const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -30,23 +31,26 @@ const initialsRegex = (q: string): RegExp =>
   );
 
 /**
- * The `$or` clauses a test search should run: the name and the code as typed,
- * the short name and the name of any parameter on the test, and - when the
- * query reads like an abbreviation - the initials of the test's words.
+ * The Prisma `where` a test search should run: the name and the code as
+ * typed, the short name and the name of any parameter on the test, and - when
+ * the query reads like an abbreviation - the initials of the test's words.
+ * Null when there is nothing to search for.
  */
-export const testSearchClauses = (search: string): any[] => {
+export const testSearchWhere = async (search: string): Promise<any | null> => {
   const q = search.trim();
-  if (!q) return [];
+  if (!q) return null;
 
-  const like = { $regex: escapeRegex(q), $options: 'i' };
+  // The typed text is escaped, so it is matched literally: a case-insensitive
+  // `contains`, on the test and on any of its parameter lines.
+  const like = { contains: q, mode: 'insensitive' as const };
   const clauses: any[] = [
     { testName: like },
     { testCode: like },
-    { 'parameters.shortName': like },
-    { 'parameters.parameterName': like },
+    { parameters: { some: { shortName: like } } },
+    { parameters: { some: { parameterName: like } } },
   ];
 
-  if (looksLikeAbbreviation(q)) clauses.push({ testName: { $regex: initialsRegex(q) } });
+  if (looksLikeAbbreviation(q)) clauses.push(await regexWhere('labTest', 'testName', initialsRegex(q)));
 
-  return clauses;
+  return { OR: clauses };
 };

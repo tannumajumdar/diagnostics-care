@@ -1,8 +1,8 @@
-import { Document, Schema } from 'mongoose';
+import { StoredDocument, Ref } from './document';
 
-export interface IDoctorDocument extends Document {
+export interface IDoctorDocument extends StoredDocument {
   doctorName: string;
-  department: Schema.Types.ObjectId;
+  department: Ref;
   gender?: string;
   degree?: string;
   specialty?: string;
@@ -16,7 +16,7 @@ export interface IDoctorDocument extends Document {
   discountType?: string;
   discountPercentage?: number;
   commission?: number;
-  addedBy?: Schema.Types.ObjectId;
+  addedBy?: Ref;
   status: string;
 }
 

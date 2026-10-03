@@ -1,5 +1,5 @@
-import { Patient } from '../models/patient.model';
-import { getNextSequenceValue } from '../models/counter.model';
+import { repo, regexAny, mongoSort } from '../db/repo';
+import { getNextSequenceValue } from '../db/counters';
 import { AppError } from '../middleware/errorHandler';
 
 export class PatientService {
@@ -8,23 +8,17 @@ export class PatientService {
     const limit = params.limit || 10;
     const skip = (page - 1) * limit;
 
-    const query: any = {};
-    if (params.search) {
-      query.$or = [
-        { patientName: { $regex: params.search, $options: 'i' } },
-        { uhid: { $regex: params.search, $options: 'i' } },
-        { mobile: { $regex: params.search, $options: 'i' } },
-      ];
-    }
+    const query: any = { AND: [] };
+    if (params.search) query.AND.push(await regexAny('patient', ['patientName', 'uhid', 'mobile'], params.search));
     if (params.status) query.status = params.status;
 
     const [patients, total] = await Promise.all([
-      Patient.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
-      Patient.countDocuments(query),
+      repo.find('patient', { where: query, orderBy: mongoSort('patient', { createdAt: -1 }), skip, take: limit }),
+      repo.count('patient', query),
     ]);
 
     return {
-      patients: patients.map((p) => ({
+      patients: patients.map((p: any) => ({
         id: p._id.toString(),
         uhid: p.uhid,
         patientName: p.patientName,
@@ -41,7 +35,7 @@ export class PatientService {
     const nextSeq = await getNextSequenceValue('uhid');
     const uhid = `UHID-${new Date().getFullYear()}-${nextSeq.toString().padStart(6, '0')}`;
 
-    const patient = await Patient.create({ ...data, uhid });
+    const patient = await repo.create('patient', { ...data, uhid });
     return {
       id: patient._id.toString(),
       uhid: patient.uhid,

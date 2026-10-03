@@ -1,34 +1,49 @@
+// First, before any module reads process.env while it loads.
+import 'dotenv/config';
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
 import { connectDB } from './config/database';
 import { RolePermissionService } from './services/rolePermission.service';
 import { errorHandler } from './middleware/errorHandler';
 import routes from './routes';
 
-dotenv.config();
+// Refuse to start without them rather than fail on the first login.
+const missing = ['DATABASE_URL', 'JWT_SECRET', 'JWT_REFRESH_SECRET'].filter((name) => !process.env[name]);
+if (missing.length && process.env.NODE_ENV !== 'test') {
+  console.error(`[LMS Server] Missing required settings in backend/.env: ${missing.join(', ')}`);
+  process.exit(1);
+}
+
+const isProduction = process.env.NODE_ENV === 'production';
 
 const app: Application = express();
 const PORT = process.env.PORT || 5000;
+
+// Behind a host's proxy (Render, nginx) every request arrives from the proxy's
+// address. TRUST_PROXY=1 makes req.ip the real client again, so the rate
+// limiter counts each counter PC separately and the audit log records it.
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+}
 
 // Security Headers
 app.use(helmet());
 
 // Cross-Origin Resource Sharing (CORS)
-const allowedOrigins = process.env.CLIENT_URL
-  ? [process.env.CLIENT_URL, 'http://localhost:3000', 'http://localhost:5173']
-  : ['http://localhost:3000', 'http://localhost:5173'];
+// CLIENT_URL may list several sites, comma-separated. The local dev servers
+// are let in only outside production.
+const allowedOrigins = [
+  ...(process.env.CLIENT_URL || '').split(',').map((url) => url.trim().replace(/\/$/, '')).filter(Boolean),
+  ...(isProduction ? [] : ['http://localhost:3000', 'http://localhost:5173']),
+];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(null, true); // Allow dev origins gracefully
-      }
+      // No Origin header: same-origin requests, curl, health checks.
+      callback(null, !origin || allowedOrigins.includes(origin));
     },
     credentials: true,
   })
@@ -59,7 +74,7 @@ app.get('/health', (req: Request, res: Response) => {
 // Centralized Error Handling
 app.use(errorHandler);
 
-// Start Server after connecting to MongoDB
+// Start Server after connecting to PostgreSQL
 if (process.env.NODE_ENV !== 'test') {
   connectDB().then(async () => {
     // The Admin's saved role permissions replace the shipped defaults before

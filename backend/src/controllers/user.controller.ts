@@ -1,12 +1,17 @@
 import { Request, Response, NextFunction } from 'express';
-import { User } from '../models/user.model';
+import { prisma } from '../db/prisma';
+import { repo, regexAny } from '../db/repo';
+import { hashIfSet } from '../db/passwords';
+import { queryValue } from '../db/rules';
 import { sendResponse } from '../utils/api-response.util';
 import { HTTP_STATUS } from '../constants/messages';
 import { ApiError } from '../utils/api-error.util';
 import { LOCKED_ROLE, effectivePermissions, isPermission } from '../constants/permissions';
 import { ROLES } from '../constants/roles';
 import { logAuditAction } from '../utils/auditLogger';
-import { IUserDocument } from '../types/user.interface';
+
+/** A staff account as read through db/repo - the shape the User model sent. */
+type IUserDocument = any;
 
 /** The Admin performing the action, for the audit trail. */
 const actorOf = (req: Request) => ({
@@ -29,7 +34,7 @@ const assertNotLastActiveAdmin = async (target: IUserDocument, next: { role?: st
     (next.role ?? target.role) === ROLES.ADMIN && (next.status ?? target.status) === 'Active';
   if (staysActiveAdmin) return;
 
-  const activeAdmins = await User.countDocuments({ role: ROLES.ADMIN, status: 'Active' });
+  const activeAdmins = await repo.count('user', { role: ROLES.ADMIN, status: 'Active' });
   if (activeAdmins <= 1) {
     throw new ApiError(
       HTTP_STATUS.BAD_REQUEST,
@@ -70,7 +75,7 @@ const samePermissions = (a?: string[], b?: string[]) =>
 
 /** An account as the staff screen shows it: what it can do, and whether that was ticked by hand. */
 const withPermissions = (user: IUserDocument) => ({
-  ...user.toObject(),
+  ...user,
   permissions: effectivePermissions(user),
   customPermissions: user.role !== LOCKED_ROLE && Array.isArray(user.permissions),
 });
@@ -79,20 +84,15 @@ export class UserController {
   static getAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { search, role, status, page = 1, limit = 10 } = req.query;
-      const filter: any = {};
-      if (search) {
-        filter.$or = [
-          { name: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-        ];
-      }
+      const filter: any = { AND: [] };
+      if (search) filter.AND.push(await regexAny('user', ['name', 'email'], String(search)));
       if (role) filter.role = role;
       if (status) filter.status = status;
 
       const skip = (Number(page) - 1) * Number(limit);
       const [users, total] = await Promise.all([
-        User.find(filter).select('-password').sort({ name: 1 }).skip(skip).limit(Number(limit)),
-        User.countDocuments(filter),
+        repo.find('user', { where: filter, orderBy: { name: 'asc' }, skip, take: Number(limit) }),
+        repo.count('user', filter),
       ]);
 
       sendResponse({
@@ -119,12 +119,13 @@ export class UserController {
    */
   static getCollectors = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const collectors = await User.find({
-        role: { $in: ['Phlebotomist', 'Lab Technician'] },
-        status: 'Active',
-      })
-        .select('name role mobile')
-        .sort({ name: 1 });
+      const collectors = (
+        await prisma.user.findMany({
+          where: { role: { in: ['Phlebotomist', 'Lab Technician'] }, status: 'Active' },
+          select: { id: true, name: true, role: true, mobile: true },
+          orderBy: { name: 'asc' },
+        })
+      ).map(({ id, ...rest }) => ({ _id: id, ...rest }));
 
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Collection staff retrieved', data: collectors });
     } catch (error) {
@@ -138,7 +139,13 @@ export class UserController {
    */
   static getCashiers = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const cashiers = await User.find({ status: 'Active' }).select('name role').sort({ role: 1, name: 1 });
+      const cashiers = (
+        await prisma.user.findMany({
+          where: { status: 'Active' },
+          select: { id: true, name: true, role: true },
+          orderBy: [{ role: 'asc' }, { name: 'asc' }],
+        })
+      ).map(({ id, ...rest }) => ({ _id: id, ...rest }));
 
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Cashiers retrieved', data: cashiers });
     } catch (error) {
@@ -149,7 +156,7 @@ export class UserController {
   static getUserById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const user = await User.findById(id).select('-password');
+      const user = await repo.findById('user', id);
       if (!user) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'User retrieved', data: user });
     } catch (error) {
@@ -162,12 +169,16 @@ export class UserController {
       const { name, email, password, role, mobile, status } = req.body;
       const permissions = cleanPermissions(role, req.body.permissions);
 
-      const existing = await User.findOne({ email: String(email).toLowerCase() });
+      const existing = await repo.findOne('user', { email: queryValue('user', 'email', String(email)) });
       if (existing) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, `A staff account already exists for ${email}`);
       }
 
-      const user = await User.create({ name, email, password, role, mobile, status, permissions });
+      const user = await repo.create(
+        'user',
+        { name, email, password, role, mobile, status, permissions },
+        { transform: hashIfSet(password) }
+      );
 
       logAuditAction({
         action: 'STAFF_CREATE',
@@ -198,7 +209,7 @@ export class UserController {
   static updateUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const user = await User.findById(id).select('+password');
+      const user = await repo.findById('user', id, { omit: { password: false } });
       if (!user) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
 
       const { name, email, role, mobile, status, password } = req.body;
@@ -233,7 +244,7 @@ export class UserController {
       // Caught here so a clashing address comes back as a sentence rather
       // than a raw duplicate-key error from the driver.
       if (email !== undefined && String(email).toLowerCase() !== user.email) {
-        const clash = await User.findOne({ email: String(email).toLowerCase(), _id: { $ne: user._id } });
+        const clash = await repo.findOne('user', { email: queryValue('user', 'email', String(email)), id: { not: user._id } });
         if (clash) {
           throw new ApiError(HTTP_STATUS.BAD_REQUEST, `A staff account already exists for ${email}`);
         }
@@ -268,7 +279,7 @@ export class UserController {
         revokeSessions(user);
       }
 
-      await user.save();
+      const saved = await repo.save('user', user, { transform: hashIfSet(password || undefined) });
 
       if (changed.length) {
         logAuditAction({
@@ -278,11 +289,12 @@ export class UserController {
           ipAddress: req.ip,
           targetId: user._id.toString(),
           // The new password itself is never recorded - only that it was reset.
-          details: { target: user.name, targetRole: user.role, changed },
+          // Read off the saved row: Mongoose trimmed a name as it was assigned.
+          details: { target: saved.name, targetRole: saved.role, changed },
         });
       }
 
-      const obj: any = withPermissions(user);
+      const obj: any = withPermissions(saved);
       delete obj.password;
       sendResponse({ res, statusCode: HTTP_STATUS.OK, message: 'Staff account updated', data: obj });
     } catch (error) {
@@ -298,7 +310,7 @@ export class UserController {
   static resetPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const user = await User.findById(id).select('+password');
+      const user = await repo.findById('user', id, { omit: { password: false } });
       if (!user) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
 
       const { password } = req.body;
@@ -307,7 +319,7 @@ export class UserController {
       const isSelf = req.user?.userId === user._id.toString();
       if (!isSelf) revokeSessions(user);
 
-      await user.save();
+      await repo.save('user', user, { transform: hashIfSet(password) });
 
       logAuditAction({
         action: 'STAFF_PASSWORD_RESET',
@@ -331,7 +343,7 @@ export class UserController {
   static toggleStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const user = await User.findById(id);
+      let user = await repo.findById('user', id);
       if (!user) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
 
       if (req.user?.userId === user._id.toString()) {
@@ -345,7 +357,7 @@ export class UserController {
       // Switching someone off has to take hold immediately, not whenever
       // their current token happens to run out.
       if (next_ !== 'Active') revokeSessions(user);
-      await user.save();
+      user = await repo.save('user', user);
 
       logAuditAction({
         action: next_ === 'Active' ? 'STAFF_ACTIVATE' : 'STAFF_DEACTIVATE',
